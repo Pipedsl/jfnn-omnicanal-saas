@@ -1,0 +1,18 @@
+{
+  "name": "jfnn-omnicanal-saas",
+  "version": "1.0.0",
+  "description": "SaaS Omnicanal para Repuestos JFNN",
+  "private": true,
+  "workspaces": [
+    "dashboard",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "start": "npm run start --workspaces --if-present"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
