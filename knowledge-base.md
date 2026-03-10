@@ -12,14 +12,14 @@
 - **Slogan:** El repuesto que necesitas, al precio justo.
 
 ## Horarios de Atención (Sucursal Principal)
-- **Lunes a Viernes:** 9:00 AM – 7:00 PM
+- **Lunes a Viernes:** 9:00 AM – 6:00 PM
 - **Sábados:** 9:00 AM – 2:00 PM
 - **Domingos y Festivos:** Cerrado
 
 > El canal de WhatsApp puede recibir mensajes 24/7 pero las respuestas manuales del equipo son dentro del horario anterior.
 
 ## Métodos de Pago Aceptados
-- **Transferencia Bancaria Online:** Banco Scotiabank | Cuenta Corriente | N° 1234567890 | RUT: 76.XXX.XXX-X | Email: pagos@jfnn.cl
+- **Transferencia Bancaria Online:** Banco Scotiabank | Razon Social: JFNN Limitada | Cuenta Corriente | N° 972534218 | RUT: 76.308.122-2 | Email: y.morales@jfnn.cl
 - **Efectivo:** Solo en la sucursal física, presentando el número de cotización.
 - **Mercado Pago / Link de Pago:** Disponible para algunos productos, consultar al asesor.
 
@@ -40,13 +40,13 @@
 - Se emite **Factura Electrónica** para empresas. Se necesita: RUT empresa, Razón Social y Giro.
 
 ## Marcas y Productos Disponibles
-- Repuestos genéricos y compatibles para las principales marcas del mercado: Toyota, Chevrolet, Hyundai, Kia, Nissan, Suzuki, Mitsubishi, China y más.
+- Repuestos genéricos y compatibles para las principales marcas del mercado: Toyota, Chevrolet, Hyundai, Kia, Nissan, SSangyong, Samsung sm3, China y más.
 - **No** se trabajan vehículos de lujo (BMW, Mercedes-Benz, Audi) de forma habitual. Consultar disponibilidad.
 
 ## Política de Precios
 - Los precios son referenciales y pueden variar según disponibilidad de stock.
 - Los precios definitivos son los que el vendedor cotiza formalmente en el dashboard.
-- No se hacen descuentos over el precio cotizado, salvo autorización del administrador.
+- No se hacen descuentos sobre el precio cotizado, salvo autorización del administrador.
 
 ## Lo que el Agente NO Debe Hacer
 - **No inventar** precios, tiempos de entrega exactos ni disponibilidad de stock.

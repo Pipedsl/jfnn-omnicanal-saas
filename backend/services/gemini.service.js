@@ -35,7 +35,7 @@ const generateResponse = async (userText, sessionContext, imageData = null) => {
         // - Pro: Para razonamiento profundo (diagnósticos, síntomas, cierre de venta complejo)
         // - Flash: Para velocidad y procesamiento visual estándar
         const isComplex = state === 'CONFIRMANDO_COMPRA' || (safeText.length > 100 || safeText.toLowerCase().includes('calienta') || safeText.toLowerCase().includes('ruido') || safeText.toLowerCase().includes('falla'));
-        const modelName = isComplex ? "gemini-2.5-pro-preview-03-25" : "gemini-2.0-flash";
+        const modelName = isComplex ? "gemini-3.1-pro-preview" : "gemini-3-flash-preview";
 
         const model = genAI.getGenerativeModel({ model: modelName });
 
