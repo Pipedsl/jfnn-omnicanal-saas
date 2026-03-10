@@ -1,10 +1,22 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const fs = require('fs');
+const path = require('path');
 
 /**
  * Servicio para interactuar con Google Gemini AI con Structured Outputs
  */
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+// --- Carga de Knowledge Base (una sola vez al arrancar el módulo) ---
+let knowledgeBase = '';
+try {
+    const kbPath = path.join(__dirname, '../../knowledge-base.md');
+    knowledgeBase = fs.readFileSync(kbPath, 'utf8');
+    console.log('[Gemini] ✅ knowledge-base.md cargado correctamente.');
+} catch (err) {
+    console.warn('[Gemini] ⚠️ knowledge-base.md no encontrado. Usando prompt base sin contexto de negocio.');
+}
 
 /**
  * Genera una respuesta basada en el texto del usuario y el contexto de la sesión
@@ -17,16 +29,22 @@ const generateResponse = async (userText, sessionContext, imageData = null) => {
     try {
         const state = sessionContext.estado;
         const hasImage = !!imageData;
+        const safeText = userText || ''; // Guard: previene ReferenceError si userText es undefined
 
         // Selección inteligente de modelo:
         // - Pro: Para razonamiento profundo (diagnósticos, síntomas, cierre de venta complejo)
         // - Flash: Para velocidad y procesamiento visual estándar
-        const isComplex = state === 'CONFIRMANDO_COMPRA' || (userText && (userText.length > 100 || userText.toLowerCase().includes('calienta') || userText.toLowerCase().includes('ruido') || userText.toLowerCase().includes('falla')));
-        const modelName = isComplex ? "gemini-3.1-pro-preview" : "gemini-3-flash-preview";
+        const isComplex = state === 'CONFIRMANDO_COMPRA' || (safeText.length > 100 || safeText.toLowerCase().includes('calienta') || safeText.toLowerCase().includes('ruido') || safeText.toLowerCase().includes('falla'));
+        const modelName = isComplex ? "gemini-2.5-pro-preview-03-25" : "gemini-2.0-flash";
 
         const model = genAI.getGenerativeModel({ model: modelName });
 
         const isConfirming = state === 'CONFIRMANDO_COMPRA';
+
+        // Inyección dinámica de la Knowledge Base (si está disponible)
+        const knowledgeSection = knowledgeBase
+            ? `\n\n## BASE DE CONOCIMIENTO OFICIAL JFNN (Reglas Duras — no inventar nada fuera de esto):\n${knowledgeBase}`
+            : '';
 
         const systemPrompt = `Eres el Asesor Virtual de 'Repuestos Automotrices JFNN'. Tu tono es SEMIFORMAL: profesional, respetuoso y cercano, pero nunca excesivamente informal ni robótico. Hablas como un experto en repuestos que asesora a sus clientes de forma educada.
 
@@ -64,6 +82,7 @@ const generateResponse = async (userText, sessionContext, imageData = null) => {
         - Si el cliente envía una FOTO DE UN COMPROBANTE DE PAGO: Agradécele formalmente y dile que un asesor validará la transferencia en unos minutos para agendar el despacho.
 
         Contexto actual (lo que ya sabes): ${JSON.stringify(sessionContext.entidades)}
+        ${knowledgeSection}
         
         Debes responder SIEMPRE en formato JSON con esta estructura exacta:
         {
@@ -83,7 +102,7 @@ const generateResponse = async (userText, sessionContext, imageData = null) => {
             }
         }`;
 
-        const parts = [{ text: systemPrompt + "\n\nMensaje del cliente: " + userText }];
+        const parts = [{ text: systemPrompt + "\n\nMensaje del cliente: " + safeText }];
 
         if (imageData) {
             parts.push({

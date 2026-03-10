@@ -32,7 +32,12 @@ const receiveMessage = async (req, res) => {
         const value = changes?.value;
         const message = value?.messages?.[0];
 
-        if (message?.type === 'text' || message?.type === 'image') {
+        // Guard: descartar payloads sin mensajes (Read Receipts, notificaciones de estado, etc.)
+        if (!message || !['text', 'image'].includes(message.type)) {
+            return res.status(200).send('EVENT_RECEIVED');
+        }
+
+        if (message.type === 'text' || message.type === 'image') {
             const customerPhone = message.from;
             const userText = message.text?.body || message.image?.caption || (message.type === 'image' ? "[IMAGEN ENVIADA]" : "");
             const hasImage = message.type === 'image';
