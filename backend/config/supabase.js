@@ -4,8 +4,12 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
-    console.error("❌ Faltan credenciales de Supabase en el archivo .env");
-    process.exit(1);
+    console.error("\u274c Faltan credenciales de Supabase en el archivo .env");
+    // En test/CI no hacemos exit para no matar el worker de Jest.
+    // En producción es responsabilidad del entorno tener el .env configurado.
+    if (process.env.NODE_ENV !== 'test') {
+        process.exit(1);
+    }
 }
 
 /**
