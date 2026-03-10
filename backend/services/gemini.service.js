@@ -135,3 +135,72 @@ const generateResponse = async (userText, sessionContext, imageData = null) => {
 module.exports = {
     generateResponse
 };
+
+/**
+ * Analiza un comprobante de pago (imagen) y extrae los datos transaccionales.
+ * Usa el modelo Flash para velocidad (la imagen ya está descargada y el prompt es determinístico).
+ * IMPORTANTE: Esta función EXTRAE datos, no aprueba pagos. La verificación es siempre manual.
+ *
+ * @param {Object} imageData - Objeto con { buffer: Buffer, mimeType: string }
+ * @returns {Promise<Object>} - Datos estructurados del comprobante o campos nulos si no encuentra la info
+ */
+const extractVoucherData = async (imageData) => {
+    try {
+        // ✅ REGLA DE ORO: No se modifican los modelos definidos en el proyecto
+        const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+
+        const extractionPrompt = `Eres un sistema de extracción de datos de documentos financieros. 
+        
+Analiza la imagen del comprobante de transferencia bancaria y extrae SOLO los datos que están VISIBLEMENTE en el documento. 
+NO inventes ningún dato. Si un campo no está presente en la imagen, devuelve null.
+
+Responde ÚNICAMENTE con un JSON válido con esta estructura exacta:
+{
+    "monto": "valor numérico como string o null si no se ve claramente",
+    "banco_origen": "nombre del banco emisor o null",
+    "fecha_transaccion": "fecha en formato DD/MM/YYYY o null",
+    "id_transaccion": "código/número de operación o null",
+    "rut_origen": "RUT de quien transfirió en formato XX.XXX.XXX-X o null",
+    "nombre_origen": "nombre del titular de la cuenta origen o null"
+}`;
+
+        const parts = [
+            { text: extractionPrompt },
+            {
+                inlineData: {
+                    data: imageData.buffer.toString("base64"),
+                    mimeType: imageData.mimeType
+                }
+            }
+        ];
+
+        const result = await model.generateContent({
+            contents: [{ role: "user", parts }],
+            generationConfig: {
+                response_mime_type: "application/json",
+            }
+        });
+
+        const response = await result.response;
+        const parsed = JSON.parse(response.text());
+        console.log('[Gemini] 🔍 Datos extraídos del comprobante:', JSON.stringify(parsed, null, 2));
+        return parsed;
+
+    } catch (error) {
+        console.error('[Gemini] ❌ Error extrayendo datos del comprobante:', error.message);
+        // En caso de error, retornamos un objeto vacío con campos nulos para no bloquear el flujo
+        return {
+            monto: null,
+            banco_origen: null,
+            fecha_transaccion: null,
+            id_transaccion: null,
+            rut_origen: null,
+            nombre_origen: null
+        };
+    }
+};
+
+module.exports = {
+    generateResponse,
+    extractVoucherData
+};
