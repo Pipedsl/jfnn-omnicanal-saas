@@ -4,15 +4,21 @@ require('dotenv').config();
 
 // Importar rutas
 const whatsappRoutes = require('./routes/whatsapp.routes');
+const dashboardRoutes = require('./routes/dashboard.routes');
 
 const app = express();
 const port = process.env.PORT || 4000;
 
-app.use(cors());
+app.use(cors({
+    origin: ['http://localhost:3000'],
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    credentials: true
+}));
 app.use(express.json());
 
-// Registro de rutas de WhatsApp
+// Registro de rutas
 app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 app.get('/', (req, res) => {
     res.json({ message: 'JFNN Omnicanal API is running' });

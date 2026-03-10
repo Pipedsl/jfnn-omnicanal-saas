@@ -1,0 +1,40 @@
+# 🧠 Cuestionario de Entrenamiento: Base de Conocimiento JFNN
+
+Este documento contiene las preguntas clave que los vendedores (Maxi y el equipo) deben responder para que la IA deje de "suponer" y empiece a responder con la autoridad de un experto de Repuestos JFNN.
+
+---
+
+### 📍 1. Ubicación y Multi-Sucursal (Melipilla y San Felipe)
+*Aunque hoy estemos en una fase inicial, necesitamos saber cómo diferenciar las sedes:*
+1. ¿Cuáles son las direcciones exactas de ambas sucursales?
+2. ¿Los horarios de atención son los mismos para ambas? (Indicar Lunes a Viernes y Sábados).
+3. ¿El stock es compartido o cada sucursal tiene su bodega propia?
+4. Si un cliente de Melipilla pide algo que solo está en San Felipe, ¿hacemos traslados internos? ¿Tienen costo?
+
+### 🚚 2. Logística y Despachos
+1. ¿Realizamos envíos dentro de la misma ciudad (Radio urbano)? ¿Qué costo tiene?
+2. ¿Trabajamos con empresas externas (Starken, Chilexpress, BlueExpress)? ¿El envío es "Por Pagar" o se suma a la boleta?
+3. ¿Cuál es el tiempo estimado de entrega desde que se confirma el pago?
+4. ¿Hay algún rubro de repuestos que NO enviamos por peso o fragilidad (ej: parabrisas, motores completos)?
+
+### 💳 3. Pagos y Finanzas
+1. ¿Cuáles son los datos exactos para la Transferencia Electrónica? (Rut, Banco, Tipo de Cuenta).
+2. ¿Aceptamos pagos con tarjeta de crédito (Webpay/Link de pago)? ¿Hay recargo?
+3. Para empresas: ¿Qué datos mínimos necesitamos para emitir Factura además del RUT?
+4. ¿Cuál es el plazo máximo para que un cliente envíe su comprobante antes de anular la cotización?
+
+### 🛠️ 4. Reglas de Producto y Garantías
+1. ¿Vendemos repuestos originales (OEM), alternativos o ambos? 
+2. ¿Cuál es la política de devoluciones si el repuesto no le sirvió al cliente?
+3. ¿Ofrecemos garantía por falla técnica? ¿De cuánto tiempo?
+4. ¿Hay marcas de autos específicas en las que seamos "especialistas" o marcas que NO trabajemos bajo ningún concepto?
+
+### 🗣️ 5. Tono y Personalidad de la IA
+1. ¿Cómo queremos que la IA se despida? (ej: "Atentamente, Equipo JFNN", "Quedamos atentos a sus dudas").
+2. ¿Existen "descuentos por volumen" o "precios para mecánicos" que la IA deba mencionar o es mejor que eso lo maneje el vendedor humano?
+3. ¿Qué debe hacer la IA si un cliente pide algo muy urgente fuera de horario?
+
+---
+
+> [!TIP]
+> **Próximo Paso:** Una vez que los vendedores completen estas respuestas, crearé el archivo `knowledge_base.md` que servirá como la "Biblia" del Agente de IA.
