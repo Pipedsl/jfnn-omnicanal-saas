@@ -122,4 +122,126 @@ router.patch('/cotizaciones/estado', async (req, res) => {
     }
 });
 
+/**
+ * [P1] Obtener sesiones esperando aprobación manual del admin
+ * GET /api/dashboard/pending-approvals
+ */
+router.get('/pending-approvals', async (req, res) => {
+    try {
+        const sessions = await sessionsService.getPendingApprovalSessions();
+
+        // Transformar la respuesta para incluir solo los campos relevantes para el admin
+        const formatted = sessions.map(s => {
+            const e = s.entidades || {};
+
+            // Calcular total de la cotización sumando los repuestos con precio
+            const totalCotizacion = (e.repuestos_solicitados || []).reduce((acc, r) => {
+                return acc + (parseInt(r.precio) || 0);
+            }, 0);
+
+            return {
+                phone: s.phone,
+                estado: s.estado,
+                ultimo_mensaje: s.ultimo_mensaje,
+                quote_id: e.quote_id || null,
+                // Datos del vehículo y repuestos
+                vehiculo: {
+                    marca_modelo: e.marca_modelo,
+                    ano: e.ano,
+                    patente: e.patente,
+                    vin: e.vin,
+                },
+                repuestos: e.repuestos_solicitados || [],
+                total_cotizacion: totalCotizacion,
+                // Datos de logística
+                metodo_entrega: e.metodo_entrega || null,
+                direccion_envio: e.direccion_envio || null,
+                tipo_documento: e.tipo_documento || null,
+                // Datos del comprobante (extraídos por IA)
+                comprobante_url: e.comprobante_url || null,
+                pago_pendiente: e.pago_pendiente || null,
+            };
+        });
+
+        res.status(200).json({ total: formatted.length, aprobaciones_pendientes: formatted });
+    } catch (error) {
+        console.error('[Dashboard] Error en GET /pending-approvals:', error);
+        res.status(500).json({ error: 'Error interno al obtener aprobaciones pendientes' });
+    }
+});
+
+/**
+ * [P1] Aprobar o rechazar un comprobante de pago
+ * POST /api/dashboard/verify-payment
+ * Body: { phone: string, accion: 'approve' | 'reject', nota_admin?: string }
+ */
+router.post('/verify-payment', async (req, res) => {
+    try {
+        const { phone, accion, nota_admin } = req.body;
+
+        if (!phone || !['approve', 'reject'].includes(accion)) {
+            return res.status(400).json({
+                error: "Faltan campos obligatorios. 'phone' y 'accion' (approve/reject) son requeridos."
+            });
+        }
+
+        // Verificar que la sesión esté en el estado correcto antes de actuar
+        const session = await sessionsService.getSession(phone);
+        if (session.estado !== 'ESPERANDO_APROBACION_ADMIN') {
+            return res.status(409).json({
+                error: `Conflicto de estado: la sesión del cliente está en '${session.estado}', no en 'ESPERANDO_APROBACION_ADMIN'.`
+            });
+        }
+
+        if (accion === 'approve') {
+            // ─── APROBAR ──────────────────────────────────────────────
+            await sessionsService.setEstado(phone, 'PAGO_VERIFICADO');
+
+            const mensajeAprobacion =
+                `✅ *¡Pago confirmado!* Su transferencia fue verificada exitosamente por nuestro equipo.\n\n` +
+                `📦 Estamos preparando su pedido. En breve le informaremos sobre los detalles del despacho/retiro.\n\n` +
+                `Número de cotización: *${session.entidades?.quote_id || 'JFNN-TEMP'}*\n` +
+                `¡Muchas gracias por su preferencia! 🙌`;
+
+            await whatsappService.sendTextMessage(phone, mensajeAprobacion);
+
+            console.log(`[Dashboard] ✅ Pago APROBADO para ${phone}${nota_admin ? ` | Nota: ${nota_admin}` : ''}`);
+            res.status(200).json({
+                success: true,
+                accion: 'approved',
+                nuevo_estado: 'PAGO_VERIFICADO',
+                phone
+            });
+
+        } else if (accion === 'reject') {
+            // ─── RECHAZAR ─────────────────────────────────────────────
+            // Regresa al cliente al estado de confirmación para que reenvíe el comprobante
+            await sessionsService.setEstado(phone, 'CONFIRMANDO_COMPRA');
+
+            const motivoRechazo = nota_admin
+                ? `El motivo indicado por nuestro equipo es: _${nota_admin}_`
+                : `Esto puede deberse a que la imagen no era legible o no correspondía a la cotización.`;
+
+            const mensajeRechazo =
+                `⚠️ Lamentablemente *no pudimos verificar* el comprobante enviado. ${motivoRechazo}\n\n` +
+                `Le pedimos que envíe nuevamente una fotografía clara del comprobante de transferencia. ` +
+                `Si tiene dudas, puede escribirnos y con gusto le ayudamos. 🙏`;
+
+            await whatsappService.sendTextMessage(phone, mensajeRechazo);
+
+            console.log(`[Dashboard] ❌ Pago RECHAZADO para ${phone}${nota_admin ? ` | Motivo: ${nota_admin}` : ''}`);
+            res.status(200).json({
+                success: true,
+                accion: 'rejected',
+                nuevo_estado: 'CONFIRMANDO_COMPRA',
+                phone
+            });
+        }
+
+    } catch (error) {
+        console.error('[Dashboard] Error en POST /verify-payment:', error);
+        res.status(500).json({ error: 'Error interno al verificar el pago' });
+    }
+});
+
 module.exports = router;
