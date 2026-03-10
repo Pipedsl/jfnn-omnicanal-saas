@@ -10,12 +10,20 @@ out/
 build/
 dist/
 
-# Env files
+# Env files — protección en toda la estructura del monorepo
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+# Subdirectorios del monorepo
+backend/.env
+backend/.env.local
+dashboard/.env
+dashboard/.env.local
+# Cualquier .env en subdirectorios (cobertura total)
+**/.env
+**/.env.local
 
 # Debug logs
 npm-debug.log*
