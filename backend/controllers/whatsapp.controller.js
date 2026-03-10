@@ -112,22 +112,52 @@ const receiveMessage = async (req, res) => {
         // FLUJO GENERAL: Texto e imágenes de repuestos (estados normales)
         // ═══════════════════════════════════════════════════════
 
-        // 2. Manejo de re-engage o corrección si está en estados finales
-        const finalStates = [sessionsService.STATES.CICLO_COMPLETO, sessionsService.STATES.ESPERANDO_VENDEDOR, sessionsService.STATES.PAGO_VERIFICADO];
+        // ═══════════════════════════════════════════════════════
+        // REINICIO DE FLUJO: Si el cliente vuelve después de una venta ENTREGADA o ARCHIVADA
+        // → Resetear sesión silenciosamente (preserva datos del vehículo) y continuar como PERFILANDO
+        // ═══════════════════════════════════════════════════════
+        const reengageStates = [
+            sessionsService.STATES.ENTREGADO,
+            sessionsService.STATES.ARCHIVADO
+        ];
 
-        if (finalStates.includes(session.estado)) {
+        if (reengageStates.includes(session.estado)) {
+            console.log(`[Session] 🔄 Re-engage detectado para ${customerPhone} (estado: ${session.estado}). Reiniciando sesión...`);
+            session = await sessionsService.resetSession(customerPhone);
+            // El flujo continúa como si estuviera en PERFILANDO — sin respuesta especial aquí
+        }
+
+        // ═══════════════════════════════════════════════════════
+        // FLUJO GENERAL: Texto e imágenes de repuestos (estados normales)
+        // ═══════════════════════════════════════════════════════
+
+        // Manejo de re-engage en estados intermedios (sin venta finalizada)
+        const intermediateHoldStates = [sessionsService.STATES.CICLO_COMPLETO, sessionsService.STATES.PAGO_VERIFICADO];
+
+        if (intermediateHoldStates.includes(session.estado)) {
             const lowerText = userText.toLowerCase();
             const wantsMore = lowerText.includes("cotizar") || lowerText.includes("necesito") ||
                 (lowerText.length < 25 && (lowerText.includes("otro auto") || lowerText.includes("nueva cotizacion") || lowerText.includes("otra pieza") || lowerText.includes("quiero comprar algo mas")));
 
             if (wantsMore && !hasImage) {
                 session = await sessionsService.resetSession(customerPhone);
-                console.log(`[Session] Re-perfilado para ${customerPhone} desde estado ${session.estado}.`);
-            } else if (session.estado === sessionsService.STATES.ESPERANDO_VENDEDOR && !wantsMore) {
+                console.log(`[Session] ♻️ Re-perfilado para ${customerPhone} desde ${session.estado}.`);
+            }
+        }
+
+        // Guard: si está ESPERANDO_VENDEDOR, no interrumpir (el vendedor debe responder primero)
+        if (session.estado === sessionsService.STATES.ESPERANDO_VENDEDOR) {
+            const lowerText = userText.toLowerCase();
+            const wantsMoreFromWaitingState = lowerText.includes("cotizar") || lowerText.includes("necesito");
+            if (!wantsMoreFromWaitingState) {
                 console.log(`[Hand-off] Ignorando mensaje de ${customerPhone} (ESPERANDO_VENDEDOR)`);
                 return res.status(200).send('EVENT_RECEIVED');
             }
+            // Si el cliente pide algo nuevo, permitir el re-perfilado
+            session = await sessionsService.resetSession(customerPhone);
+            console.log(`[Session] ♻️ Re-perfilado desde ESPERANDO_VENDEDOR para ${customerPhone}.`);
         }
+
 
         console.log(`[Webhook] Mensaje (${message.type}) de ${customerPhone}: "${userText}"`);
 

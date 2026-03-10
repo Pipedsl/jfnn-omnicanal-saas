@@ -244,4 +244,47 @@ router.post('/verify-payment', async (req, res) => {
     }
 });
 
+/**
+ * [P1] Archivar una sesión completada
+ * POST /api/dashboard/archive-session
+ * Body: { phone: string }
+ * 
+ * Solo se puede archivar una sesión en estado ENTREGADO.
+ * El registro queda en la tabla con estado ARCHIVADO
+ * y el historial del Dashboard lo muestra separado de las activas.
+ */
+router.post('/archive-session', async (req, res) => {
+    try {
+        const { phone } = req.body;
+
+        if (!phone) {
+            return res.status(400).json({ error: "'phone' es un campo obligatorio." });
+        }
+
+        // Verificar que la sesión esté en un estado archivable
+        const session = await sessionsService.getSession(phone);
+        const archivableStates = ['ENTREGADO', 'PAGO_VERIFICADO'];
+
+        if (!archivableStates.includes(session.estado)) {
+            return res.status(409).json({
+                error: `Solo se pueden archivar sesiones en estado ENTREGADO o PAGO_VERIFICADO. Estado actual: '${session.estado}'.`
+            });
+        }
+
+        await sessionsService.setEstado(phone, 'ARCHIVADO');
+
+        console.log(`[Dashboard] 🗄️  Sesión archivada → ${phone} (era: ${session.estado})`);
+        res.status(200).json({
+            success: true,
+            mensaje: `Sesión de ${phone} archivada correctamente.`,
+            estado_anterior: session.estado,
+            nuevo_estado: 'ARCHIVADO'
+        });
+
+    } catch (error) {
+        console.error('[Dashboard] Error en POST /archive-session:', error);
+        res.status(500).json({ error: 'Error interno al archivar la sesión' });
+    }
+});
+
 module.exports = router;

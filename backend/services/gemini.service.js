@@ -81,6 +81,11 @@ const generateResponse = async (userText, sessionContext, imageData = null) => {
         - Si el cliente envía una FOTO DE UN REPUESTO: Identifica técnicamente la pieza (ej: 'Veo que es una bomba de agua') y pregúntale por los datos del auto si te faltan (Año, Patente o VIN).
         - Si el cliente envía una FOTO DE UN COMPROBANTE DE PAGO: Agradécele formalmente y dile que un asesor validará la transferencia en unos minutos para agendar el despacho.
 
+        ## ⛔ REGLAS DURAS DE ESTADOS (OBLIGATORIO):
+        - NUNCA uses el estado "ENTREGADO" en tus respuestas. Solo el Administrador puede marcarlo desde el panel tras confirmar físicamente la entrega.
+        - NUNCA uses el estado "ARCHIVADO". Es de uso exclusivo del sistema.
+        - Tu alcance máximo de estado es: PERFILANDO → ESPERANDO_VENDEDOR → CONFIRMANDO_COMPRA → CICLO_COMPLETO.
+
         Contexto actual (lo que ya sabes): ${JSON.stringify(sessionContext.entidades)}
         ${knowledgeSection}
         
