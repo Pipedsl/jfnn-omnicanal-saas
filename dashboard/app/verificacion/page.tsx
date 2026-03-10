@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import Link from "next/link";
 import { ArrowLeft, CheckCircle, XCircle, FileSearch, ShieldCheck, X } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 interface PendingApproval {
     phone: string;
@@ -54,6 +55,19 @@ export default function VerificacionPage() {
 
     useEffect(() => {
         fetchApprovals();
+
+        const channel = supabase
+            .channel('verificacion-changes')
+            .on(
+                'postgres_changes',
+                { event: '*', schema: 'public', table: 'user_sessions' },
+                () => fetchApprovals()
+            )
+            .subscribe();
+
+        return () => {
+            supabase.removeChannel(channel);
+        };
     }, []);
 
     const handleAction = async (accion: "approve" | "reject") => {

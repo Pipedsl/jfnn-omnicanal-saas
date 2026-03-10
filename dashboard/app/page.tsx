@@ -5,6 +5,7 @@ import axios from "axios";
 import { LayoutDashboard, RefreshCcw, Bell, Settings, Target, Zap, DollarSign, ShieldCheck } from "lucide-react";
 import QuoteCard from "@/components/QuoteCard";
 import Link from "next/link";
+import { supabase } from "@/lib/supabase";
 
 interface Quote {
   phone: string;
@@ -71,8 +72,24 @@ export default function Home() {
 
   useEffect(() => {
     fetchQuotesAndMetrics();
-    const interval = setInterval(fetchQuotesAndMetrics, 30000);
-    return () => clearInterval(interval);
+
+    const channel = supabase
+      .channel('schema-db-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'user_sessions' },
+        () => fetchQuotesAndMetrics()
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'pedidos' },
+        () => fetchQuotesAndMetrics()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

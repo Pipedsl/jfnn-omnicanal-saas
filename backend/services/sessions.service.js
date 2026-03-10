@@ -174,22 +174,42 @@ const getAllPendingSessions = async () => {
 };
 
 /**
- * Obtiene el historial de ventas finalizadas
+ * Obtiene el historial combinando ventas pendientes de archivar (ENTREGADO)
+ * y ventas archivadas en el historial permanente (pedidos).
  */
 const getHistoricalSessions = async () => {
     try {
-        const historyStates = [STATES.ENTREGADO, STATES.ARCHIVADO];
-
-        const { data, error } = await supabase
+        // 1. Obtener sesiones activas en estado ENTREGADO
+        const { data: activeData, error: errActive } = await supabase
             .from('user_sessions')
             .select('*')
-            .in('estado', historyStates)
-            .order('ultimo_mensaje', { ascending: false });
+            .eq('estado', STATES.ENTREGADO);
 
-        if (error) throw error;
-        return data;
+        if (errActive) throw errActive;
+
+        // 2. Obtener historial persistente de la tabla pedidos
+        const { data: archivedData, error: errArchive } = await supabase
+            .from('pedidos')
+            .select('*')
+            .order('archivado_en', { ascending: false });
+
+        if (errArchive) throw errArchive;
+
+        // 3. Mapear pedidos al formato esperado por el Frontend (interfaz Quote)
+        const mappedArchived = archivedData.map(p => ({
+            phone: p.phone,
+            estado: p.estado_final === 'ENTREGADO' ? 'ARCHIVADO' : p.estado_final,
+            entidades: p.entidades_completas,
+            ultimo_mensaje: p.archivado_en
+        }));
+
+        // 4. Combinar y ordenar por fecha descendente
+        const combined = [...(activeData || []), ...mappedArchived];
+        combined.sort((a, b) => new Date(b.ultimo_mensaje) - new Date(a.ultimo_mensaje));
+
+        return combined;
     } catch (err) {
-        console.error("Error getHistoricalSessions Supabase:", err);
+        console.error("[Sessions] ❌ Error getHistoricalSessions:", err.message);
         return [];
     }
 };
