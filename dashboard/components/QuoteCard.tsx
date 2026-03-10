@@ -99,7 +99,7 @@ export default function QuoteCard({ phone, estado, entidades, onResponded }: Quo
                 {entidades.sintomas_reportados && (
                     <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-3">
                         <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-1">Síntoma Técnico</p>
-                        <p className="text-xs text-neutral-400 italic">"{entidades.sintomas_reportados}"</p>
+                        <p className="text-xs text-neutral-400 italic">&quot;{entidades.sintomas_reportados}&quot;</p>
                     </div>
                 )}
 
@@ -174,7 +174,7 @@ export default function QuoteCard({ phone, estado, entidades, onResponded }: Quo
                 {/* Botones de acción dinámica según el estado */}
                 <div className="pt-4 border-t border-white/5 flex gap-2">
                     {estado === 'ESPERANDO_VENDEDOR' && (
-                        <SellerActionForm phone={phone} items={repuestos as any} onResponded={onResponded} />
+                        <SellerActionForm phone={phone} items={repuestos} onResponded={onResponded} />
                     )}
 
                     {(estado === 'CONFIRMANDO_COMPRA' || estado === 'CICLO_COMPLETO') && (

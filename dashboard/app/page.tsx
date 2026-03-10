@@ -2,47 +2,85 @@
 
 import { useEffect, useState } from "react";
 import axios from "axios";
-import { LayoutDashboard, RefreshCcw, Bell, Settings, Target, Zap, DollarSign } from "lucide-react";
+import { LayoutDashboard, RefreshCcw, Bell, Settings, Target, Zap, DollarSign, ShieldCheck } from "lucide-react";
 import QuoteCard from "@/components/QuoteCard";
 import Link from "next/link";
 
+interface Quote {
+  phone: string;
+  estado: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  entidades?: any; // Aceptamos any para el JSON dinámico
+}
+
 export default function Home() {
-  const [quotes, setQuotes] = useState([]);
+  const [quotes, setQuotes] = useState<Quote[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState("pendientes"); // "pendientes" | "historial"
   const [filter, setFilter] = useState("todos");
 
-  // KPIs simulados para la UI empresarial
-  const stats = [
-    { label: "Cotizaciones Hoy", value: "12", icon: <Target className="text-blue-500" size={16} />, trend: "+12%" },
-    { label: "Ventas Estimadas", value: "$450.000", icon: <DollarSign className="text-green-500" size={16} />, trend: "+5.4%" },
-    { label: "Tasa Conversión", value: "68%", icon: <Zap className="text-yellow-500" size={16} />, trend: "+2.1%" },
-  ];
+  // Estado para Métrica
+  const [metrics, setMetrics] = useState({
+    cotizacionesHoy: 0,
+    conversionRate: 0,
+    ahorroHoras: 0
+  });
 
-  const fetchQuotes = async () => {
+  const fetchQuotesAndMetrics = async () => {
     try {
       setLoading(true);
-      const url = view === "pendientes"
-        ? "http://localhost:4000/api/dashboard/cotizaciones"
-        : "http://localhost:4000/api/dashboard/cotizaciones/historial";
-      const res = await axios.get(url);
-      setQuotes(res.data);
+      // Fetches paralelos para pendientes e historial
+      const [resPend, resHist] = await Promise.all([
+        axios.get("http://localhost:4000/api/dashboard/cotizaciones"),
+        axios.get("http://localhost:4000/api/dashboard/cotizaciones/historial")
+      ]);
+
+      const pend: Quote[] = resPend.data || [];
+      const hist: Quote[] = resHist.data || [];
+
+      // Actualizar vista actual
+      setQuotes(view === "pendientes" ? pend : hist);
+
+      // Calcular métricas
+      const totalSesiones = pend.length + hist.length;
+      const ventasCerradas = hist.filter((q: Quote) => q.estado === "ENTREGADO" || q.estado === "ARCHIVADO").length;
+
+      const tasaConversion = totalSesiones > 0 ? Math.round((ventasCerradas / totalSesiones) * 100) : 0;
+
+      // Ahorro estimado: 15 minutos por sesión que no requiere humano inicialmente
+      const minutosAhorrados = totalSesiones * 15;
+      const horasAhorradas = (minutosAhorrados / 60).toFixed(1);
+
+      setMetrics({
+        cotizacionesHoy: pend.length,
+        conversionRate: tasaConversion,
+        ahorroHoras: parseFloat(horasAhorradas)
+      });
+
     } catch (error) {
-      console.error("Error fetching quotes:", error);
+      console.error("Error fetching quotes & metrics:", error);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchQuotes();
+    fetchQuotesAndMetrics();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
 
   useEffect(() => {
-    fetchQuotes();
-    const interval = setInterval(fetchQuotes, 30000);
+    fetchQuotesAndMetrics();
+    const interval = setInterval(fetchQuotesAndMetrics, 30000);
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const stats = [
+    { label: "Cotizaciones Activas", value: metrics.cotizacionesHoy.toString(), icon: <Target className="text-blue-500" size={16} />, trend: "Live" },
+    { label: "Ahorro de Tiempo IA", value: `${metrics.ahorroHoras} hrs`, icon: <Zap className="text-yellow-500" size={16} />, trend: "Automatizado" },
+    { label: "Tasa Conversión", value: `${metrics.conversionRate}%`, icon: <DollarSign className="text-green-500" size={16} />, trend: "Ventas / Total" },
+  ];
 
   return (
     <main className="min-h-screen pb-20">
@@ -56,13 +94,16 @@ export default function Home() {
 
           <div className="flex items-center gap-4">
             <button
-              onClick={fetchQuotes}
+              onClick={fetchQuotesAndMetrics}
               className="p-2 hover:bg-neutral-800 rounded-lg text-neutral-400 transition-colors"
               title="Actualizar"
             >
               <RefreshCcw size={18} className={loading ? "animate-spin" : ""} />
             </button>
-            <Link href="/settings" className="p-2 hover:bg-neutral-800 rounded-lg text-neutral-400 transition-colors">
+            <Link href="/verificacion" className="p-2 hover:bg-yellow-500/20 rounded-lg text-yellow-500 transition-colors" title="Verificación de Pagos">
+              <ShieldCheck size={18} />
+            </Link>
+            <Link href="/settings" className="p-2 hover:bg-neutral-800 rounded-lg text-neutral-400 transition-colors" title="Ajustes">
               <Settings size={18} />
             </Link>
             <div className="relative p-2 hover:bg-neutral-800 rounded-lg text-neutral-400 cursor-pointer">
@@ -172,14 +213,16 @@ export default function Home() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {quotes
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 .filter((q: any) => filter === 'todos' || q.estado === filter)
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 .map((quote: any) => (
                   <QuoteCard
                     key={quote.phone}
                     phone={quote.phone}
                     estado={quote.estado}
                     entidades={quote.entidades}
-                    onResponded={fetchQuotes}
+                    onResponded={fetchQuotesAndMetrics}
                   />
                 ))}
             </div>

@@ -13,7 +13,8 @@ interface Item {
 
 interface SellerActionFormProps {
     phone: string;
-    items: { nombre: string; precio: null; codigo: null }[];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    items: any[];
     onResponded: () => void;
 }
 
@@ -34,7 +35,7 @@ export default function SellerActionForm({ phone, items, onResponded }: SellerAc
         }
     }, [items, formItems.length]);
 
-    const handleItemChange = (index: number, field: keyof Item, value: any) => {
+    const handleItemChange = (index: number, field: keyof Item, value: string | number | null) => {
         setFormItems(prevItems => {
             const newItems = [...prevItems];
             newItems[index] = { ...newItems[index], [field]: value };
@@ -83,7 +84,7 @@ export default function SellerActionForm({ phone, items, onResponded }: SellerAc
                                 <p className="text-[10px] font-bold uppercase text-accent tracking-wider">{item.nombre}</p>
                                 <select
                                     value={disp}
-                                    onChange={(e) => handleItemChange(idx, "disponibilidad", e.target.value as any)}
+                                    onChange={(e) => handleItemChange(idx, "disponibilidad", e.target.value as "DISPONIBLE" | "SIN_STOCK" | "POR_ENCARGO")}
                                     className="bg-neutral-950 border border-neutral-800 rounded px-2 py-1 text-[10px] text-gray-300 focus:outline-none focus:border-accent"
                                 >
                                     <option value="DISPONIBLE">✅ Disponible</option>
