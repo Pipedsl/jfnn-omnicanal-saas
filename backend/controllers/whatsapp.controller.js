@@ -122,10 +122,16 @@ const receiveMessage = async (req, res) => {
         ];
 
         if (reengageStates.includes(session.estado)) {
-            console.log(`[Session] 🔄 Re-engage detectado para ${customerPhone} (estado: ${session.estado}). Reiniciando sesión...`);
-            session = await sessionsService.resetSession(customerPhone);
-            // El flujo continúa como si estuviera en PERFILANDO — sin respuesta especial aquí
+            console.log(`[Session] 🔄 Re-engage detectado para ${customerPhone} (estado: ${session.estado}). Archivando venta y reiniciando...`);
+            // archiveSession: guarda la data en tabla 'pedidos' ANTES de limpiar la sesión activa
+            const { archivedPedido, newSession } = await sessionsService.archiveSession(customerPhone);
+            session = newSession;
+            if (archivedPedido) {
+                console.log(`[Session] ✅ Pedido archivado: ${archivedPedido.id} (quote: ${archivedPedido.quote_id})`);
+            }
+            // El flujo continúa como PERFILANDO — sin respuesta especial aquí
         }
+
 
         // ═══════════════════════════════════════════════════════
         // FLUJO GENERAL: Texto e imágenes de repuestos (estados normales)

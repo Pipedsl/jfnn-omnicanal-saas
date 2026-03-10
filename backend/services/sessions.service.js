@@ -196,17 +196,19 @@ const getHistoricalSessions = async () => {
 
 /**
  * Limpia o reinicia una sesión de forma SEGURA.
+ * Preserva los datos del vehículo (marca, año, patente, VIN).
+ * Limpia: repuestos, pago, comprobante y datos de cierre.
  */
 const resetSession = async (phone) => {
     try {
         const session = await getSession(phone);
 
         const vehicleData = {
-            marca_modelo: session.entidades.marca_modelo,
-            ano: session.entidades.ano,
-            cilindraje: session.entidades.cilindraje,
-            patente: session.entidades.patente,
-            vin: session.entidades.vin,
+            marca_modelo: session.entidades?.marca_modelo || null,
+            ano: session.entidades?.ano || null,
+            cilindraje: session.entidades?.cilindraje || null,
+            patente: session.entidades?.patente || null,
+            vin: session.entidades?.vin || null,
         };
 
         const { data, error } = await supabase
@@ -224,12 +226,80 @@ const resetSession = async (phone) => {
             .single();
 
         if (error) throw error;
+        console.log(`[Sessions] ♻️  Sesión reseteada para ${phone}. Vehículo preservado: ${JSON.stringify(vehicleData)}`);
         return data;
     } catch (err) {
-        console.error("Error resetSession Supabase:", err);
+        console.error('[Sessions] ❌ Error en resetSession:', err.message);
         return null;
     }
 };
+
+/**
+ * Archiva una sesión completada en la tabla `pedidos` (historial permanente)
+ * y luego resetea la sesión activa para permitir una nueva cotización.
+ * 
+ * Flujo: getSession → INSERT into pedidos → resetSession
+ * 
+ * @param {string} phone
+ * @returns {Promise<Object>} - { archivedPedido, newSession }
+ */
+const archiveSession = async (phone) => {
+    try {
+        const session = await getSession(phone);
+        const e = session.entidades || {};
+
+        // Calcular el total de la cotización
+        const totalCotizacion = (e.repuestos_solicitados || []).reduce((acc, r) => {
+            return acc + (parseInt(r.precio) || 0);
+        }, 0);
+
+        // INSERT en pedidos: snapshot completo de la venta
+        const { data: pedido, error: insertError } = await supabase
+            .from('pedidos')
+            .insert([{
+                phone,
+                quote_id: e.quote_id || null,
+                estado_final: session.estado,
+                // Vehículo
+                marca_modelo: e.marca_modelo || null,
+                ano: e.ano || null,
+                patente: e.patente || null,
+                vin: e.vin || null,
+                // Productos
+                repuestos: e.repuestos_solicitados || [],
+                total_cotizacion: totalCotizacion,
+                // Pago y despacho
+                metodo_pago: e.metodo_pago || null,
+                metodo_entrega: e.metodo_entrega || null,
+                direccion_envio: e.direccion_envio || null,
+                tipo_documento: e.tipo_documento || null,
+                datos_factura: e.datos_factura || {},
+                // Comprobante
+                comprobante_url: e.comprobante_url || null,
+                datos_comprobante: e.pago_pendiente || {},
+                // Snapshot completo
+                entidades_completas: e
+            }])
+            .select()
+            .single();
+
+        if (insertError) {
+            console.error('[Sessions] ❌ Error al archivar pedido en tabla pedidos:', insertError.message);
+            // No bloqueamos el flujo aunque el archivo falle — el reset sigue adelante
+        } else {
+            console.log(`[Sessions] 🗄️  Venta archivada → pedido ID: ${pedido.id} | quote: ${pedido.quote_id} | total: $${totalCotizacion}`);
+        }
+
+        // Resetear sesión activa (preserva vehículo)
+        const newSession = await resetSession(phone);
+
+        return { archivedPedido: pedido || null, newSession };
+    } catch (err) {
+        console.error('[Sessions] ❌ Error en archiveSession:', err.message);
+        return { archivedPedido: null, newSession: null };
+    }
+};
+
 
 /**
  * Guarda la URL del comprobante y los datos extraídos por Gemini en la sesión.
@@ -299,6 +369,7 @@ module.exports = {
     updateEntidades,
     setEstado,
     resetSession,
+    archiveSession,
     getAllPendingSessions,
     getHistoricalSessions,
     saveVoucherData,

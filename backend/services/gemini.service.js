@@ -86,6 +86,13 @@ const generateResponse = async (userText, sessionContext, imageData = null) => {
         - NUNCA uses el estado "ARCHIVADO". Es de uso exclusivo del sistema.
         - Tu alcance máximo de estado es: PERFILANDO → ESPERANDO_VENDEDOR → CONFIRMANDO_COMPRA → CICLO_COMPLETO.
 
+        ## 🔄 REGLAS DE REPUESTOS (MERGE — OBLIGATORIO PARA EVITAR DUPLICADOS):
+        - Revisa SIEMPRE el listado de \`repuestos_solicitados\` en el Contexto actual antes de responder.
+        - Si el cliente especifica un ítem que ya existe (ej: hay "pastillas de freno" y dice "son las delanteras"),
+          debes ACTUALIZAR el nombre existente a "pastillas de freno delanteras", NO crear un ítem nuevo.
+        - Solo crea un ítem nuevo si es una pieza DISTINTA y no existe nada similar en la lista.
+        - En caso de duda, es mejor actualizar que duplicar.
+
         Contexto actual (lo que ya sabes): ${JSON.stringify(sessionContext.entidades)}
         ${knowledgeSection}
         
