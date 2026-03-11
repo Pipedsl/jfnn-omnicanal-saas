@@ -41,7 +41,8 @@ export default function VerificacionPage() {
     const [processing, setProcessing] = useState(false);
     const [rejectReason, setRejectReason] = useState("");
 
-    const fetchApprovals = async () => {
+    const fetchApprovals = async (source: string = "unknown") => {
+        console.log(`[Fetch Trigger Verificacion] Origen: ${source} a las ${new Date().toLocaleTimeString()}`);
         try {
             setLoading(true);
             const res = await axios.get("http://localhost:4000/api/dashboard/pending-approvals");
@@ -54,14 +55,14 @@ export default function VerificacionPage() {
     };
 
     useEffect(() => {
-        fetchApprovals();
+        fetchApprovals("useEffect[]_mount");
 
         const channel = supabase
             .channel('verificacion-changes')
             .on(
                 'postgres_changes',
                 { event: '*', schema: 'public', table: 'user_sessions' },
-                () => fetchApprovals()
+                (payload) => fetchApprovals(`realtime_user_sessions: ${payload.eventType}`)
             )
             .subscribe();
 
@@ -86,7 +87,7 @@ export default function VerificacionPage() {
             });
             setSelected(null);
             setRejectReason("");
-            fetchApprovals();
+            fetchApprovals("handleAction_post");
         } catch (error) {
             console.error("Error processing payment:", error);
             alert("Hubo un error al procesar el pago.");

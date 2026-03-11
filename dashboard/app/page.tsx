@@ -27,7 +27,8 @@ export default function Home() {
     ahorroHoras: 0
   });
 
-  const fetchQuotesAndMetrics = async () => {
+  const fetchQuotesAndMetrics = async (source: string = "unknown") => {
+    console.log(`[Fetch Trigger] Obteniendo data. Origen: ${source} a las ${new Date().toLocaleTimeString()}`);
     try {
       setLoading(true);
       // Fetches paralelos para pendientes e historial
@@ -66,24 +67,24 @@ export default function Home() {
   };
 
   useEffect(() => {
-    fetchQuotesAndMetrics();
+    fetchQuotesAndMetrics("useEffect[view]");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
 
   useEffect(() => {
-    fetchQuotesAndMetrics();
+    fetchQuotesAndMetrics("useEffect[]_mount");
 
     const channel = supabase
       .channel('schema-db-changes')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'user_sessions' },
-        () => fetchQuotesAndMetrics()
+        (payload) => fetchQuotesAndMetrics(`realtime_user_sessions: ${payload.eventType}`)
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'pedidos' },
-        () => fetchQuotesAndMetrics()
+        (payload) => fetchQuotesAndMetrics(`realtime_pedidos: ${payload.eventType}`)
       )
       .subscribe();
 
@@ -111,7 +112,7 @@ export default function Home() {
 
           <div className="flex items-center gap-4">
             <button
-              onClick={fetchQuotesAndMetrics}
+              onClick={() => fetchQuotesAndMetrics("Boton_Actualizar_Manual")}
               className="p-2 hover:bg-neutral-800 rounded-lg text-neutral-400 transition-colors"
               title="Actualizar"
             >
@@ -239,7 +240,7 @@ export default function Home() {
                     phone={quote.phone}
                     estado={quote.estado}
                     entidades={quote.entidades}
-                    onResponded={fetchQuotesAndMetrics}
+                    onResponded={() => fetchQuotesAndMetrics("onResponded_QuoteCard")}
                   />
                 ))}
             </div>

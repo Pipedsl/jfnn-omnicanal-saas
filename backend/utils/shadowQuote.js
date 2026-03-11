@@ -13,7 +13,7 @@ const printShadowQuote = (phone, entidades) => {
     console.log(`🛠️ Cilindraje: ${entidades.cilindraje || 'No detectado'}`);
     console.log(`🆔 Patente: ${entidades.patente || 'No detectada'}`);
     console.log(`🔢 VIN: ${entidades.vin || 'No detectado'}`);
-    console.log(`📦 Repuestos: ${entidades.repuestos_solicitados || 'No detectados'}`);
+    console.log(`📦 Repuestos: ${JSON.stringify(entidades.repuestos_solicitados || [], null, 2)}`);
     console.log("=".repeat(50));
     console.log("MODO: ESPERANDO VENDEDOR");
     console.log("=".repeat(50) + "\n");

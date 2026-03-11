@@ -154,14 +154,15 @@ const receiveMessage = async (req, res) => {
         // Guard: si está ESPERANDO_VENDEDOR, no interrumpir (el vendedor debe responder primero)
         if (session.estado === sessionsService.STATES.ESPERANDO_VENDEDOR) {
             const lowerText = userText.toLowerCase();
-            const wantsMoreFromWaitingState = lowerText.includes("cotizar") || lowerText.includes("necesito");
+            const wantsMoreFromWaitingState = lowerText.includes("cotizar") || lowerText.includes("necesito") || lowerText.includes("quiero") || lowerText.includes("también") || lowerText.includes("tambie");
             if (!wantsMoreFromWaitingState) {
                 console.log(`[Hand-off] Ignorando mensaje de ${customerPhone} (ESPERANDO_VENDEDOR)`);
                 return res.status(200).send('EVENT_RECEIVED');
             }
-            // Si el cliente pide algo nuevo, permitir el re-perfilado
-            session = await sessionsService.resetSession(customerPhone);
-            console.log(`[Session] ♻️ Re-perfilado desde ESPERANDO_VENDEDOR para ${customerPhone}.`);
+            // Si el cliente pide algo nuevo → Volver a PERFILANDO CONSERVANDO los repuestos ya registrados
+            // NO hacemos resetSession para no borrar los ítems existentes
+            session = await sessionsService.setEstado(customerPhone, sessionsService.STATES.PERFILANDO);
+            console.log(`[Session] ➕ Append de repuesto para ${customerPhone}. Volviendo a PERFILANDO conservando historial.`);
         }
 
 
