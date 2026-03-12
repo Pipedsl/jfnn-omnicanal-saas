@@ -104,10 +104,13 @@ const generateResponse = async (userText, sessionContext, imageData = null) => {
                 "ano": "valor o null",
                 "patente": "valor o null",
                 "vin": "valor o null",
+                "motor": "valor o null",
+                "combustible": "bencina | diesel | hibrido | electrico | null",
                 "repuestos_solicitados": [{ "nombre": "...", "precio": null, "estado": "pendiente" }],
                 "sintomas_reportados": "...",
                 "metodo_pago": "online | local | null",
                 "metodo_entrega": "retiro | domicilio | null",
+                "horario_entrega": "mañana | tarde | null",
                 "direccion_envio": "dirección o null",
                 "tipo_documento": "boleta | factura | null",
                 "datos_factura": { "rut": null, "razon_social": null, "giro": null }

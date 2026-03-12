@@ -10,7 +10,7 @@ const printShadowQuote = (phone, entidades) => {
     console.log(`📱 Cliente: ${phone}`);
     console.log(`🚗 Vehículo: ${entidades.marca_modelo || 'No detectado'}`);
     console.log(`📅 Año: ${entidades.ano || 'No detectado'}`);
-    console.log(`🛠️ Cilindraje: ${entidades.cilindraje || 'No detectado'}`);
+    console.log(`🛠️ Motor: ${entidades.motor || 'No detectado'} | Combustible: ${entidades.combustible || 'No detectado'}`);
     console.log(`🆔 Patente: ${entidades.patente || 'No detectada'}`);
     console.log(`🔢 VIN: ${entidades.vin || 'No detectado'}`);
     console.log(`📦 Repuestos: ${JSON.stringify(entidades.repuestos_solicitados || [], null, 2)}`);

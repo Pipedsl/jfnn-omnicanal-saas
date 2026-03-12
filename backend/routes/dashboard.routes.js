@@ -76,8 +76,11 @@ router.post('/cotizaciones/responder', async (req, res) => {
 
         await whatsappService.sendTextMessage(phone, message);
 
-        // Actualizar sesión: Guardar ID de cotización y pasar al flujo de cierre
-        await sessionsService.updateEntidades(phone, { quote_id: quoteId });
+        // Actualizar sesión: Guardar ID de cotización, total, y pasar al flujo de cierre
+        await sessionsService.updateEntidades(phone, {
+            quote_id: quoteId,
+            total_cotizacion: total
+        });
         await sessionsService.setEstado(phone, 'CONFIRMANDO_COMPRA');
 
         res.status(200).json({ success: true, quoteId });

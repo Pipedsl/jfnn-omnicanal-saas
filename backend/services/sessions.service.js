@@ -18,15 +18,21 @@ const STATES = {
 const INITIAL_ENTITIES = {
     marca_modelo: null,
     ano: null,
-    cilindraje: null,
     patente: null,
-    repuestos_solicitados: [],
     vin: null,
+    motor: null,
+    combustible: null,
+    repuestos_solicitados: [],
     sintomas_reportados: null,
     metodo_pago: null,
     metodo_entrega: null,
+    horario_entrega: null,
     direccion_envio: null,
     tipo_documento: null,
+    total_cotizacion: null,
+    quote_id: null,
+    comprobante_url: null,
+    datos_extraidos: null,
     datos_factura: {
         rut: null,
         razon_social: null,
@@ -103,6 +109,31 @@ const updateEntidades = async (phone, nuevasEntidades) => {
             });
             delete nuevasEntidades.repuestos_solicitados;
         }
+
+        // FIX CONTEXTO: Si el cliente proporciona una nueva patente o un nuevo VIN que difiere del actual,
+        // o un nuevo año y marca de golpe, limpiar los datos contradictorios anteriores.
+        const providedPatente = nuevasEntidades.patente && nuevasEntidades.patente !== 'null' ? nuevasEntidades.patente.toUpperCase() : null;
+        const currentPatente = entities.patente ? entities.patente.toUpperCase() : null;
+
+        const providedVin = nuevasEntidades.vin && nuevasEntidades.vin !== 'null' ? nuevasEntidades.vin.toUpperCase() : null;
+        const currentVin = entities.vin ? entities.vin.toUpperCase() : null;
+
+        if ((providedPatente && currentPatente && providedPatente !== currentPatente) ||
+            (providedVin && currentVin && providedVin !== currentVin)) {
+
+            console.log(`[Session] 🔄 Cambio de vehículo detectado para ${phone}. Limpiando datos base.`);
+            entities.marca_modelo = null;
+            entities.ano = null;
+            entities.patente = providedPatente || null;
+            entities.vin = providedVin || null;
+            entities.motor = null;
+            entities.combustible = null;
+        }
+
+        // Limpiar strings literales 'null' que manda Gemini a veces
+        Object.keys(nuevasEntidades).forEach(k => {
+            if (nuevasEntidades[k] === 'null') nuevasEntidades[k] = null;
+        });
 
         // Fusionar el resto
         entities = { ...entities, ...nuevasEntidades };
