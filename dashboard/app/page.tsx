@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { LayoutDashboard, RefreshCcw, Bell, Settings, Target, Zap, DollarSign, ShieldCheck } from "lucide-react";
 import QuoteCard from "@/components/QuoteCard";
@@ -20,8 +20,10 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState("pendientes"); // "pendientes" | "historial"
   const [filter, setFilter] = useState("todos");
-  const [realtimePulse, setRealtimePulse] = useState<number>(0);
   const [isSyncing, setIsSyncing] = useState(false);
+  // useRef para capturar el `view` y `fetchQuotesAndMetrics` actual sin closures stale
+  const viewRef = useRef("pendientes");
+  const fetchRef = useRef<(source?: string) => Promise<void>>(null!);
 
   // Estado para Métrica
   const [metrics, setMetrics] = useState({
@@ -32,27 +34,22 @@ export default function Home() {
 
   const fetchQuotesAndMetrics = async (source: string = "unknown") => {
     console.log(`[Fetch Trigger] Obteniendo data. Origen: ${source} a las ${new Date().toLocaleTimeString()}`);
+    const currentView = viewRef.current; // Siempre lee el view más reciente
     try {
       setLoading(true);
-      // Fetches paralelos para pendientes e historial
       const [resPend, resHist] = await Promise.all([
-        axios.get("http://localhost:4000/api/dashboard/cotizaciones"),
-        axios.get("http://localhost:4000/api/dashboard/cotizaciones/historial")
+        axios.get(`http://localhost:4000/api/dashboard/cotizaciones?t=${Date.now()}`),
+        axios.get(`http://localhost:4000/api/dashboard/cotizaciones/historial?t=${Date.now()}`)
       ]);
 
       const pend: Quote[] = resPend.data || [];
       const hist: Quote[] = resHist.data || [];
 
-      // Actualizar vista actual
-      setQuotes(view === "pendientes" ? pend : hist);
+      setQuotes(currentView === "pendientes" ? pend : hist);
 
-      // Calcular métricas
       const totalSesiones = pend.length + hist.length;
       const ventasCerradas = hist.filter((q: Quote) => q.estado === "ENTREGADO" || q.estado === "ARCHIVADO").length;
-
       const tasaConversion = totalSesiones > 0 ? Math.round((ventasCerradas / totalSesiones) * 100) : 0;
-
-      // Ahorro estimado: 15 minutos por sesión que no requiere humano inicialmente
       const minutosAhorrados = totalSesiones * 15;
       const horasAhorradas = (minutosAhorrados / 60).toFixed(1);
 
@@ -67,47 +64,49 @@ export default function Home() {
     } finally {
       setLoading(false);
       setIsSyncing(true);
-      setTimeout(() => setIsSyncing(false), 2000); // El indicador visual dura 2s
+      setTimeout(() => setIsSyncing(false), 2000);
     }
   };
 
+  // Mantener la ref siempre sincronizada con la función actual
   useEffect(() => {
-    fetchQuotesAndMetrics("useEffect[view]");
+    fetchRef.current = fetchQuotesAndMetrics;
+  });
+
+  useEffect(() => {
+    viewRef.current = view; // Sync ref
+    fetchRef.current("useEffect[view]");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, realtimePulse]);
+  }, [view]);
 
   useEffect(() => {
     const channel = supabase
-      .channel('schema-db-changes')
+      .channel('jfnn-realtime')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'user_sessions' },
         (payload) => {
-          console.log(`[Socket] Evento user_sessions: ${payload.eventType}`);
-          if (payload.new) {
-            const newItem = payload.new as any;
-            setQuotes(prev => {
-              const exists = prev.some(q => q.id === newItem.id || q.phone === newItem.phone);
-              if (exists) {
-                return prev.map(q => (q.id === newItem.id || q.phone === newItem.phone) ? newItem : q);
-              } else {
-                return [newItem, ...prev];
-              }
-            });
-          }
-          // Llamamos al pulse para actualizar métricas en background
-          setRealtimePulse(Date.now());
+          console.log(`[Socket] ✅ Evento user_sessions: ${payload.eventType}`);
+          setIsSyncing(true);
+          setTimeout(() => setIsSyncing(false), 2000);
+          // Usar ref para acceder al fetch más reciente sin closure stale
+          fetchRef.current("Realtime_user_sessions");
         }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'pedidos' },
         (payload) => {
-          console.log(`[Socket] Evento pedidos: ${payload.eventType}`);
-          setRealtimePulse(Date.now());
+          console.log(`[Socket] ✅ Evento pedidos: ${payload.eventType}`);
+          setIsSyncing(true);
+          setTimeout(() => setIsSyncing(false), 2000);
+          fetchRef.current("Realtime_pedidos");
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log(`[Supabase Realtime] Estado del canal: ${status}`);
+      });
+
 
     return () => {
       supabase.removeChannel(channel);
