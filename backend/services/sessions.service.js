@@ -98,14 +98,40 @@ const updateEntidades = async (phone, nuevasEntidades) => {
         const session = await getSession(phone);
         let entities = session.entidades || { ...INITIAL_ENTITIES };
 
-        // Fusionar repuestos_solicitados
+        // Fusionar repuestos_solicitados con detección de refinamientos (MERGE inteligente)
         if (nuevasEntidades.repuestos_solicitados && Array.isArray(nuevasEntidades.repuestos_solicitados)) {
-            const existingNames = new Set(entities.repuestos_solicitados.map(r => r.nombre.toLowerCase()));
-
             nuevasEntidades.repuestos_solicitados.forEach(nuevo => {
-                if (!existingNames.has(nuevo.nombre.toLowerCase())) {
+                const nuevoNombre = nuevo.nombre.toLowerCase().trim();
+
+                // Buscar si el nuevo ítem es un refinamiento de uno existente
+                // Caso A: "pastillas de freno" existe → llega "pastillas de freno delanteras" → actualizar
+                // Caso B: "pastillas" existe → llega "pastillas de freno delanteras" → actualizar
+                const refinedIdx = entities.repuestos_solicitados.findIndex(existente => {
+                    const existenteNombre = existente.nombre.toLowerCase().trim();
+                    return existenteNombre !== nuevoNombre && (
+                        nuevoNombre.includes(existenteNombre) || existenteNombre.includes(nuevoNombre)
+                    );
+                });
+
+                if (refinedIdx !== -1) {
+                    // Actualizar el ítem existente conservando precio si ya tenía
+                    const viejo = entities.repuestos_solicitados[refinedIdx];
+                    console.log(`[Session] 🔀 MERGE: "${viejo.nombre}" → "${nuevo.nombre}"`);
+                    entities.repuestos_solicitados[refinedIdx] = {
+                        ...viejo,
+                        nombre: nuevo.nombre, // Usar el nombre más específico
+                        estado: nuevo.estado || viejo.estado,
+                        precio: nuevo.precio ?? viejo.precio,
+                    };
+                    return;
+                }
+
+                // Si no existe ningún ítem similar, agregarlo (exacto o nuevo)
+                const exactIdx = entities.repuestos_solicitados.findIndex(
+                    e => e.nombre.toLowerCase().trim() === nuevoNombre
+                );
+                if (exactIdx === -1) {
                     entities.repuestos_solicitados.push(nuevo);
-                    existingNames.add(nuevo.nombre.toLowerCase());
                 }
             });
             delete nuevasEntidades.repuestos_solicitados;
