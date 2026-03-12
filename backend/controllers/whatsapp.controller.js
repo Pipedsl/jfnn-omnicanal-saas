@@ -64,9 +64,9 @@ const receiveMessage = async (req, res) => {
         }
 
         // ═══════════════════════════════════════════════════════
-        // FLUJO ESPECIAL: Imagen en estado CONFIRMANDO_COMPRA = Comprobante de pago
+        // FLUJO ESPECIAL: Imagen en estado CONFIRMANDO_COMPRA o ESPERANDO_COMPROBANTE = Comprobante de pago
         // ═══════════════════════════════════════════════════════
-        if (hasImage && session.estado === sessionsService.STATES.CONFIRMANDO_COMPRA) {
+        if (hasImage && (session.estado === sessionsService.STATES.CONFIRMANDO_COMPRA || session.estado === sessionsService.STATES.ESPERANDO_COMPROBANTE)) {
             const mediaId = message.image.id;
             console.log(`[P1] 🧠 Comprobante de pago detectado de ${customerPhone}. Procesando...`);
 
@@ -138,7 +138,7 @@ const receiveMessage = async (req, res) => {
         // ═══════════════════════════════════════════════════════
 
         // Manejo de re-engage en estados intermedios (sin venta finalizada)
-        const intermediateHoldStates = [sessionsService.STATES.CICLO_COMPLETO, sessionsService.STATES.PAGO_VERIFICADO];
+        const intermediateHoldStates = [sessionsService.STATES.CICLO_COMPLETO, sessionsService.STATES.PAGO_VERIFICADO, sessionsService.STATES.ESPERANDO_COMPROBANTE];
 
         if (intermediateHoldStates.includes(session.estado)) {
             const lowerText = userText.toLowerCase();
@@ -196,11 +196,20 @@ const receiveMessage = async (req, res) => {
                 finalMessage = "Perfecto, recibí toda la información. Un asesor revisará el stock ahora mismo y le enviará los precios por este chat en unos minutos. ¡Muchas gracias!";
                 printShadowQuote(customerPhone, session.entidades);
             }
-        } else if (session.estado === sessionsService.STATES.CONFIRMANDO_COMPRA) {
+        } else if (session.estado === sessionsService.STATES.CONFIRMANDO_COMPRA || session.estado === sessionsService.STATES.ESPERANDO_COMPROBANTE) {
             const e = session.entidades;
             if (e.metodo_pago && e.metodo_entrega && (e.tipo_documento === 'boleta' || (e.tipo_documento === 'factura' && e.datos_factura.rut))) {
-                await sessionsService.setEstado(customerPhone, 'CICLO_COMPLETO');
-                console.log(`[Venta] Ciclo de cierre completado para ${customerPhone}`);
+                if (e.metodo_pago === 'online') {
+                    // Si el pago es online, cambiar a ESPERANDO_COMPROBANTE inmediatamente para que Gemini no repita la pregunta
+                    if (session.estado !== sessionsService.STATES.ESPERANDO_COMPROBANTE) {
+                        await sessionsService.setEstado(customerPhone, 'ESPERANDO_COMPROBANTE');
+                        console.log(`[Venta] Cambiado a ESPERANDO_COMPROBANTE para ${customerPhone}`);
+                    }
+                } else {
+                    // Si el pago es en el local, sí pasamos a CICLO_COMPLETO
+                    await sessionsService.setEstado(customerPhone, 'CICLO_COMPLETO');
+                    console.log(`[Venta] Ciclo de cierre completado para ${customerPhone} (Pago presencial)`);
+                }
             }
         }
 

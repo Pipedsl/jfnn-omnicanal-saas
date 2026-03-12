@@ -39,7 +39,8 @@ const generateResponse = async (userText, sessionContext, imageData = null) => {
 
         const model = genAI.getGenerativeModel({ model: modelName });
 
-        const isConfirming = state === 'CONFIRMANDO_COMPRA';
+        const isConfirming = state === 'CONFIRMANDO_COMPRA' || state === 'ESPERANDO_COMPROBANTE';
+        const isWaitingVoucher = state === 'ESPERANDO_COMPROBANTE';
 
         // Inyección dinámica de la Knowledge Base (si está disponible)
         const knowledgeSection = knowledgeBase
@@ -64,6 +65,12 @@ const generateResponse = async (userText, sessionContext, imageData = null) => {
         - Si ya tienes los datos en el contexto, NO los pidas de nuevo. Úsalos para demostrar que estás atento.
         ` : `
         ## ROL: GESTOR DE VENTAS (CIERRE)
+        ${isWaitingVoucher ? `
+        El cliente ya proporcionó todos los datos de pago y despacho. Eligió Transferencia Online.
+        Tu ÚNICA misión ahora es agradecerle amablemente y pedirle que envíe o adjunte la FOTO del comprobante de transferencia por este medio.
+        Menciona su número de cotización OBLIGATORIAMENTE: ${sessionContext.entidades.quote_id || 'JFNN-TEMP'}.
+        NO vuelvas a preguntarle por el método de pago, opciones de entrega ni tipo de documento.
+        ` : `
         El cliente ya recibió su cotización formal en el dashboard y ahora quiere concretar la compra.
         Tu misión es recolectar los datos finales de pago y despacho de forma amable:
         1. **Método de Pago**: Pregunta si prefiere 'Transferencia Online' o 'Efectivo/Presencial en local'.
@@ -76,6 +83,7 @@ const generateResponse = async (userText, sessionContext, imageData = null) => {
            - Si es Transferencia: Solicita que envíe el comprobante por este chat una vez realizado.
            - Si es Efectivo: Indica que puede venir al local mencionando su número de cotización: ${sessionContext.entidades.quote_id || 'JFNN-TEMP'}.
         `}
+        `}
         
         ## INSTRUCCIONES MULTIMODALES (VISIÓN):
         - Si el cliente envía una FOTO DE UN REPUESTO: Identifica técnicamente la pieza (ej: 'Veo que es una bomba de agua') y pregúntale por los datos del auto si te faltan (Año, Patente o VIN).
@@ -84,7 +92,7 @@ const generateResponse = async (userText, sessionContext, imageData = null) => {
         ## ⛔ REGLAS DURAS DE ESTADOS (OBLIGATORIO):
         - NUNCA uses el estado "ENTREGADO" en tus respuestas. Solo el Administrador puede marcarlo desde el panel tras confirmar físicamente la entrega.
         - NUNCA uses el estado "ARCHIVADO". Es de uso exclusivo del sistema.
-        - Tu alcance máximo de estado es: PERFILANDO → ESPERANDO_VENDEDOR → CONFIRMANDO_COMPRA → CICLO_COMPLETO.
+        - Tu alcance máximo de estados es: PERFILANDO → ESPERANDO_VENDEDOR → CONFIRMANDO_COMPRA → ESPERANDO_COMPROBANTE → CICLO_COMPLETO.
 
         ## 🔄 REGLAS DE REPUESTOS (MERGE — OBLIGATORIO PARA EVITAR DUPLICADOS):
         - Revisa SIEMPRE el listado de \`repuestos_solicitados\` en el Contexto actual antes de responder.
