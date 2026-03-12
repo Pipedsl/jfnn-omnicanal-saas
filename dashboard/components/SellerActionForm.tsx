@@ -21,6 +21,7 @@ interface SellerActionFormProps {
 export default function SellerActionForm({ phone, items, onResponded }: SellerActionFormProps) {
     const [formItems, setFormItems] = useState<Item[]>([]);
     const [note, setNote] = useState("");
+    const [horarioEntrega, setHorarioEntrega] = useState("");
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
@@ -68,7 +69,8 @@ export default function SellerActionForm({ phone, items, onResponded }: SellerAc
             await axios.post("http://localhost:4000/api/dashboard/cotizaciones/responder", {
                 phone,
                 items: formItems,
-                note
+                note,
+                horario_entrega: horarioEntrega
             });
             onResponded();
         } catch (error) {
@@ -136,12 +138,22 @@ export default function SellerActionForm({ phone, items, onResponded }: SellerAc
                 })}
             </div>
 
-            <textarea
-                placeholder="Nota adicional (opcional)"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                className="w-full bg-neutral-950 border border-neutral-800 rounded-lg p-3 text-xs focus:outline-none focus:border-accent h-16 resize-none transition-all"
-            />
+            <div className="space-y-3 mt-4 pt-4 border-t border-white/5">
+                <input
+                    type="text"
+                    value={horarioEntrega}
+                    onChange={(e) => setHorarioEntrega(e.target.value)}
+                    placeholder="Logística (ej: Retiros hoy en 1 hr)"
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-lg py-2 px-3 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-accent transition-all"
+                />
+
+                <textarea
+                    placeholder="Nota adicional (opcional)"
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-lg p-3 text-xs focus:outline-none focus:border-accent h-16 resize-none transition-all"
+                />
+            </div>
 
             <button
                 type="submit"

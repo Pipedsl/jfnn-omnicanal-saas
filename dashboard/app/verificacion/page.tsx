@@ -16,12 +16,15 @@ interface PendingApproval {
         ano: string;
         patente: string;
         vin: string;
+        motor: string | null;
+        combustible: string | null;
     };
     repuestos: Record<string, unknown>[];
-    total_cotizacion: number;
-    metodo_entrega: string;
-    direccion_envio: string;
-    tipo_documento: string;
+    total_cotizacion: number | null;
+    metodo_entrega: string | null;
+    horario_entrega: string | null;
+    direccion_envio: string | null;
+    tipo_documento: string | null;
     comprobante_url: string | null;
     pago_pendiente: {
         monto: string | null;
@@ -222,6 +225,25 @@ export default function VerificacionPage() {
                                         <div className="flex justify-between">
                                             <span className="text-xs text-neutral-500">Nombre</span>
                                             <span className="text-xs font-medium">{selected.pago_pendiente?.nombre_origen || "No detectado"}</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2 pt-2 mt-4 border-t border-white/5">
+                                        <div className="flex justify-between">
+                                            <span className="text-xs text-neutral-500">Logística</span>
+                                            <span className="text-xs font-medium">{selected.metodo_entrega?.toUpperCase() || "N/A"} - {selected.horario_entrega || "A coordinar"}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-xs text-neutral-500">Vehículo</span>
+                                            <span className="text-xs font-medium">{selected.vehiculo?.marca_modelo || "N/A"} ({selected.vehiculo?.ano || "N/A"})</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-xs text-neutral-500">Motor</span>
+                                            <span className="text-xs font-medium">{selected.vehiculo?.motor || "N/A"} • {selected.vehiculo?.combustible || "N/A"}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-xs text-neutral-500">VIN / PATENTE</span>
+                                            <span className="text-xs font-medium uppercase">{selected.vehiculo?.vin || selected.vehiculo?.patente || "N/A"}</span>
                                         </div>
                                     </div>
                                 </div>

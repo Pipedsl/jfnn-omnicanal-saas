@@ -35,7 +35,7 @@ router.get('/cotizaciones/historial', async (req, res) => {
  */
 router.post('/cotizaciones/responder', async (req, res) => {
     try {
-        const { phone, items, note } = req.body;
+        const { phone, items, note, horario_entrega } = req.body;
 
         if (!phone || !items || !Array.isArray(items)) {
             return res.status(400).json({ error: 'Faltan campos obligatorios' });
@@ -76,10 +76,11 @@ router.post('/cotizaciones/responder', async (req, res) => {
 
         await whatsappService.sendTextMessage(phone, message);
 
-        // Actualizar sesión: Guardar ID de cotización, total, y pasar al flujo de cierre
+        // Actualizar sesión: Guardar ID de cotización, total, horario y pasar al flujo de cierre
         await sessionsService.updateEntidades(phone, {
             quote_id: quoteId,
-            total_cotizacion: total
+            total_cotizacion: total,
+            horario_entrega: horario_entrega || null
         });
         await sessionsService.setEstado(phone, 'CONFIRMANDO_COMPRA');
 
@@ -153,11 +154,14 @@ router.get('/pending-approvals', async (req, res) => {
                     ano: e.ano,
                     patente: e.patente,
                     vin: e.vin,
+                    motor: e.motor || null,
+                    combustible: e.combustible || null,
                 },
                 repuestos: e.repuestos_solicitados || [],
                 total_cotizacion: totalCotizacion,
                 // Datos de logística
                 metodo_entrega: e.metodo_entrega || null,
+                horario_entrega: e.horario_entrega || null,
                 direccion_envio: e.direccion_envio || null,
                 tipo_documento: e.tipo_documento || null,
                 // Datos del comprobante (extraídos por IA)

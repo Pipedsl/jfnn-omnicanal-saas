@@ -15,6 +15,8 @@ interface Entidades {
     ano: string | null;
     patente: string | null;
     vin: string | null;
+    motor: string | null;
+    combustible: string | null;
     repuestos_solicitados: Repuesto[] | null;
     sintomas_reportados: string | null;
     metodo_pago: string | null;
@@ -126,10 +128,20 @@ export default function QuoteCard({ phone, estado, entidades, onResponded }: Quo
                         </div>
                         <p className="text-sm text-neutral-300 truncate">{entidades.patente || entidades.vin || "N/A"}</p>
                     </div>
+                    {(entidades.motor || entidades.combustible) && (
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-1.5 text-neutral-500">
+                                <span className="text-[10px] font-bold uppercase">Motor</span>
+                            </div>
+                            <p className="text-[10px] text-neutral-400">
+                                {entidades.motor || 'N/A'} | {entidades.combustible || 'N/A'}
+                            </p>
+                        </div>
+                    )}
 
                     {/* Nuevos datos de cierre si existen */}
                     {(entidades.metodo_pago || entidades.metodo_entrega) && (
-                        <div className="space-y-1">
+                        <div className="space-y-1 col-span-2">
                             <div className="flex items-center gap-1.5 text-neutral-500">
                                 <DollarSign size={14} className="text-green-500" />
                                 <span className="text-[10px] font-bold uppercase">Pago/Entrega</span>
