@@ -24,16 +24,28 @@ export default function SellerActionForm({ phone, items, onResponded }: SellerAc
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
-        // Inicializar el estado local asegurando que cada item mantenga su identidad
-        if (formItems.length === 0 && items.length > 0) {
-            setFormItems(items.map(item => ({
-                nombre: item.nombre,
-                precio: null,
-                codigo: "",
-                disponibilidad: "DISPONIBLE"
-            })));
-        }
-    }, [items, formItems.length]);
+        // Sincronizar el estado local con los items recibidos de la BD (útil para realtime appends)
+        setFormItems(prevItems => {
+            // Si hay el mismo número de items, no modificamos los ya editados
+            if (prevItems.length === items.length) return prevItems;
+
+            // Conservamos los existentes y agregamos los nuevos inicializados
+            const synced = items.map((item, index) => {
+                if (prevItems[index]) {
+                    // Si ya existía, conservamos su precio, codigo, etc
+                    return { ...prevItems[index], nombre: item.nombre };
+                }
+                // Si es nuevo, lo inicializamos
+                return {
+                    nombre: item.nombre,
+                    precio: null,
+                    codigo: "",
+                    disponibilidad: "DISPONIBLE" as "DISPONIBLE" | "SIN_STOCK" | "POR_ENCARGO"
+                };
+            });
+            return synced;
+        });
+    }, [items]);
 
     const handleItemChange = (index: number, field: keyof Item, value: string | number | null) => {
         setFormItems(prevItems => {

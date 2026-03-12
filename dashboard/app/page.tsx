@@ -19,6 +19,8 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState("pendientes"); // "pendientes" | "historial"
   const [filter, setFilter] = useState("todos");
+  const [realtimePulse, setRealtimePulse] = useState<number>(0);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Estado para Métrica
   const [metrics, setMetrics] = useState({
@@ -63,28 +65,34 @@ export default function Home() {
       console.error("Error fetching quotes & metrics:", error);
     } finally {
       setLoading(false);
+      setIsSyncing(true);
+      setTimeout(() => setIsSyncing(false), 2000); // El indicador visual dura 2s
     }
   };
 
   useEffect(() => {
     fetchQuotesAndMetrics("useEffect[view]");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view]);
+  }, [view, realtimePulse]);
 
   useEffect(() => {
-    fetchQuotesAndMetrics("useEffect[]_mount");
-
     const channel = supabase
       .channel('schema-db-changes')
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'user_sessions' },
-        (payload) => fetchQuotesAndMetrics(`realtime_user_sessions: ${payload.eventType}`)
+        (payload) => {
+          console.log(`[Socket] Evento user_sessions: ${payload.eventType}`);
+          setRealtimePulse(Date.now());
+        }
       )
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'pedidos' },
-        (payload) => fetchQuotesAndMetrics(`realtime_pedidos: ${payload.eventType}`)
+        (payload) => {
+          console.log(`[Socket] Evento pedidos: ${payload.eventType}`);
+          setRealtimePulse(Date.now());
+        }
       )
       .subscribe();
 
@@ -111,6 +119,14 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-4">
+            {/* Indicador de Actividad del Socket */}
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all duration-300 ${isSyncing ? 'bg-green-500/10 border-green-500/30' : 'bg-white/5 border-white/10'}`}>
+              <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-green-500 animate-pulse' : 'bg-neutral-600'}`}></div>
+              <span className={`text-[10px] font-bold uppercase tracking-wider ${isSyncing ? 'text-green-500' : 'text-neutral-500'}`}>
+                {isSyncing ? 'Sincronizando' : 'Socket OK'}
+              </span>
+            </div>
+
             <button
               onClick={() => fetchQuotesAndMetrics("Boton_Actualizar_Manual")}
               className="p-2 hover:bg-neutral-800 rounded-lg text-neutral-400 transition-colors"
