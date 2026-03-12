@@ -8,6 +8,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
 interface Quote {
+  id: string;
   phone: string;
   estado: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -83,6 +84,18 @@ export default function Home() {
         { event: '*', schema: 'public', table: 'user_sessions' },
         (payload) => {
           console.log(`[Socket] Evento user_sessions: ${payload.eventType}`);
+          if (payload.new) {
+            const newItem = payload.new as any;
+            setQuotes(prev => {
+              const exists = prev.some(q => q.id === newItem.id || q.phone === newItem.phone);
+              if (exists) {
+                return prev.map(q => (q.id === newItem.id || q.phone === newItem.phone) ? newItem : q);
+              } else {
+                return [newItem, ...prev];
+              }
+            });
+          }
+          // Llamamos al pulse para actualizar métricas en background
           setRealtimePulse(Date.now());
         }
       )
@@ -249,10 +262,9 @@ export default function Home() {
               {quotes
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 .filter((q: any) => filter === 'todos' || q.estado === filter)
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 .map((quote: any) => (
                   <QuoteCard
-                    key={quote.phone}
+                    key={quote.id || quote.phone}
                     phone={quote.phone}
                     estado={quote.estado}
                     entidades={quote.entidades}

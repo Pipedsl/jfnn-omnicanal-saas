@@ -194,7 +194,7 @@ const getAllPendingSessions = async () => {
             .from('user_sessions')
             .select('*')
             .in('estado', activeStates)
-            .order('ultimo_mensaje', { ascending: false });
+            .order('updated_at', { ascending: false });
 
         if (error) throw error;
         return data;
@@ -228,15 +228,17 @@ const getHistoricalSessions = async () => {
 
         // 3. Mapear pedidos al formato esperado por el Frontend (interfaz Quote)
         const mappedArchived = archivedData.map(p => ({
+            id: p.id,
             phone: p.phone,
             estado: p.estado_final === 'ENTREGADO' ? 'ARCHIVADO' : p.estado_final,
             entidades: p.entidades_completas,
-            ultimo_mensaje: p.archivado_en
+            ultimo_mensaje: p.archivado_en,
+            updated_at: p.created_at || p.archivado_en
         }));
 
         // 4. Combinar y ordenar por fecha descendente
         const combined = [...(activeData || []), ...mappedArchived];
-        combined.sort((a, b) => new Date(b.ultimo_mensaje) - new Date(a.ultimo_mensaje));
+        combined.sort((a, b) => new Date(b.updated_at || b.ultimo_mensaje) - new Date(a.updated_at || a.ultimo_mensaje));
 
         return combined;
     } catch (err) {
