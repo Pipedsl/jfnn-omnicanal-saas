@@ -114,6 +114,14 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Polling de seguridad cada 30s como fallback si el WebSocket tiene latencia
+  useEffect(() => {
+    const fallback = setInterval(() => {
+      fetchRef.current("Fallback_Polling_30s");
+    }, 30000);
+    return () => clearInterval(fallback);
+  }, []);
+
   const stats = [
     { label: "Cotizaciones Activas", value: metrics.cotizacionesHoy.toString(), icon: <Target className="text-blue-500" size={16} />, trend: "Live" },
     { label: "Ahorro de Tiempo IA", value: `${metrics.ahorroHoras} hrs`, icon: <Zap className="text-yellow-500" size={16} />, trend: "Automatizado" },
