@@ -195,7 +195,7 @@ const getAllPendingSessions = async () => {
             .from('user_sessions')
             .select('*')
             .in('estado', activeStates)
-            .order('updated_at', { ascending: false });
+            .order('ultimo_mensaje', { ascending: false });
 
         if (error) throw error;
         return data;
