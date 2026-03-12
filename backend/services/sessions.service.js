@@ -114,12 +114,19 @@ const updateEntidades = async (phone, nuevasEntidades) => {
                 });
 
                 if (refinedIdx !== -1) {
-                    // Actualizar el ítem existente conservando precio si ya tenía
+                    // Actualizar el ítem existente conservando el nombre más largo/específico
                     const viejo = entities.repuestos_solicitados[refinedIdx];
-                    console.log(`[Session] 🔀 MERGE: "${viejo.nombre}" → "${nuevo.nombre}"`);
+                    const nuevoNombreStr = nuevo.nombre;
+                    const viejoNombreStr = viejo.nombre;
+
+                    // Si el nuevo nombre es más corto, mantenemos el viejo (más específico)
+                    const nombreFinal = nuevoNombreStr.length >= viejoNombreStr.length ? nuevoNombreStr : viejoNombreStr;
+
+                    console.log(`[Session] 🔀 MERGE: "${viejoNombreStr}" + "${nuevoNombreStr}" → "${nombreFinal}"`);
+
                     entities.repuestos_solicitados[refinedIdx] = {
                         ...viejo,
-                        nombre: nuevo.nombre, // Usar el nombre más específico
+                        nombre: nombreFinal,
                         estado: nuevo.estado || viejo.estado,
                         precio: nuevo.precio ?? viejo.precio,
                     };
