@@ -154,7 +154,8 @@ const receiveMessage = async (req, res) => {
         // Guard: si está ESPERANDO_VENDEDOR, no interrumpir (el vendedor debe responder primero)
         if (session.estado === sessionsService.STATES.ESPERANDO_VENDEDOR) {
             const lowerText = userText.toLowerCase();
-            const wantsMoreFromWaitingState = lowerText.includes("cotizar") || lowerText.includes("necesito") || lowerText.includes("quiero") || lowerText.includes("también") || lowerText.includes("tambie");
+            const wantsMoreFromWaitingState = lowerText.includes("cotizar") || lowerText.includes("necesito") || lowerText.includes("quiero") || lowerText.includes("también") || lowerText.includes("tambie") || lowerText.includes("auto") || lowerText.includes("camioneta") || lowerText.includes("vehículo") || lowerText.includes("vehiculo") || lowerText.includes("patente") || lowerText.includes("corolla") || lowerText.includes("hilux") || lowerText.includes("yaris");
+            
             if (!wantsMoreFromWaitingState) {
                 console.log(`[Hand-off] Ignorando mensaje de ${customerPhone} (ESPERANDO_VENDEDOR)`);
                 return res.status(200).send('EVENT_RECEIVED');
