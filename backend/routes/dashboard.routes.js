@@ -76,11 +76,12 @@ router.post('/cotizaciones/responder', async (req, res) => {
 
         await whatsappService.sendTextMessage(phone, message);
 
-        // Actualizar sesión: Guardar ID de cotización, total, horario y pasar al flujo de cierre
+        // Actualizar sesión: Guardar ID de cotización, total, horario, precios y pasar al flujo de cierre
         await sessionsService.updateEntidades(phone, {
             quote_id: quoteId,
             total_cotizacion: total,
-            horario_entrega: horario_entrega || null
+            horario_entrega: horario_entrega || null,
+            repuestos_solicitados: items // Persitir los precios individuales editados por el vendedor
         });
         await sessionsService.setEstado(phone, 'CONFIRMANDO_COMPRA');
 
@@ -93,10 +94,17 @@ router.post('/cotizaciones/responder', async (req, res) => {
 
 /**
  * Actualizar estado de una cotización
+ * 
+ * NOTA IMPORTANTE DE FLUJO:
+ * - Cuando estado='ENTREGADO' + notify=true: el vendedor confirma la logística.
+ *   Se envía el mensaje personalizado (mensaje_logistica) al cliente.
+ *   Este es el ÚNICO punto donde el cliente recibe notificación post-pago.
+ * - Cuando estado='PAGO_VERIFICADO': no se notifica al cliente (lo hace el vendedor
+ *   desde su panel de logística, que dispara este mismo endpoint con ENTREGADO).
  */
 router.patch('/cotizaciones/estado', async (req, res) => {
     try {
-        const { phone, estado, notify } = req.body;
+        const { phone, estado, notify, mensaje_logistica } = req.body;
 
         if (!phone || !estado) {
             return res.status(400).json({ error: 'Faltan campos obligatorios' });
@@ -106,13 +114,25 @@ router.patch('/cotizaciones/estado', async (req, res) => {
 
         if (notify) {
             let message = "";
-            if (estado === 'PAGO_VERIFICADO') {
-                message = "✅ Hemos verificado su pago. Estamos preparando su pedido para despacho/retiro. ¡Muchas gracias!";
-            } else if (estado === 'ENTREGADO') {
-                message = "📦 Su pedido ha sido entregado/retirado con éxito. ¡Gracias por preferir JFNN! \n\n" +
-                    "⭐ Si le gustó nuestra atención, le agradeceríamos mucho una breve reseña aquí: https://g.page/r/CZX1WTZpPafHEBM/review \n" +
-                    "Nos ayuda mucho a seguir creciendo. ¡Que tenga un excelente día!";
+
+            if (estado === 'ENTREGADO') {
+                // El vendedor confirma la logística desde su panel.
+                // Si escribió un mensaje personalizado, se lo enviamos al cliente.
+                // Si no, usamos el mensaje genérico de entrega.
+                if (mensaje_logistica && mensaje_logistica.trim()) {
+                    message =
+                        `✅ *¡Su pago fue confirmado!* Gracias por su preferencia.\n\n` +
+                        `📦 *Información de despacho/retiro:*\n${mensaje_logistica.trim()}\n\n` +
+                        `¡Muchas gracias por preferir *Repuestos JFNN*! 🙌`;
+                } else {
+                    message =
+                        `✅ *¡Su pago fue verificado!* Estamos preparando su pedido.\n\n` +
+                        `📦 En breve le informaremos sobre el despacho o puede pasar a retirarlo a nuestro local.\n\n` +
+                        `¡Muchas gracias por preferir *Repuestos JFNN*! 🙌`;
+                }
             }
+            // NOTA: El estado PAGO_VERIFICADO NO notifica al cliente.
+            // La notificación la gestiona el vendedor al confirmar la logística (ENTREGADO).
 
             if (message) {
                 await whatsappService.sendTextMessage(phone, message);
@@ -126,21 +146,43 @@ router.patch('/cotizaciones/estado', async (req, res) => {
     }
 });
 
+
+/**
+ * Helper: Normaliza un precio a número entero limpio.
+ * Maneja strings con formato chileno ("8.500"), strings puros ("8500") y números.
+ * @param {any} precio
+ * @returns {number}
+ */
+function normalizarPrecio(precio) {
+    if (precio === null || precio === undefined || precio === '') return 0;
+    const limpio = String(precio).replace(/[^0-9]/g, '');
+    const parsed = parseInt(limpio, 10);
+    return isNaN(parsed) ? 0 : parsed;
+}
+
 /**
  * [P1] Obtener sesiones esperando aprobación manual del admin
  * GET /api/dashboard/pending-approvals
+ * 
+ * FIX BUG: Normalizamos los precios con `normalizarPrecio` para manejar
+ * strings con punto como separador de miles ("8.500" → 8500).
  */
 router.get('/pending-approvals', async (req, res) => {
     try {
         const sessions = await sessionsService.getPendingApprovalSessions();
 
-        // Transformar la respuesta para incluir solo los campos relevantes para el admin
         const formatted = sessions.map(s => {
             const e = s.entidades || {};
 
-            // Calcular total de la cotización sumando los repuestos con precio
-            const totalCotizacion = (e.repuestos_solicitados || []).reduce((acc, r) => {
-                return acc + (parseInt(r.precio) || 0);
+            // Normalizar precios de cada repuesto para garantizar que son números limpios
+            const repuestosNormalizados = (e.repuestos_solicitados || []).map(r => ({
+                ...r,
+                precio: normalizarPrecio(r.precio) || null
+            }));
+
+            // Calcular total usando los precios ya normalizados
+            const totalCotizacion = repuestosNormalizados.reduce((acc, r) => {
+                return acc + (r.precio || 0);
             }, 0);
 
             return {
@@ -148,7 +190,6 @@ router.get('/pending-approvals', async (req, res) => {
                 estado: s.estado,
                 ultimo_mensaje: s.ultimo_mensaje,
                 quote_id: e.quote_id || null,
-                // Datos del vehículo y repuestos
                 vehiculo: {
                     marca_modelo: e.marca_modelo,
                     ano: e.ano,
@@ -157,14 +198,13 @@ router.get('/pending-approvals', async (req, res) => {
                     motor: e.motor || null,
                     combustible: e.combustible || null,
                 },
-                repuestos: e.repuestos_solicitados || [],
+                // Retornamos repuestos con precios normalizados (números limpios)
+                repuestos: repuestosNormalizados,
                 total_cotizacion: totalCotizacion,
-                // Datos de logística
                 metodo_entrega: e.metodo_entrega || null,
                 horario_entrega: e.horario_entrega || null,
                 direccion_envio: e.direccion_envio || null,
                 tipo_documento: e.tipo_documento || null,
-                // Datos del comprobante (extraídos por IA)
                 comprobante_url: e.comprobante_url || null,
                 pago_pendiente: e.pago_pendiente || null,
             };
@@ -181,6 +221,14 @@ router.get('/pending-approvals', async (req, res) => {
  * [P1] Aprobar o rechazar un comprobante de pago
  * POST /api/dashboard/verify-payment
  * Body: { phone: string, accion: 'approve' | 'reject', nota_admin?: string }
+ * 
+ * ─── FLUJO CORRECTO (FIX BUG 3) ───────────────────────────────────────────
+ * APROBAR: Solo cambia el estado a PAGO_VERIFICADO. NO envía mensaje al cliente.
+ *   El cliente recibirá su notificación cuando el VENDEDOR confirme la logística
+ *   desde su panel (endpoint PATCH /cotizaciones/estado con estado=ENTREGADO).
+ * 
+ * RECHAZAR: Notifica al cliente para que reenvíe el comprobante.
+ * ──────────────────────────────────────────────────────────────────────────
  */
 router.post('/verify-payment', async (req, res) => {
     try {
@@ -202,27 +250,22 @@ router.post('/verify-payment', async (req, res) => {
 
         if (accion === 'approve') {
             // ─── APROBAR ──────────────────────────────────────────────
+            // Solo cambiamos el estado. El vendedor verá la card con estado PAGO_VERIFICADO
+            // y desde su panel de logística enviará el mensaje personalizado al cliente.
             await sessionsService.setEstado(phone, 'PAGO_VERIFICADO');
 
-            const mensajeAprobacion =
-                `✅ *¡Pago confirmado!* Su transferencia fue verificada exitosamente por nuestro equipo.\n\n` +
-                `📦 Estamos preparando su pedido. En breve le informaremos sobre los detalles del despacho/retiro.\n\n` +
-                `Número de cotización: *${session.entidades?.quote_id || 'JFNN-TEMP'}*\n` +
-                `¡Muchas gracias por su preferencia! 🙌`;
-
-            await whatsappService.sendTextMessage(phone, mensajeAprobacion);
-
-            console.log(`[Dashboard] ✅ Pago APROBADO para ${phone}${nota_admin ? ` | Nota: ${nota_admin}` : ''}`);
+            console.log(`[Dashboard] ✅ Pago APROBADO (admin) para ${phone}${nota_admin ? ` | Nota: ${nota_admin}` : ''}. Esperando confirmación de logística del vendedor.`);
             res.status(200).json({
                 success: true,
                 accion: 'approved',
                 nuevo_estado: 'PAGO_VERIFICADO',
+                mensaje: 'Pago aprobado. El vendedor deberá confirmar la logística para notificar al cliente.',
                 phone
             });
 
         } else if (accion === 'reject') {
             // ─── RECHAZAR ─────────────────────────────────────────────
-            // Regresa al cliente al estado de confirmación para que reenvíe el comprobante
+            // Al rechazar, notificamos al cliente para que reenvíe el comprobante.
             await sessionsService.setEstado(phone, 'CONFIRMANDO_COMPRA');
 
             const motivoRechazo = nota_admin
