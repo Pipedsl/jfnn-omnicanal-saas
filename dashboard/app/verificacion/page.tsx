@@ -100,9 +100,9 @@ export default function VerificacionPage() {
     };
 
     const formatCurrency = (val: number | string | null) => {
-        if (!val) return "No detectado";
+        if (val === null || val === undefined || val === "") return "$0";
         const num = typeof val === "string" ? parseInt(val.replace(/[^\d]/g, ""), 10) : val;
-        if (isNaN(num)) return String(val);
+        if (isNaN(num)) return "$0";
         return new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP" }).format(num);
     };
 
@@ -228,11 +228,23 @@ export default function VerificacionPage() {
                                         </div>
                                     </div>
 
-                                    <div className="space-y-2 pt-2 mt-4 border-t border-white/5">
-                                        <div className="flex justify-between">
+                                    <div className="space-y-2 pt-2 mt-4 border-t border-white/5 text-sm">
+                                        <div className="flex justify-between items-start">
                                             <span className="text-xs text-neutral-500">Logística</span>
-                                            <span className="text-xs font-medium">{selected.metodo_entrega?.toUpperCase() || "N/A"} - {selected.horario_entrega || "A coordinar"}</span>
+                                            <div className="text-right">
+                                                <span className="text-xs font-medium block">{selected.metodo_entrega?.toUpperCase() || "N/A"}</span>
+                                                <span className="text-[10px] text-neutral-400">{selected.horario_entrega || "Horario por coordinar"}</span>
+                                            </div>
                                         </div>
+                                        {selected.metodo_entrega === 'domicilio' && (
+                                            <div className="flex justify-between items-start">
+                                                <span className="text-xs text-neutral-500">Dirección</span>
+                                                <span className="text-xs font-medium text-accent max-w-[150px] text-right">
+                                                    {selected.direccion_envio || "⚠️ No proporcionada"}
+                                                </span>
+                                            </div>
+                                        )}
+
                                         <div className="flex justify-between">
                                             <span className="text-xs text-neutral-500">Vehículo</span>
                                             <span className="text-xs font-medium">{selected.vehiculo?.marca_modelo || "N/A"} ({selected.vehiculo?.ano || "N/A"})</span>
@@ -246,7 +258,19 @@ export default function VerificacionPage() {
                                             <span className="text-xs font-medium uppercase">{selected.vehiculo?.vin || selected.vehiculo?.patente || "N/A"}</span>
                                         </div>
                                     </div>
+                                    <div className="mt-4 pt-4 border-t border-white/5">
+                                        <p className="text-[10px] font-bold text-neutral-500 uppercase mb-2">Detalle de Productos</p>
+                                        <div className="space-y-2">
+                                            {selected.repuestos.map((r: any, idx: number) => (
+                                                <div key={idx} className="flex justify-between text-xs">
+                                                    <span className="text-neutral-400">{r.nombre}</span>
+                                                    <span className="font-mono">{formatCurrency(r.precio)}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
                                 </div>
+
 
                                 <div className="mt-6 space-y-3">
                                     <button

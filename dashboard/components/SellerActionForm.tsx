@@ -25,28 +25,27 @@ export default function SellerActionForm({ phone, items, onResponded }: SellerAc
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
-        // Sincronizar el estado local con los items recibidos de la BD (útil para realtime appends)
-        setFormItems(prevItems => {
-            // Si hay el mismo número de items, no modificamos los ya editados
-            if (prevItems.length === items.length) return prevItems;
+        // Sincronizar el estado local con los items recibidos de la BD
+        // Si venimos de un estado donde ya hay precios/códigos (Rectificación), los cargamos.
+        const synced = items.map((item) => {
+            let precioLimpio = item.precio;
+            // Si el precio viene como string con formato (ej: "8.500"), extraer solo números
+            if (typeof item.precio === 'string') {
+                const soloNumeros = item.precio.replace(/[^0-9]/g, '');
+                const parsed = parseInt(soloNumeros, 10);
+                precioLimpio = isNaN(parsed) ? null : parsed;
+            }
 
-            // Conservamos los existentes y agregamos los nuevos inicializados
-            const synced = items.map((item, index) => {
-                if (prevItems[index]) {
-                    // Si ya existía, conservamos su precio, codigo, etc
-                    return { ...prevItems[index], nombre: item.nombre };
-                }
-                // Si es nuevo, lo inicializamos
-                return {
-                    nombre: item.nombre,
-                    precio: null,
-                    codigo: "",
-                    disponibilidad: "DISPONIBLE" as "DISPONIBLE" | "SIN_STOCK" | "POR_ENCARGO"
-                };
-            });
-            return synced;
+            return {
+                nombre: item.nombre,
+                precio: precioLimpio || null, // Cargar precio limpio si hay
+                codigo: item.codigo || "",   // Cargar código existente si hay
+                disponibilidad: (item.disponibilidad as any) || "DISPONIBLE"
+            };
         });
+        setFormItems(synced);
     }, [items]);
+
 
     const handleItemChange = (index: number, field: keyof Item, value: string | number | null) => {
         setFormItems(prevItems => {
