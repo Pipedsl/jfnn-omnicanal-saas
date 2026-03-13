@@ -283,28 +283,16 @@ const getHistoricalSessions = async () => {
 
 /**
  * Limpia o reinicia una sesión de forma SEGURA.
- * Preserva los datos del vehículo (marca, año, patente, VIN).
- * Limpia: repuestos, pago, comprobante y datos de cierre.
+ * Reinicia TODOS los datos (incluyendo vehículo) para empezar desde cero.
  */
 const resetSession = async (phone) => {
     try {
-        const session = await getSession(phone);
-
-        const vehicleData = {
-            marca_modelo: session.entidades?.marca_modelo || null,
-            ano: session.entidades?.ano || null,
-            cilindraje: session.entidades?.cilindraje || null,
-            patente: session.entidades?.patente || null,
-            vin: session.entidades?.vin || null,
-        };
-
         const { data, error } = await supabase
             .from('user_sessions')
             .update({
                 estado: STATES.PERFILANDO,
                 entidades: {
-                    ...INITIAL_ENTITIES,
-                    ...vehicleData
+                    ...INITIAL_ENTITIES
                 },
                 ultimo_mensaje: new Date()
             })
@@ -313,7 +301,7 @@ const resetSession = async (phone) => {
             .single();
 
         if (error) throw error;
-        console.log(`[Sessions] ♻️  Sesión reseteada para ${phone}. Vehículo preservado: ${JSON.stringify(vehicleData)}`);
+        console.log(`[Sessions] ♻️  Sesión reseteada limpia para ${phone}. Listo para nueva cotización.`);
         return data;
     } catch (err) {
         console.error('[Sessions] ❌ Error en resetSession:', err.message);
