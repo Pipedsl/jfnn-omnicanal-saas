@@ -146,16 +146,17 @@ const processBufferedMessages = async (customerPhone) => {
             }
         }
 
-        // Guard: ESPERANDO_VENDEDOR
+        // Guard: ESPERANDO_VENDEDOR — HU-2: clasificación semántica (reemplaza keywords estáticas)
         if (session.estado === sessionsService.STATES.ESPERANDO_VENDEDOR) {
-            const lowerText = userText.toLowerCase();
-            const wantsMoreFromWaitingState = lowerText.includes("cotizar") || lowerText.includes("necesito") || lowerText.includes("quiero") || lowerText.includes("también") || lowerText.includes("tambie") || lowerText.includes("auto") || lowerText.includes("camioneta") || lowerText.includes("vehículo") || lowerText.includes("vehiculo") || lowerText.includes("patente") || lowerText.includes("corolla") || lowerText.includes("hilux") || lowerText.includes("yaris");
-            if (!wantsMoreFromWaitingState) {
-                console.log(`[Hand-off] Ignorando mensaje de ${customerPhone} (ESPERANDO_VENDEDOR)`);
+            const intentResult = await geminiService.classifyIntent(userText);
+            if (!intentResult.es_compra) {
+                console.log(`[Hand-off] Ignorando mensaje de ${customerPhone} (ESPERANDO_VENDEDOR, no es compra)`);
+                await whatsappService.sendTextMessage(customerPhone,
+                    '¡Hola! Estamos buscando los precios para ti, en unos minutos te enviamos la cotización completa. 🔍');
                 return;
             }
             session = await sessionsService.setEstado(customerPhone, sessionsService.STATES.PERFILANDO);
-            console.log(`[Session] ➕ Append de repuesto para ${customerPhone}. Volviendo a PERFILANDO conservando historial.`);
+            console.log(`[Session] ➕ Intención de compra detectada para ${customerPhone}. Volviendo a PERFILANDO.`);
         }
 
         console.log(`[Webhook] Enviando a Gemini mensaje final de ${customerPhone}: "${userText.replace(/\n/g, ' ')}"`);
@@ -181,6 +182,16 @@ const processBufferedMessages = async (customerPhone) => {
         }
 
         let finalMessage = aiJson.mensaje_cliente;
+
+        // HU-1: Remoción de repuesto solicitada por el cliente en CONFIRMANDO_COMPRA
+        if (
+            aiJson.accion === 'REMOVER_REPUESTO' &&
+            aiJson.repuesto_a_remover &&
+            (session.estado === sessionsService.STATES.CONFIRMANDO_COMPRA || session.estado === sessionsService.STATES.ESPERANDO_COMPROBANTE)
+        ) {
+            console.log(`[HU-1] Removiendo repuesto "${aiJson.repuesto_a_remover}" para ${customerPhone}`);
+            session = await sessionsService.removeRepuesto(customerPhone, aiJson.repuesto_a_remover);
+        }
 
         // 5. Lógica de transición de estados
         if (session && session.estado === sessionsService.STATES.PERFILANDO) {

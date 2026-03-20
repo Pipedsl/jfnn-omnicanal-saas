@@ -375,6 +375,47 @@ const setAgentePausado = async (phone, pausado) => {
     }
 };
 
+/**
+ * HU-1: Elimina un repuesto del array repuestos_solicitados y recalcula el total.
+ * Usa fuzzy match case-insensitive (sin tildes) para encontrar el ítem correcto.
+ * @param {string} phone
+ * @param {string} nombreRepuesto - Nombre del repuesto a remover (tal como lo detectó Gemini)
+ */
+const removeRepuesto = async (phone, nombreRepuesto) => {
+    try {
+        const session = await getSession(phone);
+        const entidades = { ...session.entidades };
+
+        const normalize = (str) => (str || '').toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+        const nombreNorm = normalize(nombreRepuesto);
+
+        const antes = entidades.repuestos_solicitados?.length || 0;
+        entidades.repuestos_solicitados = (entidades.repuestos_solicitados || []).filter(r => {
+            const rNorm = normalize(r.nombre);
+            return !rNorm.includes(nombreNorm) && !nombreNorm.includes(rNorm);
+        });
+        const despues = entidades.repuestos_solicitados.length;
+
+        // Recalcular total con los ítems restantes
+        const nuevoTotal = entidades.repuestos_solicitados.reduce((sum, r) => sum + (r.precio || 0), 0);
+        entidades.total_cotizacion = nuevoTotal;
+
+        const { rows } = await db.query(
+            `UPDATE user_sessions SET entidades = $1 WHERE phone = $2 RETURNING *`,
+            [JSON.stringify(entidades), phone]
+        );
+
+        sessionCache.delete(phone);
+        console.log(`[Sessions] 🗑️ Repuesto "${nombreRepuesto}" removido para ${phone}. Antes: ${antes}, Después: ${despues}. Total nuevo: $${nuevoTotal}`);
+        return rowToSession(rows[0]);
+    } catch (err) {
+        console.error('[Sessions] ❌ Error en removeRepuesto:', err.message);
+        return null;
+    }
+};
+
 module.exports = {
     getSession,
     updateEntidades,
@@ -386,5 +427,6 @@ module.exports = {
     saveVoucherData,
     getPendingApprovalSessions,
     setAgentePausado,
+    removeRepuesto,
     STATES
 };

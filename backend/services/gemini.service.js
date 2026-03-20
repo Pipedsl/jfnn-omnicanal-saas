@@ -81,7 +81,8 @@ const generateResponse = async (userText, sessionContext, imageData = null) => {
         3. **Documento**: Pregunta si requiere 'Boleta' o 'Factura'.
            - Si es Factura: Pide RUT de la empresa, Razón Social y Giro.
         4. **Nombre (CRÍTICO)**: Si el cliente elige 'Efectivo/Presencial' o 'Retiro en local' y NO conoces su nombre (${sessionContext.entidades.nombre_cliente ? 'Ya lo sé: ' + sessionContext.entidades.nombre_cliente : 'AÚN NO LO SÉ'}), solicítalo amablemente: "Para agilizar su atención al llegar, ¿podría confirmarme su nombre completo?".
-        5. **Instrucciones finales**: 
+        5. **ELIMINAR REPUESTO (HU-1)**: Si el cliente indica que NO quiere llevar algún ítem (ej: 'no voy a llevar las bujías', 'sácame el filtro', 'quita ese repuesto'), confirma la eliminación y muestra el nuevo subtotal. Incluye en el JSON: { accion: 'REMOVER_REPUESTO', repuesto_a_remover: '<nombre exacto del repuesto>' }.
+        6. **Instrucciones finales**: 
            - Si es Transferencia: Solicita que envíe el comprobante por este chat una vez realizado.
            - Si es Efectivo: Indica que puede venir al local mencionando su número de cotización: ${sessionContext.entidades.quote_id || 'JFNN-TEMP'}.
         `}
@@ -127,7 +128,12 @@ const generateResponse = async (userText, sessionContext, imageData = null) => {
                 "tipo_documento": "boleta | factura | null",
                 "datos_factura": { "rut": null, "razon_social": null, "giro": null }
             }
-        }`;
+        }
+        
+        CAMPO 'accion' (OPCIONAL, solo cuando aplique):
+        - Si el cliente quiere ELIMINAR un repuesto: { accion: 'REMOVER_REPUESTO', repuesto_a_remover: '<nombre exacto>' }
+        - En cualquier otro caso: omitir el campo 'accion' completamente o poner null.
+        `;
 
         const parts = [{ text: systemPrompt + "\n\nMensaje del cliente: " + safeText }];
 
@@ -227,7 +233,37 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura exacta:
     }
 };
 
+/**
+ * HU-2: Clasificador semántico liviano para el estado ESPERANDO_VENDEDOR.
+ * Determina si el mensaje implica intención de compra/cotización.
+ * @param {string} text
+ * @returns {Promise<{es_compra: boolean}>}
+ */
+const classifyIntent = async (text) => {
+    try {
+        const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+        const intentPrompt = `Analiza el siguiente mensaje de un cliente en una tienda de repuestos automotrices chilena.
+Responde SOLO con JSON válido: { "es_compra": boolean }
+- es_compra: true si el cliente quiere cotizar, agregar o preguntar por algún repuesto, producto o vehículo.
+- es_compra: false si es consulta de estado ("¿ya llegaron?", "¿cuánto demora?"), saludo o mensaje general.
+Mensaje: "${text}"`;
+
+        const result = await model.generateContent({
+            contents: [{ role: "user", parts: [{ text: intentPrompt }] }],
+            generationConfig: { response_mime_type: "application/json" }
+        });
+
+        const parsed = JSON.parse(result.response.text());
+        console.log(`[Gemini] 🧠 classifyIntent "${text.slice(0, 40)}...": es_compra=${parsed.es_compra}`);
+        return parsed;
+    } catch (err) {
+        console.error('[Gemini] ❌ Error en classifyIntent:', err.message);
+        return { es_compra: true }; // Fallback permisivo: mejor responder que ignorar
+    }
+};
+
 module.exports = {
     generateResponse,
-    extractVoucherData
+    extractVoucherData,
+    classifyIntent
 };
