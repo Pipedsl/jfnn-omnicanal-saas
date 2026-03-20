@@ -59,6 +59,12 @@ const processBufferedMessages = async (customerPhone) => {
         // 1. Obtener o crear sesión
         let session = await sessionsService.getSession(customerPhone);
 
+        // 1.5 Verificar modo pausa (HU-3)
+        if (session.entidades?.agente_pausado === true) {
+            console.log(`[Pausa] 🔇 Agente pausado para ${customerPhone}. Ignorando mensaje.`);
+            return;
+        }
+
         // ═══════════════════════════════════════════════════════
         // ESTADO: ESPERANDO_APROBACION_ADMIN
         // ═══════════════════════════════════════════════════════
@@ -190,8 +196,17 @@ const processBufferedMessages = async (customerPhone) => {
                         console.log(`[Venta] Cambiado a ESPERANDO_COMPROBANTE para ${customerPhone}`);
                     }
                 } else {
-                    await sessionsService.setEstado(customerPhone, 'CICLO_COMPLETO');
-                    console.log(`[Venta] Ciclo de cierre completado para ${customerPhone} (Pago presencial)`);
+                    const quoteId = session.entidades.quote_id || 'SIN-NÚMERO';
+                    const nombreCliente = session.entidades.nombre_cliente;
+                    
+                    if (nombreCliente) {
+                        finalMessage = `¡Muchas gracias, ${nombreCliente}! 🎉 Su pedido está confirmado.\n\nAl acercarse a nuestra tienda, puede identificarse con:\n• Código de cotización: *${quoteId}*\n• O simplemente con su nombre: *${nombreCliente}*\n\n¡Lo atenderemos de inmediato! 🔧`;
+                        await sessionsService.setEstado(customerPhone, 'CICLO_COMPLETO');
+                        console.log(`[Venta] Ciclo de cierre completado para ${customerPhone} (Pago presencial)`);
+                    } else {
+                        finalMessage = `¡Perfecto! 🎉 Su pedido está confirmado.\nPara agilizar su atención al llegar a la tienda, ¿podría decirme su nombre completo?`;
+                        // Mantenemos el estado actual para que en el próximo mensaje Gemini nos extraiga el nombre
+                    }
                 }
             }
         }

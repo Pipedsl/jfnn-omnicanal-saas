@@ -35,6 +35,8 @@ const INITIAL_ENTITIES = {
     tipo_documento: null,
     total_cotizacion: null,
     quote_id: null,
+    nombre_cliente: null,
+    agente_pausado: false,
     comprobante_url: null,
     datos_extraidos: null,
     datos_factura: {
@@ -42,9 +44,7 @@ const INITIAL_ENTITIES = {
         razon_social: null,
         giro: null
     },
-    quote_id: null,
     // Campos de comprobante de pago (poblados en ESPERANDO_APROBACION_ADMIN)
-    comprobante_url: null,
     pago_pendiente: {
         monto: null,
         banco_origen: null,
@@ -464,6 +464,32 @@ const getPendingApprovalSessions = async () => {
     }
 };
 
+/**
+ * Activa o desactiva el modo pausa del agente para un cliente específico.
+ * @param {string} phone Teléfono del cliente
+ * @param {boolean} pausado True si el bot no debe responder
+ */
+const setAgentePausado = async (phone, pausado) => {
+    try {
+        const session = await getSession(phone);
+        const entidades = { ...session.entidades, agente_pausado: pausado };
+
+        const { data, error } = await supabase
+            .from('user_sessions')
+            .update({ entidades })
+            .eq('phone', phone)
+            .select()
+            .single();
+
+        if (error) throw error;
+        console.log(`[Sessions] ⏸️ Agente pausado actualizado a ${pausado} para ${phone}`);
+        return data;
+    } catch (err) {
+        console.error('[Sessions] ❌ Error en setAgentePausado:', err.message);
+        return null;
+    }
+};
+
 module.exports = {
     getSession,
     updateEntidades,
@@ -474,5 +500,6 @@ module.exports = {
     getHistoricalSessions,
     saveVoucherData,
     getPendingApprovalSessions,
+    setAgentePausado,
     STATES
 };

@@ -157,9 +157,18 @@ router.patch('/cotizaciones/estado', async (req, res) => {
             }
             // NOTA: El estado PAGO_VERIFICADO NO notifica al cliente.
             // La notificación la gestiona el vendedor al confirmar la logística (ENTREGADO).
-
             if (message) {
                 await whatsappService.sendTextMessage(phone, message);
+                
+                // HU-6: Solicitud de reseña en Google Maps
+                if (estado === 'ENTREGADO') {
+                    // Pequeño delay de 5s para que no se envíe al mismo momento exacto
+                    setTimeout(() => {
+                        whatsappService.sendGoogleReviewRequest(phone).catch(err => {
+                            console.error('Error enviando solicitud de reseña Google:', err);
+                        });
+                    }, 5000);
+                }
             }
         }
 
@@ -467,6 +476,30 @@ router.post('/encargos/recibido', async (req, res) => {
         res.status(200).json({ success: true, estado: nuevoEstado, saldo: saldoPendiente });
     } catch (error) {
         console.error('Error en recibir encargo:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+/**
+ * Activar o desactivar el agente IA para una sesión específica (HU-3)
+ */
+router.patch('/sessions/:phone/pausa', async (req, res) => {
+    try {
+        const { phone } = req.params;
+        const { pausado } = req.body;
+
+        if (typeof pausado !== 'boolean') {
+            return res.status(400).json({ error: 'El campo "pausado" debe ser un booleano.' });
+        }
+
+        const data = await sessionsService.setAgentePausado(phone, pausado);
+        if (!data) {
+            return res.status(404).json({ error: 'Sesión no encontrada o error al actualizar.' });
+        }
+
+        res.status(200).json({ success: true, pausado });
+    } catch (error) {
+        console.error('Error al pausar agente:', error);
         res.status(500).json({ error: 'Error interno' });
     }
 });

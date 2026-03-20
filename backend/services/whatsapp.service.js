@@ -94,7 +94,22 @@ const downloadMedia = async (mediaId) => {
     }
 };
 
+/**
+ * Solicita una reseña en Google Maps al cliente (HU-6)
+ * @param {string} phone Número de teléfono del cliente
+ */
+const sendGoogleReviewRequest = async (phone) => {
+    const reviewUrl = process.env.GOOGLE_REVIEW_URL;
+    if (!reviewUrl) {
+        console.warn('[Review] ⚠️ GOOGLE_REVIEW_URL no configurada en variables de entorno.');
+        return;
+    }
+    const mensaje = `¡Muchas gracias por su compra en Repuestos JFNN! 🙏\n\nSi quedó satisfecho con nuestro servicio, nos ayudaría muchísimo si nos deja una reseña en Google. ¡Solo toma un minuto! 🌟\n👉 ${reviewUrl}`;
+    return sendTextMessage(phone, mensaje);
+};
+
 module.exports = {
     sendTextMessage,
-    downloadMedia
+    downloadMedia,
+    sendGoogleReviewRequest
 };
