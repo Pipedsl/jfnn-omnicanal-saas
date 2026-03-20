@@ -16,6 +16,10 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Servir archivos estáticos (comprobantes de pago locales HUs)
+const path = require('path');
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 // Registro de rutas
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/dashboard', dashboardRoutes);

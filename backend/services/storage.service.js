@@ -1,48 +1,46 @@
-const supabase = require('../config/supabase');
+const fs = require('fs');
+const path = require('path');
 
 /**
- * Servicio de almacenamiento para subir archivos multimedia a Supabase Storage.
- * Utilizado para guardar comprobantes de pago enviados por clientes vía WhatsApp.
+ * @devops-cloud + @backend-node — BUG-1 (P0) Sprint 3
+ * Servicio de almacenamiento LOCAL para comprobantes de pago.
+ * Migrado desde Supabase Storage → disco local en /uploads/comprobantes/
+ * Los archivos se sirven vía Express estático si se necesita visualización futura.
  */
 
+// Directorio raíz de uploads (relativo al proceso, siempre apunta a backend/uploads)
+const UPLOADS_DIR = path.join(__dirname, '..', 'uploads', 'comprobantes');
+
+// Crear el directorio si no existe al cargar el módulo
+if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+    console.log(`[Storage] 📁 Directorio de comprobantes creado: ${UPLOADS_DIR}`);
+}
+
 /**
- * Sube un buffer de imagen al bucket 'comprobantes' de Supabase Storage.
- * @param {string} phone - Número de teléfono del cliente (usado como prefijo del nombre del archivo)
+ * Guarda el buffer de imagen en disco local como comprobante de pago.
+ * @param {string} phone - Número de teléfono del cliente
  * @param {Buffer} imageBuffer - Buffer binario de la imagen
- * @param {string} mimeType - Tipo MIME de la imagen (ej: 'image/jpeg')
- * @returns {Promise<string|null>} URL pública del archivo subido, o null en caso de error
+ * @param {string} mimeType - Tipo MIME (ej: 'image/jpeg')
+ * @returns {Promise<string|null>} Ruta relativa del archivo guardado, o null en caso de error
  */
 const uploadVoucher = async (phone, imageBuffer, mimeType) => {
     try {
-        const extension = mimeType?.split('/')?.[1] || 'jpeg';
+        const extension = mimeType?.split('/')?.[1]?.replace('jpeg', 'jpg') || 'jpg';
         const sanitizedPhone = phone.replace(/[^0-9]/g, '');
         const fileName = `${sanitizedPhone}_${Date.now()}.${extension}`;
-        const filePath = `vouchers/${fileName}`;
+        const fullPath = path.join(UPLOADS_DIR, fileName);
 
-        // 1. Subir a Supabase Storage en el bucket 'comprobantes'
-        const { error: uploadError } = await supabase.storage
-            .from('comprobantes')
-            .upload(filePath, imageBuffer, {
-                contentType: mimeType,
-                upsert: false
-            });
+        // Guardar en disco local
+        fs.writeFileSync(fullPath, imageBuffer);
 
-        if (uploadError) {
-            console.error('[Storage] ❌ Error subiendo voucher a Supabase:', uploadError.message);
-            return null;
-        }
-
-        // 2. Construir la URL pública del archivo recién subido
-        const { data: urlData } = supabase.storage
-            .from('comprobantes')
-            .getPublicUrl(filePath);
-
-        const publicUrl = urlData?.publicUrl;
-        console.log(`[Storage] ✅ Voucher subido exitosamente: ${publicUrl}`);
-        return publicUrl;
+        // Retornar ruta relativa (usada como URL local para el dashboard)
+        const relativePath = `/uploads/comprobantes/${fileName}`;
+        console.log(`[Storage] ✅ Voucher guardado localmente: ${relativePath}`);
+        return relativePath;
 
     } catch (err) {
-        console.error('[Storage] ❌ Excepción inesperada en uploadVoucher:', err.message);
+        console.error('[Storage] ❌ Error guardando voucher en disco:', err.message);
         return null;
     }
 };
