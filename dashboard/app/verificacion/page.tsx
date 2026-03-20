@@ -34,6 +34,8 @@ interface PendingApproval {
         rut_origen: string | null;
         nombre_origen: string | null;
         datos_extraidos_por_ia: boolean;
+        es_saldo?: boolean;
+        abono_previo?: number | null;
     } | null;
 }
 
@@ -43,6 +45,15 @@ export default function VerificacionPage() {
     const [selected, setSelected] = useState<PendingApproval | null>(null);
     const [processing, setProcessing] = useState(false);
     const [rejectReason, setRejectReason] = useState("");
+    const [montoEditado, setMontoEditado] = useState<string>("");
+
+    useEffect(() => {
+        if (selected && selected.pago_pendiente?.monto) {
+            setMontoEditado(selected.pago_pendiente.monto.toString());
+        } else {
+            setMontoEditado("");
+        }
+    }, [selected]);
 
     const fetchApprovals = async (source: string = "unknown") => {
         console.log(`[Fetch Trigger Verificacion] Origen: ${source} a las ${new Date().toLocaleTimeString()}`);
@@ -74,7 +85,7 @@ export default function VerificacionPage() {
         };
     }, []);
 
-    const handleAction = async (accion: "approve" | "reject") => {
+    const handleAction = async (accion: "approve" | "approve_abono" | "reject") => {
         if (!selected) return;
         if (accion === "reject" && !rejectReason.trim()) {
             alert("Por favor ingresa un motivo de rechazo.");
@@ -83,11 +94,20 @@ export default function VerificacionPage() {
 
         try {
             setProcessing(true);
-            await axios.post("http://localhost:4000/api/dashboard/verify-payment", {
+            const bodyPayload: any = {
                 phone: selected.phone,
                 accion,
                 nota_admin: accion === "reject" ? rejectReason : undefined,
-            });
+            };
+
+            if (accion === "approve" || accion === "approve_abono") {
+                const montoParseado = parseInt(montoEditado.replace(/[^\d]/g, ""), 10);
+                if (!isNaN(montoParseado) && montoParseado > 0) {
+                    bodyPayload.monto_corregido = montoParseado;
+                }
+            }
+
+            await axios.post("http://localhost:4000/api/dashboard/verify-payment", bodyPayload);
             setSelected(null);
             setRejectReason("");
             fetchApprovals("handleAction_post");
@@ -172,7 +192,9 @@ export default function VerificacionPage() {
                             <X size={20} />
                         </button>
 
-                        <h3 className="text-2xl font-black mb-6">Verificar Comprobante</h3>
+                        <h3 className="text-2xl font-black mb-6">
+                            {selected.pago_pendiente?.es_saldo ? "Verificación de Pago de Saldo" : "Verificar Comprobante"}
+                        </h3>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8 h-full">
                             {/* Imagen del comprobante */}
@@ -202,11 +224,34 @@ export default function VerificacionPage() {
                                         <span className="text-xl font-bold">{formatCurrency(selected.total_cotizacion)}</span>
                                     </div>
 
+                                    {selected.pago_pendiente?.es_saldo && (
+                                        <>
+                                            <div className="flex justify-between items-center pb-4 border-b border-white/5">
+                                                <span className="text-neutral-400">Abono Previo</span>
+                                                <span className="text-lg font-medium text-green-500">-{formatCurrency(selected.pago_pendiente?.abono_previo || 0)}</span>
+                                            </div>
+                                            <div className="flex justify-between items-center pb-4 border-b border-white/5 bg-accent/5 p-3 rounded-xl mt-2 mb-4">
+                                                <span className="text-accent font-bold">Saldo a Pagar</span>
+                                                <span className="text-xl font-black text-accent">{formatCurrency(Math.max(0, (selected.total_cotizacion || 0) - (selected.pago_pendiente?.abono_previo || 0)))}</span>
+                                            </div>
+                                        </>
+                                    )}
+
                                     <div className="flex justify-between items-center pb-4 border-b border-white/5">
-                                        <span className="text-neutral-400">Monto IA <span className="text-[10px] bg-accent/20 text-accent px-1.5 py-0.5 rounded ml-1">Extraído</span></span>
-                                        <span className="text-xl font-bold text-yellow-500">
-                                            {formatCurrency(selected.pago_pendiente?.monto || null)}
-                                        </span>
+                                        <div className="flex flex-col">
+                                            <span className="text-neutral-400">Monto IA <span className="text-[10px] bg-accent/20 text-accent px-1.5 py-0.5 rounded ml-1">Extraído</span></span>
+                                            <span className="text-[10px] text-yellow-500/70 mt-1 uppercase font-bold tracking-wider">Puedes corregir este valor</span>
+                                        </div>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400">$</span>
+                                            <input 
+                                                type="text" 
+                                                inputMode="numeric"
+                                                className="w-36 bg-neutral-900 border border-yellow-500/40 hover:border-yellow-500/80 focus:border-yellow-500 rounded-lg py-2 pl-7 pr-3 text-right text-xl font-bold text-yellow-500 focus:outline-none transition-colors shadow-inner"
+                                                value={montoEditado}
+                                                onChange={(e) => setMontoEditado(e.target.value.replace(/[^\d]/g, ""))}
+                                            />
+                                        </div>
                                     </div>
 
                                     <div className="space-y-2 pt-2">
@@ -262,8 +307,13 @@ export default function VerificacionPage() {
                                         <p className="text-[10px] font-bold text-neutral-500 uppercase mb-2">Detalle de Productos</p>
                                         <div className="space-y-2">
                                             {selected.repuestos.map((r: any, idx: number) => (
-                                                <div key={idx} className="flex justify-between text-xs">
-                                                    <span className="text-neutral-400">{r.nombre}</span>
+                                                <div key={idx} className="flex justify-between text-xs items-start">
+                                                    <div className="flex flex-col">
+                                                        <span className="text-neutral-300 font-medium">{r.nombre}</span>
+                                                        {r.codigo && (
+                                                            <span className="text-[10px] text-neutral-500 font-mono mt-0.5">Cód: {r.codigo}</span>
+                                                        )}
+                                                    </div>
                                                     <span className="font-mono">{formatCurrency(r.precio)}</span>
                                                 </div>
                                             ))}
@@ -273,14 +323,26 @@ export default function VerificacionPage() {
 
 
                                 <div className="mt-6 space-y-3">
-                                    <button
-                                        onClick={() => handleAction("approve")}
-                                        disabled={processing}
-                                        className="w-full py-4 bg-green-500 hover:bg-green-600 text-black font-black rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-                                    >
-                                        <CheckCircle size={20} />
-                                        {processing ? "Procesando..." : "APROBAR PAGO"}
-                                    </button>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={() => handleAction("approve")}
+                                            disabled={processing}
+                                            className="flex-1 py-3 bg-green-500 hover:bg-green-600 text-black font-black rounded-xl flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 text-xs shadow-lg shadow-green-500/20"
+                                        >
+                                            <CheckCircle size={16} />
+                                            {processing ? "..." : (selected.pago_pendiente?.es_saldo ? "APROBAR PAGO DE SALDO" : "PAGO COMPLETO")}
+                                        </button>
+                                        {!selected.pago_pendiente?.es_saldo && (
+                                            <button
+                                                onClick={() => handleAction("approve_abono")}
+                                                disabled={processing}
+                                                className="flex-1 py-3 bg-yellow-500 hover:bg-yellow-600 text-black font-black rounded-xl flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 text-xs shadow-lg shadow-yellow-500/20"
+                                            >
+                                                <ShieldCheck size={16} />
+                                                {processing ? "..." : "ES ABONO"}
+                                            </button>
+                                        )}
+                                    </div>
 
                                     <div className="relative">
                                         <input

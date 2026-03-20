@@ -1,5 +1,5 @@
 ---
-trigger: manual
+trigger: always_on
 ---
 
 # Role: Especialista Senior Backend (Node.js/Express)

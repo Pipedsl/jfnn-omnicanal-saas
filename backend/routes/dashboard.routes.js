@@ -10,12 +10,36 @@ const whatsappService = require('../services/whatsapp.service');
 router.get('/cotizaciones', async (req, res) => {
     try {
         const pending = await sessionsService.getAllPendingSessions();
-        res.status(200).json(pending);
+
+        // Formatear y normalizar los datos antes de enviarlos al frontend
+        // Esto garantiza que los precios en repuestos_solicitados sean números limpios
+        // para que el formulario de rectificación los precargue correctamente (Fix Bug 3)
+        const formatted = pending.map(session => {
+            const e = session.entidades || {};
+
+            const repuestosNormalizados = (e.repuestos_solicitados || []).map(r => ({
+                ...r,
+                precio: normalizarPrecio(r.precio) || null,
+                codigo: r.codigo || null,
+                disponibilidad: r.disponibilidad || 'DISPONIBLE'
+            }));
+
+            return {
+                ...session,
+                entidades: {
+                    ...e,
+                    repuestos_solicitados: repuestosNormalizados
+                }
+            };
+        });
+
+        res.status(200).json(formatted);
     } catch (error) {
         console.error('Error obteniendo pendientes:', error);
         res.status(500).json({ error: 'Error interno' });
     }
 });
+
 
 /**
  * Obtener historial de ventas finalizadas
@@ -234,9 +258,9 @@ router.post('/verify-payment', async (req, res) => {
     try {
         const { phone, accion, nota_admin } = req.body;
 
-        if (!phone || !['approve', 'reject'].includes(accion)) {
+        if (!phone || !['approve', 'approve_abono', 'reject'].includes(accion)) {
             return res.status(400).json({
-                error: "Faltan campos obligatorios. 'phone' y 'accion' (approve/reject) son requeridos."
+                error: "Faltan campos obligatorios. 'phone' y 'accion' (approve/approve_abono/reject) son requeridos."
             });
         }
 
@@ -246,6 +270,21 @@ router.post('/verify-payment', async (req, res) => {
             return res.status(409).json({
                 error: `Conflicto de estado: la sesión del cliente está en '${session.estado}', no en 'ESPERANDO_APROBACION_ADMIN'.`
             });
+        }
+
+        const monto_corregido = req.body.monto_corregido;
+
+        // Si el admin corrigió el monto extraído por la IA, actualizarlo en la BD
+        if ((accion === 'approve' || accion === 'approve_abono') && monto_corregido !== undefined) {
+            const entidades = session.entidades || {};
+            const pagoPendiente = entidades.pago_pendiente || {};
+            
+            // Verificamos si realmente hubo un cambio para logearlo
+            if (pagoPendiente.monto !== monto_corregido) {
+                console.log(`[Dashboard] ✏️ Se corrigió el monto extraído por IA de ${pagoPendiente.monto} a ${monto_corregido} para ${phone}`);
+                pagoPendiente.monto = monto_corregido;
+                await sessionsService.updateEntidades(phone, { pago_pendiente: pagoPendiente });
+            }
         }
 
         if (accion === 'approve') {
@@ -263,14 +302,31 @@ router.post('/verify-payment', async (req, res) => {
                 phone
             });
 
+        } else if (accion === 'approve_abono') {
+            // ─── APROBAR COMO ABONO (POR ENCARGO) ─────────────────────
+            // Cambiamos el estado a ABONO_VERIFICADO.
+            // El vendedor será notificado visualmente en su panel para gestionar el encargo.
+            await sessionsService.setEstado(phone, 'ABONO_VERIFICADO');
+
+            console.log(`[Dashboard] 💳💳 ABONO APROBADO (admin) para ${phone}${nota_admin ? ` | Nota: ${nota_admin}` : ''}. Encargo pendiente.`);
+            res.status(200).json({
+                success: true,
+                accion: 'approved_abono',
+                nuevo_estado: 'ABONO_VERIFICADO',
+                mensaje: 'Abono verificado. El vendedor fue notificado de este encargo.',
+                phone
+            });
+
         } else if (accion === 'reject') {
             // ─── RECHAZAR ─────────────────────────────────────────────
             // Al rechazar, notificamos al cliente para que reenvíe el comprobante.
-            await sessionsService.setEstado(phone, 'CONFIRMANDO_COMPRA');
+            const esSaldo = session.entidades?.pago_pendiente?.es_saldo;
+            const nuevoEstado = esSaldo ? 'ESPERANDO_SALDO' : 'CONFIRMANDO_COMPRA';
+            await sessionsService.setEstado(phone, nuevoEstado);
 
             const motivoRechazo = nota_admin
                 ? `El motivo indicado por nuestro equipo es: _${nota_admin}_`
-                : `Esto puede deberse a que la imagen no era legible o no correspondía a la cotización.`;
+                : `Esto puede deberse a que la imagen no era legible o no correspondía a lo solicitado.`;
 
             const mensajeRechazo =
                 `⚠️ Lamentablemente *no pudimos verificar* el comprobante enviado. ${motivoRechazo}\n\n` +
@@ -279,11 +335,11 @@ router.post('/verify-payment', async (req, res) => {
 
             await whatsappService.sendTextMessage(phone, mensajeRechazo);
 
-            console.log(`[Dashboard] ❌ Pago RECHAZADO para ${phone}${nota_admin ? ` | Motivo: ${nota_admin}` : ''}`);
+            console.log(`[Dashboard] ❌ Pago RECHAZADO para ${phone}${nota_admin ? ` | Motivo: ${nota_admin}` : ''} | Volviendo a: ${nuevoEstado}`);
             res.status(200).json({
                 success: true,
                 accion: 'rejected',
-                nuevo_estado: 'CONFIRMANDO_COMPRA',
+                nuevo_estado: nuevoEstado,
                 phone
             });
         }
@@ -334,6 +390,84 @@ router.post('/archive-session', async (req, res) => {
     } catch (error) {
         console.error('[Dashboard] Error en POST /archive-session:', error);
         res.status(500).json({ error: 'Error interno al archivar la sesión' });
+    }
+});
+
+/**
+ * [HU-2] Marcar un encargo como solicitado a proveedor
+ * POST /api/dashboard/encargos/solicitar
+ */
+router.post('/encargos/solicitar', async (req, res) => {
+    try {
+        const { phone, dias_eta } = req.body;
+        if (!phone || !dias_eta) {
+            return res.status(400).json({ error: "Faltan campos obligatorios." });
+        }
+        
+        await sessionsService.setEstado(phone, 'ENCARGO_SOLICITADO');
+        
+        const mensaje = `✅ *¡Su encargo ha sido procesado!*\n\n` +
+                        `📦 Hemos solicitado sus repuestos a nuestro proveedor. ` +
+                        `El tiempo estimado de llegada a nuestro local es de *${dias_eta} día(s)* hábiles aproximados.\n\n` +
+                        `Le notificaremos inmediatamente por este medio cuando los repuestos estén listos para entrega/despacho. ¡Gracias por confiar en *Repuestos JFNN*! 🙌`;
+                        
+        await whatsappService.sendTextMessage(phone, mensaje);
+        
+        res.status(200).json({ success: true, estado: 'ENCARGO_SOLICITADO' });
+    } catch (error) {
+        console.error('Error en solicitar encargo:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+/**
+ * [HU-3] Marcar un encargo como recibido en local y cobrar saldo
+ * POST /api/dashboard/encargos/recibido
+ */
+router.post('/encargos/recibido', async (req, res) => {
+    try {
+        const { phone } = req.body;
+        if (!phone) return res.status(400).json({ error: "Teléfono requerido." });
+        
+        const session = await sessionsService.getSession(phone);
+        const e = session.entidades || {};
+        
+        const repuestos = (e.repuestos_solicitados || []).map(r => ({
+            ...r, precio: normalizarPrecio(r.precio) || 0
+        }));
+        const totalCotizacion = repuestos.reduce((acc, r) => acc + (r.precio || 0), 0);
+        
+        const montoAbono = normalizarPrecio(e.pago_pendiente?.monto || 0);
+        const saldoPendiente = Math.max(0, totalCotizacion - montoAbono);
+        
+        // Formatear precios
+        const formatMoney = (val) => new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP" }).format(val);
+        
+        let mensaje;
+        let nuevoEstado;
+        
+        if (saldoPendiente > 0) {
+            nuevoEstado = 'ESPERANDO_SALDO';
+            mensaje = `🎉 *¡Buena noticia! Sus repuestos ya llegaron a nuestro local.*\n\n` +
+                      `Para proceder con la entrega o despacho, necesitamos que por favor realice el pago del *saldo pendiente*.\n\n` +
+                      `🧾 *Resumen:*\n` +
+                      `- Total Cotización: ${formatMoney(totalCotizacion)}\n` +
+                      `- Abono Registrado: ${formatMoney(montoAbono)}\n` +
+                      `- **Saldo a Pagar: ${formatMoney(saldoPendiente)}**\n\n` +
+                      `Por favor, envíenos el *comprobante de transferencia* del saldo pendiente por aquí mismo para validar y hacer la entrega.`;
+        } else {
+            nuevoEstado = 'PAGO_VERIFICADO'; // Ya pagó todo
+             mensaje = `🎉 *¡Buena noticia! Sus repuestos ya llegaron a nuestro local.*\n\n` +
+                      `Su pedido está completamente pagado. En breve gestionaremos la logística de entrega.`;
+        }
+        
+        await sessionsService.setEstado(phone, nuevoEstado);
+        await whatsappService.sendTextMessage(phone, mensaje);
+        
+        res.status(200).json({ success: true, estado: nuevoEstado, saldo: saldoPendiente });
+    } catch (error) {
+        console.error('Error en recibir encargo:', error);
+        res.status(500).json({ error: 'Error interno' });
     }
 });
 

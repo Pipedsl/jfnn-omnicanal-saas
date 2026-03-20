@@ -26,29 +26,41 @@ const verifyWebhook = (req, res) => {
     }
 };
 
-const receiveMessage = async (req, res) => {
-    try {
-        const entry = req.body.entry?.[0];
-        const changes = entry?.changes?.[0];
-        const value = changes?.value;
-        const message = value?.messages?.[0];
+// -------------------------------------------------------------
+// SISTEMA DE DEBOUNCE (COLA DE MENSAJES)
+// -------------------------------------------------------------
+const messageBuffer = new Map();
+const DEBOUNCE_TIME_MS = 20000; // 15 segundos de buffer
 
-        // Guard: descartar payloads sin mensajes (Read Receipts, notificaciones de estado, etc.)
-        if (!message || !['text', 'image'].includes(message.type)) {
-            return res.status(200).send('EVENT_RECEIVED');
+const processBufferedMessages = async (customerPhone) => {
+    try {
+        const bufferData = messageBuffer.get(customerPhone);
+        if (!bufferData) return;
+
+        // Limpiar el buffer inmediatamente para que nuevos mensajes entren en un lote nuevo
+        messageBuffer.delete(customerPhone);
+
+        const { messages } = bufferData;
+
+        // Concatenar textos y agrupar media
+        const userText = messages.map(m => m.userText).filter(Boolean).join('\n\n');
+        const images = messages.filter(m => m.hasImage);
+        const hasImage = images.length > 0;
+
+        // Tomaremos solo la última imagen del buffer (comportamiento actual)
+        let lastMediaId = null;
+        if (hasImage) {
+            const lastImageMsg = images[images.length - 1];
+            lastMediaId = lastImageMsg.message.image.id;
         }
 
-        const customerPhone = message.from;
-        const userText = message.text?.body || message.image?.caption || '';
-        const hasImage = message.type === 'image';
+        console.log(`[Debounce] Procesando lote de ${customerPhone} (${messages.length} mensaje/s): "${userText.replace(/\n/g, ' ')}"`);
 
         // 1. Obtener o crear sesión
         let session = await sessionsService.getSession(customerPhone);
 
         // ═══════════════════════════════════════════════════════
         // ESTADO: ESPERANDO_APROBACION_ADMIN
-        // El cliente ya envió su comprobante y está en espera.
-        // Responder solo si habla (sin cambiar estado), ignorar imágenes adicionales.
         // ═══════════════════════════════════════════════════════
         if (session.estado === sessionsService.STATES.ESPERANDO_APROBACION_ADMIN) {
             if (!hasImage) {
@@ -60,86 +72,63 @@ const receiveMessage = async (req, res) => {
             } else {
                 console.log(`[Webhook] Ignorando imagen adicional de ${customerPhone} (ya en ESPERANDO_APROBACION_ADMIN).`);
             }
-            return res.status(200).send('EVENT_RECEIVED');
+            return; // Termina ejecución del background
         }
 
         // ═══════════════════════════════════════════════════════
-        // FLUJO ESPECIAL: Imagen en estado CONFIRMANDO_COMPRA o ESPERANDO_COMPROBANTE = Comprobante de pago
+        // FLUJO ESPECIAL: Imagen de pago (Abono o Saldo Restante)
         // ═══════════════════════════════════════════════════════
-        if (hasImage && (session.estado === sessionsService.STATES.CONFIRMANDO_COMPRA || session.estado === sessionsService.STATES.ESPERANDO_COMPROBANTE)) {
-            const mediaId = message.image.id;
-            console.log(`[P1] 🧠 Comprobante de pago detectado de ${customerPhone}. Procesando...`);
-
-            // 1. Descargar imagen de los servidores de Meta
-            const imageData = await whatsappService.downloadMedia(mediaId);
+        if (hasImage && (
+            session.estado === sessionsService.STATES.CONFIRMANDO_COMPRA || 
+            session.estado === sessionsService.STATES.ESPERANDO_COMPROBANTE ||
+            session.estado === sessionsService.STATES.ESPERANDO_SALDO
+        )) {
+            console.log(`[P1] 🧠 Comprobante de pago detectado de ${customerPhone} (Estado: ${session.estado}). Procesando...`);
+            const imageData = await whatsappService.downloadMedia(lastMediaId);
 
             if (!imageData) {
                 console.error(`[P1] ❌ No se pudo descargar la imagen de ${customerPhone}.`);
                 await whatsappService.sendTextMessage(customerPhone, 'Tuvimos un problema al recibir su comprobante. ¿Podía enviarlo nuevamente, por favor?');
-                return res.status(200).send('EVENT_RECEIVED');
+                return;
             }
 
-            // 2. Extraer datos del comprobante usando Gemini (IA como asistente, NO aprobador)
             const datosExtraidos = await geminiService.extractVoucherData(imageData);
-
-            // 3. Subir imagen al bucket 'comprobantes' de Supabase Storage
-            const comprobanteUrl = await storageService.uploadVoucher(
-                customerPhone,
-                imageData.buffer,
-                imageData.mimeType
-            );
+            const comprobanteUrl = await storageService.uploadVoucher(customerPhone, imageData.buffer, imageData.mimeType);
 
             if (!comprobanteUrl) {
                 console.error(`[P1] ❌ No se pudo subir el voucher de ${customerPhone} al storage.`);
                 await whatsappService.sendTextMessage(customerPhone, 'Tuvimos un inconveniente técnico guardando su comprobante. Por favor, inténtelo en un momento.');
-                return res.status(200).send('EVENT_RECEIVED');
+                return;
             }
 
-            // 4. Guardar URL, datos extraídos y cambiar estado a ESPERANDO_APROBACION_ADMIN
             await sessionsService.saveVoucherData(customerPhone, comprobanteUrl, datosExtraidos);
 
-            // 5. Notificar al cliente (el Admin verifica manualmente desde el Dashboard)
             const respuestaConfirmacion = `¡Perfecto! 📸 Recibí su comprobante de pago. Nuestro equipo lo está verificando ahora y le confirmaremos en unos minutos. Si tiene alguna consulta, no dude en escribirnos. 👌`;
             const delayMs = Math.min(respuestaConfirmacion.length * 25, 3500);
             await new Promise(resolve => setTimeout(resolve, delayMs));
             await whatsappService.sendTextMessage(customerPhone, respuestaConfirmacion);
 
             console.log(`[P1] ✅ Flujo de comprobante completado para ${customerPhone}. Esperando aprobación del admin.`);
-            return res.status(200).send('EVENT_RECEIVED');
+            return;
         }
 
         // ═══════════════════════════════════════════════════════
-        // FLUJO GENERAL: Texto e imágenes de repuestos (estados normales)
+        // REINICIO DE FLUJO: ENTREGADO o ARCHIVADO
         // ═══════════════════════════════════════════════════════
-
-        // ═══════════════════════════════════════════════════════
-        // REINICIO DE FLUJO: Si el cliente vuelve después de una venta ENTREGADA o ARCHIVADA
-        // → Resetear sesión silenciosamente (preserva datos del vehículo) y continuar como PERFILANDO
-        // ═══════════════════════════════════════════════════════
-        const reengageStates = [
-            sessionsService.STATES.ENTREGADO,
-            sessionsService.STATES.ARCHIVADO
-        ];
-
+        const reengageStates = [sessionsService.STATES.ENTREGADO, sessionsService.STATES.ARCHIVADO];
         if (reengageStates.includes(session.estado)) {
             console.log(`[Session] 🔄 Re-engage detectado para ${customerPhone} (estado: ${session.estado}). Archivando venta y reiniciando...`);
-            // archiveSession: guarda la data en tabla 'pedidos' ANTES de limpiar la sesión activa
             const { archivedPedido, newSession } = await sessionsService.archiveSession(customerPhone);
             session = newSession;
             if (archivedPedido) {
                 console.log(`[Session] ✅ Pedido archivado: ${archivedPedido.id} (quote: ${archivedPedido.quote_id})`);
             }
-            // El flujo continúa como PERFILANDO — sin respuesta especial aquí
         }
 
-
         // ═══════════════════════════════════════════════════════
-        // FLUJO GENERAL: Texto e imágenes de repuestos (estados normales)
+        // FLUJO RE-ENGAGE EN ESTADOS INTERMEDIOS
         // ═══════════════════════════════════════════════════════
-
-        // Manejo de re-engage en estados intermedios (sin venta finalizada)
         const intermediateHoldStates = [sessionsService.STATES.CICLO_COMPLETO, sessionsService.STATES.PAGO_VERIFICADO, sessionsService.STATES.ESPERANDO_COMPROBANTE];
-
         if (intermediateHoldStates.includes(session.estado)) {
             const lowerText = userText.toLowerCase();
             const wantsMore = lowerText.includes("cotizar") || lowerText.includes("necesito") ||
@@ -151,29 +140,24 @@ const receiveMessage = async (req, res) => {
             }
         }
 
-        // Guard: si está ESPERANDO_VENDEDOR, no interrumpir (el vendedor debe responder primero)
+        // Guard: ESPERANDO_VENDEDOR
         if (session.estado === sessionsService.STATES.ESPERANDO_VENDEDOR) {
             const lowerText = userText.toLowerCase();
             const wantsMoreFromWaitingState = lowerText.includes("cotizar") || lowerText.includes("necesito") || lowerText.includes("quiero") || lowerText.includes("también") || lowerText.includes("tambie") || lowerText.includes("auto") || lowerText.includes("camioneta") || lowerText.includes("vehículo") || lowerText.includes("vehiculo") || lowerText.includes("patente") || lowerText.includes("corolla") || lowerText.includes("hilux") || lowerText.includes("yaris");
-            
             if (!wantsMoreFromWaitingState) {
                 console.log(`[Hand-off] Ignorando mensaje de ${customerPhone} (ESPERANDO_VENDEDOR)`);
-                return res.status(200).send('EVENT_RECEIVED');
+                return;
             }
-            // Si el cliente pide algo nuevo → Volver a PERFILANDO CONSERVANDO los repuestos ya registrados
-            // NO hacemos resetSession para no borrar los ítems existentes
             session = await sessionsService.setEstado(customerPhone, sessionsService.STATES.PERFILANDO);
             console.log(`[Session] ➕ Append de repuesto para ${customerPhone}. Volviendo a PERFILANDO conservando historial.`);
         }
 
-
-        console.log(`[Webhook] Mensaje (${message.type}) de ${customerPhone}: "${userText}"`);
+        console.log(`[Webhook] Enviando a Gemini mensaje final de ${customerPhone}: "${userText.replace(/\n/g, ' ')}"`);
 
         let imageData = null;
-        if (hasImage) {
-            const mediaId = message.image.id;
-            console.log(`[Media] Descargando imagen ${mediaId} para ${customerPhone}...`);
-            imageData = await whatsappService.downloadMedia(mediaId);
+        if (hasImage && lastMediaId) {
+            console.log(`[Media] Descargando imagen ${lastMediaId} para ${customerPhone}...`);
+            imageData = await whatsappService.downloadMedia(lastMediaId);
         }
 
         // 3. Obtener respuesta y entidades de Gemini con selección dinámica de modelo
@@ -201,13 +185,11 @@ const receiveMessage = async (req, res) => {
             const e = session.entidades;
             if (e.metodo_pago && e.metodo_entrega && (e.tipo_documento === 'boleta' || (e.tipo_documento === 'factura' && e.datos_factura.rut))) {
                 if (e.metodo_pago === 'online') {
-                    // Si el pago es online, cambiar a ESPERANDO_COMPROBANTE inmediatamente para que Gemini no repita la pregunta
                     if (session.estado !== sessionsService.STATES.ESPERANDO_COMPROBANTE) {
                         await sessionsService.setEstado(customerPhone, 'ESPERANDO_COMPROBANTE');
                         console.log(`[Venta] Cambiado a ESPERANDO_COMPROBANTE para ${customerPhone}`);
                     }
                 } else {
-                    // Si el pago es en el local, sí pasamos a CICLO_COMPLETO
                     await sessionsService.setEstado(customerPhone, 'CICLO_COMPLETO');
                     console.log(`[Venta] Ciclo de cierre completado para ${customerPhone} (Pago presencial)`);
                 }
@@ -221,10 +203,57 @@ const receiveMessage = async (req, res) => {
         // 7. Enviar respuesta vía WhatsApp
         await whatsappService.sendTextMessage(customerPhone, finalMessage);
 
-        res.status(200).send('EVENT_RECEIVED');
     } catch (error) {
-        console.error('Error procesando webhook POST de WhatsApp:', error);
-        res.status(200).send('EVENT_RECEIVED_WITH_ERROR');
+        console.error(`[Debounce] Error procesando lote para ${customerPhone}:`, error);
+    }
+};
+
+const receiveMessage = async (req, res) => {
+    try {
+        const entry = req.body.entry?.[0];
+        const changes = entry?.changes?.[0];
+        const value = changes?.value;
+        const message = value?.messages?.[0];
+
+        // Guard: descartar payloads sin mensajes (Read Receipts, notificaciones de estado, etc.)
+        if (!message || !['text', 'image'].includes(message.type)) {
+            return res.status(200).send('EVENT_RECEIVED');
+        }
+
+        const customerPhone = message.from;
+        const userText = message.text?.body || message.image?.caption || '';
+        const hasImage = message.type === 'image';
+
+        // -------------------------------------------------------------
+        // DEBOUNCE LOGIC
+        // -------------------------------------------------------------
+        let buffer = messageBuffer.get(customerPhone);
+        if (!buffer) {
+            buffer = { messages: [], timer: null };
+        }
+
+        buffer.messages.push({ userText, hasImage, message, timestamp: Date.now() });
+
+        if (buffer.timer) {
+            clearTimeout(buffer.timer);
+            console.log(`[Webhook] Timer reseteado para ${customerPhone}. Mensajes en buffer: ${buffer.messages.length}`);
+        } else {
+            console.log(`[Webhook] Mensaje recibido de ${customerPhone}. Iniciando buffer de espera de ${DEBOUNCE_TIME_MS / 1000}s...`);
+        }
+
+        // Reiniciar el timer
+        buffer.timer = setTimeout(() => {
+            processBufferedMessages(customerPhone);
+        }, DEBOUNCE_TIME_MS);
+
+        messageBuffer.set(customerPhone, buffer);
+
+        // Responder siempre 200 INMEDIATAMENTE a Meta para evitar retries o bloqueos
+        return res.status(200).send('EVENT_RECEIVED');
+
+    } catch (error) {
+        console.error('Error recibiendo webhook de WhatsApp:', error);
+        return res.status(200).send('EVENT_RECEIVED_WITH_ERROR');
     }
 };
 
@@ -232,4 +261,3 @@ module.exports = {
     verifyWebhook,
     receiveMessage
 };
-

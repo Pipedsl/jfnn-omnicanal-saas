@@ -11,6 +11,9 @@ const STATES = {
     ESPERANDO_COMPROBANTE: 'ESPERANDO_COMPROBANTE',
     ESPERANDO_APROBACION_ADMIN: 'ESPERANDO_APROBACION_ADMIN', // ← Nuevo: comprobante enviado, pendiente de revisión humana
     PAGO_VERIFICADO: 'PAGO_VERIFICADO',
+    ABONO_VERIFICADO: 'ABONO_VERIFICADO', // Nuevo: abono recibido, pedido por encargo.
+    ENCARGO_SOLICITADO: 'ENCARGO_SOLICITADO', // Nuevo: Vendedor compró al proveedor y notificó ETA al cliente.
+    ESPERANDO_SALDO: 'ESPERANDO_SALDO', // Nuevo: Repuestos llegaron al local, se cobró el remanente al cliente.
     ENTREGADO: 'ENTREGADO',
     CICLO_COMPLETO: 'CICLO_COMPLETO',
     ARCHIVADO: 'ARCHIVADO'
@@ -128,16 +131,29 @@ const updateEntidades = async (phone, nuevasEntidades) => {
                         ...viejo,
                         nombre: nombreFinal,
                         estado: nuevo.estado || viejo.estado,
-                        precio: nuevo.precio ?? viejo.precio,
+                        precio: nuevo.precio !== undefined ? nuevo.precio : viejo.precio,
+                        codigo: nuevo.codigo !== undefined ? nuevo.codigo : viejo.codigo,
+                        disponibilidad: nuevo.disponibilidad || viejo.disponibilidad
                     };
                     return;
                 }
 
-                // Si no existe ningún ítem similar, agregarlo (exacto o nuevo)
+                // Si no es un refinamiento, buscar si es un match EXACTO
                 const exactIdx = entities.repuestos_solicitados.findIndex(
                     e => e.nombre.toLowerCase().trim() === nuevoNombre
                 );
-                if (exactIdx === -1) {
+                
+                if (exactIdx !== -1) {
+                    // Actualizar el ítem existente con los nuevos datos (precios, códigos, etc)
+                    entities.repuestos_solicitados[exactIdx] = {
+                        ...entities.repuestos_solicitados[exactIdx],
+                        estado: nuevo.estado || entities.repuestos_solicitados[exactIdx].estado,
+                        precio: nuevo.precio !== undefined ? nuevo.precio : entities.repuestos_solicitados[exactIdx].precio,
+                        codigo: nuevo.codigo !== undefined ? nuevo.codigo : entities.repuestos_solicitados[exactIdx].codigo,
+                        disponibilidad: nuevo.disponibilidad || entities.repuestos_solicitados[exactIdx].disponibilidad
+                    };
+                } else {
+                    // Si no existe para nada, agregarlo
                     entities.repuestos_solicitados.push(nuevo);
                 }
             });
@@ -221,6 +237,9 @@ const getAllPendingSessions = async () => {
             STATES.ESPERANDO_VENDEDOR,
             STATES.CONFIRMANDO_COMPRA,
             STATES.PAGO_VERIFICADO,
+            STATES.ABONO_VERIFICADO,
+            STATES.ENCARGO_SOLICITADO,
+            STATES.ESPERANDO_SALDO,
             STATES.CICLO_COMPLETO
         ];
 
@@ -387,6 +406,9 @@ const saveVoucherData = async (phone, comprobanteUrl, datosExtraidos = {}) => {
     try {
         const session = await getSession(phone);
         const entidades = session.entidades || { ...INITIAL_ENTITIES };
+        
+        const esSaldo = session.estado === STATES.ESPERANDO_SALDO;
+        const abonoAnterior = entidades.pago_pendiente?.monto || null;
 
         // Guardar URL del comprobante y datos extraídos por IA
         entidades.comprobante_url = comprobanteUrl;
@@ -397,7 +419,10 @@ const saveVoucherData = async (phone, comprobanteUrl, datosExtraidos = {}) => {
             id_transaccion: datosExtraidos.id_transaccion || null,
             rut_origen: datosExtraidos.rut_origen || null,
             nombre_origen: datosExtraidos.nombre_origen || null,
-            datos_extraidos_por_ia: true
+            datos_extraidos_por_ia: true,
+            // Nuevos campos para HU-5
+            es_saldo: esSaldo,
+            abono_previo: esSaldo ? abonoAnterior : null
         };
 
         const { data, error } = await supabase

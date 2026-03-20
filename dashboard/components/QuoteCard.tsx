@@ -44,6 +44,12 @@ export default function QuoteCard({ phone, estado, entidades, onResponded }: Quo
     const [showLogisticsModal, setShowLogisticsModal] = useState(false);
     const [mensajeLogistica, setMensajeLogistica] = useState("");
     const [loadingPago, setLoadingPago] = useState(false);
+    
+    // Estados para Encargos (Abono)
+    const [showEtaModal, setShowEtaModal] = useState(false);
+    const [diasEta, setDiasEta] = useState("3");
+    const [loadingEncargo, setLoadingEncargo] = useState(false);
+
     const repuestos = Array.isArray(entidades.repuestos_solicitados) ? entidades.repuestos_solicitados : [];
     const esEnvio = entidades.metodo_entrega === 'domicilio' || entidades.metodo_entrega === 'envio';
     const esRetiro = !esEnvio;
@@ -66,6 +72,9 @@ export default function QuoteCard({ phone, estado, entidades, onResponded }: Quo
             case 'CONFIRMANDO_COMPRA': return { label: 'Confirmando Cierre', class: 'bg-purple-400/10 text-purple-400 border-purple-400/20' };
             case 'ESPERANDO_APROBACION_ADMIN': return { label: 'Revisión Admin', class: 'bg-orange-400/10 text-orange-400 border-orange-400/20 ring-1 ring-orange-500/50 animate-pulse-slow' };
             case 'PAGO_VERIFICADO': return { label: 'Pago Verificado', class: 'bg-green-400/10 text-green-400 border-green-500/20' };
+            case 'ABONO_VERIFICADO': return { label: 'Abono Recibido - Por Encargar', class: 'bg-yellow-400/10 text-yellow-500 border-yellow-500/20 ring-1 ring-yellow-500/50' };
+            case 'ENCARGO_SOLICITADO': return { label: 'Esperando a Proveedor', class: 'bg-indigo-400/10 text-indigo-400 border-indigo-500/20' };
+            case 'ESPERANDO_SALDO': return { label: 'Cobrando Saldo', class: 'bg-rose-400/10 text-rose-400 border-rose-500/20 ring-1 ring-rose-500/50 animate-pulse-slow' };
             case 'ENTREGADO': return { label: 'Producto Entregado', class: 'bg-teal-400/10 text-teal-400 border-teal-500/20' };
             case 'CICLO_COMPLETO': return { label: 'POR VALIDAR PAGO', class: 'bg-pink-500/20 text-pink-400 border-pink-500/30' };
             case 'ARCHIVADO': return { label: 'Archivado', class: 'bg-neutral-800 text-neutral-500 border-neutral-700' };
@@ -278,15 +287,19 @@ export default function QuoteCard({ phone, estado, entidades, onResponded }: Quo
                         </div>
                     )}
 
-                    {estado === 'PAGO_VERIFICADO' && !showLogisticsModal && (
+                    {(estado === 'PAGO_VERIFICADO' || estado === 'ABONO_VERIFICADO') && !showLogisticsModal && !showEtaModal && (
                         <button
                             onClick={() => {
-                                setShowLogisticsModal(true);
-                                setMensajeLogistica(esRetiro ? TEMPLATE_RETIRO : TEMPLATE_ENVIO);
+                                if (estado === 'ABONO_VERIFICADO') {
+                                    setShowEtaModal(true);
+                                } else {
+                                    setShowLogisticsModal(true);
+                                    setMensajeLogistica(esRetiro ? TEMPLATE_RETIRO : TEMPLATE_ENVIO);
+                                }
                             }}
-                            className="flex-1 py-2 rounded-xl bg-green-500 text-white text-xs font-bold hover:bg-green-600 transition-colors flex items-center justify-center gap-2"
+                            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2 ${estado === 'ABONO_VERIFICADO' ? 'bg-yellow-500 text-black hover:bg-yellow-600' : 'bg-green-500 text-white hover:bg-green-600'}`}
                         >
-                            <Truck size={14} /> Confirmar Logística para Cliente
+                            <Truck size={14} /> {estado === 'ABONO_VERIFICADO' ? 'Marcar Encargo Listo y Notificar' : 'Confirmar Logística para Cliente'}
                         </button>
                     )}
 
@@ -342,6 +355,86 @@ export default function QuoteCard({ phone, estado, entidades, onResponded }: Quo
                                 </button>
                             </div>
                         </div>
+                    )}
+
+                    {/* Modal Inline Encargo (Abono) */}
+                    {showEtaModal && (
+                        <div className="w-full animate-in fade-in slide-in-from-top-2 duration-300 space-y-3 bg-neutral-900/80 border border-yellow-500/30 rounded-xl p-4">
+                            <p className="text-[10px] font-bold uppercase text-yellow-500 tracking-widest">⏳ ETA Proveedor</p>
+                            <p className="text-[10px] text-neutral-400">
+                                Indica cuántos días hábiles tardarán los repuestos en llegar al mostrador. 
+                                Se enviará un WhatsApp automático avisando al cliente.
+                            </p>
+                            
+                            <div className="flex items-center gap-2">
+                                <label className="text-[10px] text-neutral-500 font-bold">Días Hábiles:</label>
+                                <input 
+                                    type="number" 
+                                    min="1"
+                                    max="30"
+                                    value={diasEta}
+                                    onChange={(e) => setDiasEta(e.target.value)}
+                                    className="w-20 bg-neutral-950 border border-neutral-700 rounded-lg p-2 text-xs text-center text-white focus:outline-none focus:border-yellow-500/50"
+                                />
+                            </div>
+
+                            <div className="flex gap-2 mt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowEtaModal(false)}
+                                    className="flex-1 py-1.5 rounded-xl bg-neutral-800 text-neutral-400 text-[10px] font-bold hover:bg-neutral-700 transition-colors"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={loadingEncargo}
+                                    onClick={async () => {
+                                        setLoadingEncargo(true);
+                                        try {
+                                            const response = await axios.post('http://localhost:4000/api/dashboard/encargos/solicitar', { phone, dias_eta: diasEta });
+                                            if (response.data.success) {
+                                                setShowEtaModal(false);
+                                                onResponded();
+                                            }
+                                        } catch (error) {
+                                            console.error(error);
+                                            alert("Error al solicitar encargo");
+                                        } finally {
+                                            setLoadingEncargo(false);
+                                        }
+                                    }}
+                                    className="flex-1 py-1.5 rounded-xl bg-yellow-500 text-black text-xs font-bold hover:bg-yellow-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                                >
+                                    {loadingEncargo ? '...' : 'Notificar al Cliente'}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Botón Cobrar Saldo cuando los repuestos llegaron */}
+                    {estado === 'ENCARGO_SOLICITADO' && (
+                         <button
+                         disabled={loadingEncargo}
+                         onClick={async () => {
+                             if (!confirm('¿Los repuestos ya llegaron al local? Se calculará el saldo y se notificará al cliente.')) return;
+                             setLoadingEncargo(true);
+                             try {
+                                 const response = await axios.post('http://localhost:4000/api/dashboard/encargos/recibido', { phone });
+                                 if (response.data.success) {
+                                     onResponded();
+                                 }
+                             } catch (error) {
+                                 console.error(error);
+                                 alert("Error al validar llegada de encargo");
+                             } finally {
+                                 setLoadingEncargo(false);
+                             }
+                         }}
+                         className="flex-1 py-2 mt-2 rounded-xl bg-green-500/20 border border-green-500/30 text-green-400 text-xs font-bold hover:bg-green-500/40 transition-colors flex items-center justify-center gap-2"
+                     >
+                         <Package size={14} /> {loadingEncargo ? 'Procesando...' : '🛬 Repuestos Llegaron (Cobrar Saldo)'}
+                     </button>
                     )}
 
                     {/* Se quitó el botón suelto de "Marcar como entregado", porque ahora es gestionado por handleConfirmarLogistica dentro del modal. */}

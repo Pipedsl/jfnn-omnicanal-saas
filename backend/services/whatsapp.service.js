@@ -31,21 +31,36 @@ const sendTextMessage = async (to, text) => {
                 }
             }
         );
-        console.log(`Mensaje enviado exitosamente a ${to}`);
+
+        // Log detallado: confirma que Meta aceptó y generó un message_id real
+        const messageId = response.data?.messages?.[0]?.id || 'ID no disponible';
+        console.log(`✅ [WhatsApp] Mensaje entregado a Meta para ${to} | message_id: ${messageId}`);
         return response.data;
     } catch (error) {
         const errorData = error.response ? error.response.data : error.message;
-        console.error("Error en WhatsApp Service:", errorData);
+        const errorCode = error.response?.data?.error?.code;
+        const errorSubcode = error.response?.data?.error?.error_subcode;
 
-        // MOCK PARA PRUEBAS: Si falla la API real (ej: token vencido), permitimos seguir para validar la lógica del bot
+        // Error 130472 / subcode 2494010 = fuera de la ventana de 24 horas de Meta
+        // El negocio solo puede iniciar conversaciones con plantillas pre-aprobadas (HSM).
+        // Para texto libre, el cliente debe haber escrito en las últimas 24 horas.
+        if (errorCode === 130472 || errorSubcode === 2494010) {
+            console.error(`❌ [WhatsApp] VENTANA DE 24H EXPIRADA para ${to}. El cliente debe escribir primero para reactivar la conversación.`);
+        } else {
+            console.error(`❌ [WhatsApp] Error enviando a ${to} | Código: ${errorCode} | Detalle:`, errorData);
+        }
+
+        // MOCK PARA PRUEBAS EN DESARROLLO: Si falla la API real, permitimos 
+        // seguir para validar la lógica del bot — pero lo marcamos claramente.
         if (process.env.NODE_ENV !== 'production') {
-            console.log("⚠️ [MOCK] Simulando envío exitoso a pesar del error de API.");
+            console.warn(`⚠️ [MOCK] Mensaje NO enviado realmente a ${to}. Simulando éxito para continuar pruebas en desarrollo.`);
             return { mocked: true, originalError: errorData };
         }
 
         throw error;
     }
 };
+
 
 /**
  * Descarga un archivo multimedia de WhatsApp y lo retorna como Buffer
