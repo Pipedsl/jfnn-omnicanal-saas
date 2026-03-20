@@ -1,32 +1,8 @@
-const { createClient } = require('@supabase/supabase-js');
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-    console.error("\u274c Faltan credenciales de Supabase en el archivo .env");
-    // En test/CI no hacemos exit para no matar el worker de Jest.
-    // En producción es responsabilidad del entorno tener el .env configurado.
-    if (process.env.NODE_ENV !== 'test') {
-        process.exit(1);
-    }
-}
-
 /**
- * Cliente de Supabase configurado para un servidor Node.js de larga duración.
- * - persistSession: false → evita refrescos de token en background que causan ConnectTimeoutError.
- * - schema: 'public' → explícito para mayor claridad y compatibilidad.
+ * ARCHIVO DESACTIVADO: El backend ahora usa PostgreSQL local (pg Pool).
+ * Ver: backend/config/db.js
+ *
+ * Este archivo se mantiene para no romper imports en otras partes del código
+ * que aún no han sido actualizadas, pero no hace nada.
  */
-const supabase = createClient(supabaseUrl, supabaseKey, {
-    auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-    },
-    db: {
-        schema: 'public',
-    },
-});
-
-console.log('[Supabase] ✅ Cliente inicializado correctamente.');
-
-module.exports = supabase;
+module.exports = null;

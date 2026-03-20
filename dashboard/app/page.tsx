@@ -5,7 +5,6 @@ import axios from "axios";
 import { LayoutDashboard, RefreshCcw, Bell, Settings, Target, Zap, DollarSign, ShieldCheck } from "lucide-react";
 import QuoteCard from "@/components/QuoteCard";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
 
 interface Quote {
   id: string;
@@ -32,41 +31,58 @@ export default function Home() {
     ahorroHoras: 0
   });
 
-  const fetchQuotesAndMetrics = async (source: string = "unknown") => {
-    console.log(`[Fetch Trigger] Obteniendo data. Origen: ${source} a las ${new Date().toLocaleTimeString()}`);
-    const currentView = viewRef.current; // Siempre lee el view más reciente
+  const fetchPendientes = async (source: string = "unknown") => {
+    console.log(`[Fetch] Cotizaciones activas. Origen: ${source} a las ${new Date().toLocaleTimeString()}`);
     try {
       setLoading(true);
-      const [resPend, resHist] = await Promise.all([
-        axios.get(`http://localhost:4000/api/dashboard/cotizaciones?t=${Date.now()}`),
-        axios.get(`http://localhost:4000/api/dashboard/cotizaciones/historial?t=${Date.now()}`)
-      ]);
-
+      const resPend = await axios.get(`http://localhost:4000/api/dashboard/cotizaciones?t=${Date.now()}`);
       const pend: Quote[] = resPend.data || [];
-      const hist: Quote[] = resHist.data || [];
 
-      setQuotes(currentView === "pendientes" ? pend : hist);
+      if (viewRef.current === "pendientes") setQuotes(pend);
 
-      const totalSesiones = pend.length + hist.length;
-      const ventasCerradas = hist.filter((q: Quote) => q.estado === "ENTREGADO" || q.estado === "ARCHIVADO").length;
-      const tasaConversion = totalSesiones > 0 ? Math.round((ventasCerradas / totalSesiones) * 100) : 0;
-      const minutosAhorrados = totalSesiones * 15;
-      const horasAhorradas = (minutosAhorrados / 60).toFixed(1);
-
-      setMetrics({
+      const minutosAhorrados = pend.length * 15;
+      setMetrics(prev => ({
+        ...prev,
         cotizacionesHoy: pend.length,
-        conversionRate: tasaConversion,
-        ahorroHoras: parseFloat(horasAhorradas)
-      });
-
+        ahorroHoras: parseFloat((minutosAhorrados / 60).toFixed(1))
+      }));
     } catch (error) {
-      console.error("Error fetching quotes & metrics:", error);
+      console.error("Error fetching cotizaciones:", error);
     } finally {
       setLoading(false);
       setIsSyncing(true);
       setTimeout(() => setIsSyncing(false), 2000);
     }
   };
+
+  const fetchHistorial = async () => {
+    console.log(`[Fetch] Historial bajo demanda a las ${new Date().toLocaleTimeString()}`);
+    try {
+      setLoading(true);
+      const resHist = await axios.get(`http://localhost:4000/api/dashboard/cotizaciones/historial?t=${Date.now()}`);
+      const hist: Quote[] = resHist.data || [];
+
+      setQuotes(hist);
+
+      const ventasCerradas = hist.filter((q: Quote) => q.estado === "ENTREGADO" || q.estado === "ARCHIVADO").length;
+      const totalSesiones = metrics.cotizacionesHoy + hist.length;
+      const tasaConversion = totalSesiones > 0 ? Math.round((ventasCerradas / totalSesiones) * 100) : 0;
+      setMetrics(prev => ({ ...prev, conversionRate: tasaConversion }));
+    } catch (error) {
+      console.error("Error fetching historial:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Función unificada para compatibilidad con el ref de polling
+  const fetchQuotesAndMetrics = async (source: string = "unknown") => {
+    if (viewRef.current === "pendientes") {
+      await fetchPendientes(source);
+    }
+    // El historial NO se recarga automáticamente, solo bajo demanda
+  };
+
 
   // Mantener la ref siempre sincronizada con la función actual
   useEffect(() => {
@@ -75,51 +91,24 @@ export default function Home() {
 
   useEffect(() => {
     viewRef.current = view; // Sync ref
-    fetchRef.current("useEffect[view]");
+    if (view === "pendientes") {
+      fetchPendientes("useEffect[view=pendientes]");
+    } else if (view === "historial") {
+      fetchHistorial(); // Solo se llama cuando el usuario cambia a historial
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view]);
 
+  // Polling cada 10s (sin Supabase Realtime)
   useEffect(() => {
-    const channel = supabase
-      .channel('jfnn-realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'user_sessions' },
-        (payload) => {
-          console.log(`[Socket] ✅ Evento user_sessions: ${payload.eventType}`);
-          setIsSyncing(true);
-          setTimeout(() => setIsSyncing(false), 2000);
-          // Usar ref para acceder al fetch más reciente sin closure stale
-          fetchRef.current("Realtime_user_sessions");
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'pedidos' },
-        (payload) => {
-          console.log(`[Socket] ✅ Evento pedidos: ${payload.eventType}`);
-          setIsSyncing(true);
-          setTimeout(() => setIsSyncing(false), 2000);
-          fetchRef.current("Realtime_pedidos");
-        }
-      )
-      .subscribe((status) => {
-        console.log(`[Supabase Realtime] Estado del canal: ${status}`);
-      });
-
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    fetchPendientes("Initial_Load");
+    const interval = setInterval(() => {
+      if (viewRef.current === "pendientes") {
+        fetchRef.current("Polling_10s");
+      }
+    }, 10000);
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Polling de seguridad cada 30s como fallback si el WebSocket tiene latencia
-  useEffect(() => {
-    const fallback = setInterval(() => {
-      fetchRef.current("Fallback_Polling_30s");
-    }, 30000);
-    return () => clearInterval(fallback);
   }, []);
 
   const stats = [
@@ -148,7 +137,7 @@ export default function Home() {
             </div>
 
             <button
-              onClick={() => fetchQuotesAndMetrics("Boton_Actualizar_Manual")}
+              onClick={() => view === 'historial' ? fetchHistorial() : fetchPendientes("Boton_Actualizar_Manual")}
               className="p-2 hover:bg-neutral-800 rounded-lg text-neutral-400 transition-colors"
               title="Actualizar"
             >

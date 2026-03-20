@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: jfnn_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: jfnn_user
+      POSTGRES_PASSWORD: jfnn_password
+      POSTGRES_DB: jfnn_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - jfnn_pgdata:/var/lib/postgresql/data
+      - ./backend/sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jfnn_user -d jfnn_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  jfnn_pgdata:
+    name: jfnn_pgdata

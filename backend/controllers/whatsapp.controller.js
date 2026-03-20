@@ -171,12 +171,19 @@ const processBufferedMessages = async (customerPhone) => {
         console.log(`[Gemini] Respuesta (${session.estado}):`, JSON.stringify(aiJson, null, 2));
 
         // 4. Actualizar entidades en la sesión
+        const originalSession = JSON.parse(JSON.stringify(session)); // Backup
         session = await sessionsService.updateEntidades(customerPhone, aiJson.entidades);
+
+        // -- GUARDIA CRÍTICA CONTRA TIMEOUTS DE DB --
+        if (!session) {
+            console.error(`[CRITICAL] No se pudo actualizar sesión de ${customerPhone} tras respuesta de Gemini. Usando backup local.`);
+            session = originalSession; // Mantener estado anterior para no perder el contexto del render
+        }
 
         let finalMessage = aiJson.mensaje_cliente;
 
         // 5. Lógica de transición de estados
-        if (session.estado === sessionsService.STATES.PERFILANDO) {
+        if (session && session.estado === sessionsService.STATES.PERFILANDO) {
             const e = session.entidades;
             const hasRepuestos = Array.isArray(e.repuestos_solicitados) && e.repuestos_solicitados.length > 0;
             const hasMinData = e.ano && (e.patente || e.vin) && hasRepuestos;

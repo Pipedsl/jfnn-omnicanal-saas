@@ -1,6 +1,6 @@
 "use client";
 
-import { Car, Calendar, Hash, Package, User, DollarSign, CheckCircle, Truck, Archive, MapPin, Edit3 } from "lucide-react";
+import { Car, Calendar, Hash, Package, User, DollarSign, CheckCircle, Truck, Archive, MapPin, Edit3, MessageSquareOff, Bot } from "lucide-react";
 import { useState } from "react";
 import SellerActionForm from "./SellerActionForm";
 import axios from "axios";
@@ -30,6 +30,8 @@ interface Entidades {
         razon_social: string | null;
         giro: string | null;
     };
+    agente_pausado?: boolean;
+    nombre_cliente?: string | null;
 }
 
 interface QuoteCardProps {
@@ -49,6 +51,10 @@ export default function QuoteCard({ phone, estado, entidades, onResponded }: Quo
     const [showEtaModal, setShowEtaModal] = useState(false);
     const [diasEta, setDiasEta] = useState("3");
     const [loadingEncargo, setLoadingEncargo] = useState(false);
+
+    // Estado para Modo Pausa (HU-3)
+    const [isPaused, setIsPaused] = useState(entidades.agente_pausado || false);
+    const [loadingPausa, setLoadingPausa] = useState(false);
 
     const repuestos = Array.isArray(entidades.repuestos_solicitados) ? entidades.repuestos_solicitados : [];
     const esEnvio = entidades.metodo_entrega === 'domicilio' || entidades.metodo_entrega === 'envio';
@@ -76,7 +82,7 @@ export default function QuoteCard({ phone, estado, entidades, onResponded }: Quo
             case 'ENCARGO_SOLICITADO': return { label: 'Esperando a Proveedor', class: 'bg-indigo-400/10 text-indigo-400 border-indigo-500/20' };
             case 'ESPERANDO_SALDO': return { label: 'Cobrando Saldo', class: 'bg-rose-400/10 text-rose-400 border-rose-500/20 ring-1 ring-rose-500/50 animate-pulse-slow' };
             case 'ENTREGADO': return { label: 'Producto Entregado', class: 'bg-teal-400/10 text-teal-400 border-teal-500/20' };
-            case 'CICLO_COMPLETO': return { label: 'POR VALIDAR PAGO', class: 'bg-pink-500/20 text-pink-400 border-pink-500/30' };
+            case 'CICLO_COMPLETO': return { label: 'Pago Presencial Pendiente', class: 'bg-pink-500/20 text-pink-400 border-pink-500/30 ring-1 ring-pink-500/40 animate-pulse' };
             case 'ARCHIVADO': return { label: 'Archivado', class: 'bg-neutral-800 text-neutral-500 border-neutral-700' };
             default: return { label: status, class: 'bg-neutral-800 text-neutral-400 border-neutral-700' };
         }
@@ -116,6 +122,22 @@ export default function QuoteCard({ phone, estado, entidades, onResponded }: Quo
         }
     };
 
+    const togglePausa = async () => {
+        setLoadingPausa(true);
+        const nuevoEstado = !isPaused;
+        try {
+            await axios.patch(`http://localhost:4000/api/dashboard/sessions/${phone}/pausa`, {
+                pausado: nuevoEstado
+            });
+            setIsPaused(nuevoEstado);
+        } catch (error) {
+            console.error("Error al cambiar modo pausa:", error);
+            alert("No se pudo cambiar el modo pausa del agente.");
+        } finally {
+            setLoadingPausa(false);
+        }
+    };
+
     const statusConfig = getStatusConfig(estado);
 
     return (
@@ -126,8 +148,13 @@ export default function QuoteCard({ phone, estado, entidades, onResponded }: Quo
                 {/* Header */}
                 <div className="flex justify-between items-start">
                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent">
+                        <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center text-accent relative">
                             <User size={20} />
+                            {isPaused && (
+                                <div className="absolute -bottom-1 -right-1 bg-orange-500 rounded-full p-1 border-2 border-background">
+                                    <MessageSquareOff size={8} className="text-white" />
+                                </div>
+                            )}
                         </div>
                         <div>
                             <div className="flex items-center gap-2">
@@ -135,13 +162,40 @@ export default function QuoteCard({ phone, estado, entidades, onResponded }: Quo
                                 <span className="text-[10px] bg-accent/20 text-accent px-2 py-0.5 rounded flex items-center gap-1 font-mono font-bold">
                                     <Hash size={10} /> {entidades.quote_id || `ID-TEMP-${phone.slice(-4)}`}
                                 </span>
+                                {isPaused && (
+                                    <span className="text-[9px] bg-orange-500/20 text-orange-400 px-2 py-0.5 rounded border border-orange-500/30 font-bold animate-pulse">
+                                        🔇 PAUSADO
+                                    </span>
+                                )}
                             </div>
-                            <h3 className="text-foreground font-medium">{phone}</h3>
+                            <h3 className="text-foreground font-bold tracking-tight">
+                                {entidades.nombre_cliente || phone}
+                            </h3>
+                            {entidades.nombre_cliente && (
+                                <p className="text-[10px] text-neutral-500 font-medium">{phone}</p>
+                            )}
                         </div>
                     </div>
-                    <span className={`px-3 py-1 text-[10px] font-bold uppercase tracking-tighter rounded-full border ${statusConfig.class}`}>
-                        {statusConfig.label}
-                    </span>
+                    <div className="flex flex-col items-end gap-2">
+                        <span className={`px-3 py-1 text-[10px] font-bold uppercase tracking-tighter rounded-full border ${statusConfig.class}`}>
+                            {statusConfig.label}
+                        </span>
+                        
+                        {/* Toggle de Pausa (HU-3) */}
+                        <button
+                            onClick={togglePausa}
+                            disabled={loadingPausa}
+                            title={isPaused ? "Reactivar Agente IA" : "Pausar Agente IA"}
+                            className={`flex items-center gap-1.5 px-2 py-1 rounded-lg border transition-all ${isPaused 
+                                ? 'bg-orange-500/10 border-orange-500/30 text-orange-500 hover:bg-orange-500/20' 
+                                : 'bg-white/5 border-white/10 text-neutral-500 hover:bg-white/10'}`}
+                        >
+                            {isPaused ? <MessageSquareOff size={12} /> : <Bot size={12} />}
+                            <span className="text-[9px] font-black uppercase tracking-widest">
+                                {loadingPausa ? '...' : isPaused ? 'Pausado' : 'AI Activa'}
+                            </span>
+                        </button>
+                    </div>
                 </div>
 
 
@@ -435,6 +489,29 @@ export default function QuoteCard({ phone, estado, entidades, onResponded }: Quo
                      >
                          <Package size={14} /> {loadingEncargo ? 'Procesando...' : '🛬 Repuestos Llegaron (Cobrar Saldo)'}
                      </button>
+                    )}
+
+                    {/* Botón: Confirmar pago presencial (pago en caja) */}
+                    {estado === 'CICLO_COMPLETO' && (
+                        <button
+                            onClick={async () => {
+                                if (!confirm(`¿Confirmas que se recibió el pago presencial en caja${entidades.nombre_cliente ? ` de ${entidades.nombre_cliente}` : ''}? El sistema avanzará al flujo de logística.`)) return;
+                                try {
+                                    await axios.patch("http://localhost:4000/api/dashboard/cotizaciones/estado", {
+                                        phone,
+                                        estado: 'PAGO_VERIFICADO',
+                                        notify: false
+                                    });
+                                    onResponded();
+                                } catch (error) {
+                                    console.error("Error confirmando pago presencial:", error);
+                                    alert("No se pudo confirmar el pago.");
+                                }
+                            }}
+                            className="flex-1 py-2 rounded-xl bg-pink-500 text-white text-xs font-bold hover:bg-pink-600 transition-colors flex items-center justify-center gap-2 animate-pulse"
+                        >
+                            <CheckCircle size={14} /> ✅ Confirmar Pago Recibido en Caja
+                        </button>
                     )}
 
                     {/* Se quitó el botón suelto de "Marcar como entregado", porque ahora es gestionado por handleConfirmarLogistica dentro del modal. */}
