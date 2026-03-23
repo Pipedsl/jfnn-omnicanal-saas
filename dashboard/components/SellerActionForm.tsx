@@ -8,6 +8,7 @@ interface Item {
     nombre: string;
     precio: number | null;
     codigo: string | null;
+    cantidad?: number;
     disponibilidad?: "DISPONIBLE" | "SIN_STOCK" | "POR_ENCARGO";
 }
 
@@ -37,6 +38,7 @@ export default function SellerActionForm({ phone, items, onResponded }: SellerAc
                     ? precioLimpio
                     : null,
                 codigo: item.codigo || "",
+                cantidad: item.cantidad || 1,
                 disponibilidad: (item.disponibilidad as any) || "DISPONIBLE"
             };
         });
@@ -108,13 +110,25 @@ export default function SellerActionForm({ phone, items, onResponded }: SellerAc
                             </div>
 
                             {!isSinStock && (
-                                <div className="grid grid-cols-2 gap-2 relative z-10 animate-fade-in">
+                                <div className="grid grid-cols-3 gap-2 relative z-10 animate-fade-in">
+                                    <div className="relative">
+                                        <div className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-500 font-bold text-[10px]">x</div>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            required={!isSinStock}
+                                            placeholder="Cant."
+                                            value={item.cantidad || ""}
+                                            onChange={(e) => handleItemChange(idx, "cantidad", e.target.value ? parseInt(e.target.value) : 1)}
+                                            className="w-full bg-neutral-950 border border-neutral-800 rounded-lg py-1.5 pl-6 pr-2 text-xs focus:outline-none focus:border-accent transition-all"
+                                        />
+                                    </div>
                                     <div className="relative">
                                         <DollarSign size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-500" />
                                         <input
                                             type="number"
                                             required={!isSinStock}
-                                            placeholder="Precio"
+                                            placeholder="Precio U."
                                             value={item.precio || ""}
                                             onChange={(e) => handleItemChange(idx, "precio", e.target.value ? parseInt(e.target.value) : null)}
                                             className="w-full bg-neutral-950 border border-neutral-800 rounded-lg py-1.5 pl-7 pr-2 text-xs focus:outline-none focus:border-accent transition-all"
@@ -125,7 +139,7 @@ export default function SellerActionForm({ phone, items, onResponded }: SellerAc
                                         <input
                                             type="text"
                                             required={!isSinStock}
-                                            placeholder="Código Layla"
+                                            placeholder="Cód Layla"
                                             value={item.codigo || ""}
                                             onChange={(e) => handleItemChange(idx, "codigo", e.target.value)}
                                             className="w-full bg-neutral-950 border border-neutral-800 rounded-lg py-1.5 pl-7 pr-2 text-xs focus:outline-none focus:border-accent transition-all"

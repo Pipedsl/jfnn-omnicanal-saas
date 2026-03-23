@@ -191,6 +191,29 @@ const processBufferedMessages = async (customerPhone) => {
         ) {
             console.log(`[HU-1] Removiendo repuesto "${aiJson.repuesto_a_remover}" para ${customerPhone}`);
             session = await sessionsService.removeRepuesto(customerPhone, aiJson.repuesto_a_remover);
+            
+            if (session && session.entidades && session.entidades.total_cotizacion !== undefined) {
+                const formatMoney = (val) => new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP" }).format(val);
+                finalMessage = finalMessage + `\n\n💡 _El nuevo total de su cotización es de *${formatMoney(session.entidades.total_cotizacion)}*._`;
+            }
+        }
+
+        // BUG-3: Agregar repuesto estando en CONFIRMANDO_COMPRA -> volver a ESPERANDO_VENDEDOR
+        if (
+            aiJson.accion === 'AGREGAR_REPUESTO' &&
+            (session.estado === sessionsService.STATES.CONFIRMANDO_COMPRA || session.estado === sessionsService.STATES.ESPERANDO_COMPROBANTE)
+        ) {
+            console.log(`[BUG-3] Cliente quiere agregar repuesto en el cierre. Pasando a ESPERANDO_VENDEDOR para ${customerPhone}`);
+            session = await sessionsService.setEstado(customerPhone, sessionsService.STATES.ESPERANDO_VENDEDOR);
+            
+            const nombre = session.entidades?.nombre_cliente ? ` ${session.entidades.nombre_cliente}, h` : ' H';
+            finalMessage = `Entendido${nombre}e anotado su nuevo repuesto a la solicitud. 🔄 En breve un asesor verificará el stock y le enviará la cotización actualizada con los nuevos totales.`;
+        }
+
+        // BUG-4: Abandono de cotización
+        if (aiJson.accion === 'ABANDONAR_COTIZACION') {
+            console.log(`[BUG-4] Cliente abandonó la cotización. Reseteando sesión de ${customerPhone}`);
+            session = await sessionsService.resetSession(customerPhone);
         }
 
         // 5. Lógica de transición de estados

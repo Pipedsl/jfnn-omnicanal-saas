@@ -35,7 +35,10 @@ const INITIAL_ENTITIES = {
     tipo_documento: null,
     total_cotizacion: null,
     quote_id: null,
+    quote_id: null,
     nombre_cliente: null,
+    email_cliente: null,
+    rut_cliente: null,
     agente_pausado: false,
     comprobante_url: null,
     datos_extraidos: null,
@@ -63,6 +66,46 @@ const rowToSession = (row) => ({
     created_at: row.created_at
 });
 
+// ─── PERFIL DEL CLIENTE ─────────────────────────────────────────
+const getClientProfile = async (phone) => {
+    try {
+        const { rows } = await db.query('SELECT * FROM clientes WHERE phone = $1', [phone]);
+        return rows[0] || null;
+    } catch (err) {
+        console.error('[Sessions] ❌ Error en getClientProfile:', err.message);
+        return null;
+    }
+};
+
+const updateClientProfile = async (phone, data) => {
+    try {
+        const { nombre, email, rut, quote_id_to_archive } = data;
+        
+        const query = `
+            INSERT INTO clientes (phone, nombre, email, rut)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (phone) DO UPDATE SET
+                nombre = COALESCE(EXCLUDED.nombre, clientes.nombre),
+                email = COALESCE(EXCLUDED.email, clientes.email),
+                rut = COALESCE(EXCLUDED.rut, clientes.rut),
+                updated_at = NOW()
+            RETURNING *;
+        `;
+        
+        await db.query(query, [phone, nombre, email, rut]);
+
+        if (quote_id_to_archive) {
+             await db.query(`
+                UPDATE clientes 
+                SET historial_cotizaciones_ids = array_append(historial_cotizaciones_ids, $1)
+                WHERE phone = $2
+             `, [quote_id_to_archive, phone]);
+        }
+    } catch (err) {
+        console.error('[Sessions] ❌ Error en updateClientProfile:', err.message);
+    }
+};
+
 // ─── getSession ─────────────────────────────────────────────────
 const getSession = async (phone) => {
     const cached = sessionCache.get(phone);
@@ -78,12 +121,22 @@ const getSession = async (phone) => {
 
         let result;
         if (rows.length === 0) {
+            // Buscar perfil preexistente del cliente
+            const cliente = await getClientProfile(phone);
+            
+            const entidadesIniciales = { ...INITIAL_ENTITIES };
+            if (cliente) {
+                entidadesIniciales.nombre_cliente = cliente.nombre || null;
+                entidadesIniciales.email_cliente = cliente.email || null;
+                entidadesIniciales.rut_cliente = cliente.rut || null;
+            }
+
             // Crear sesión nueva
             const { rows: newRows } = await db.query(
                 `INSERT INTO user_sessions (phone, estado, entidades, ultimo_mensaje)
                  VALUES ($1, $2, $3, NOW())
                  RETURNING *`,
-                [phone, STATES.PERFILANDO, JSON.stringify(INITIAL_ENTITIES)]
+                [phone, STATES.PERFILANDO, JSON.stringify(entidadesIniciales)]
             );
             result = rowToSession(newRows[0]);
         } else {
@@ -276,6 +329,14 @@ const archiveSession = async (phone) => {
         const session = await getSession(phone);
         const e = session.entidades || {};
 
+        // Actualizar perfil del cliente en la base de datos (MEJORA-3)
+        await updateClientProfile(phone, {
+            nombre: e.nombre_cliente || null,
+            email: e.email_cliente || null,
+            rut: e.rut_cliente || e.datos_factura?.rut || null,
+            quote_id_to_archive: e.quote_id || null
+        });
+
         const totalCotizacion = (e.repuestos_solicitados || []).reduce((acc, r) => acc + (parseInt(r.precio) || 0), 0);
 
         const { rows: pedidoRows } = await db.query(
@@ -398,8 +459,8 @@ const removeRepuesto = async (phone, nombreRepuesto) => {
         });
         const despues = entidades.repuestos_solicitados.length;
 
-        // Recalcular total con los ítems restantes
-        const nuevoTotal = entidades.repuestos_solicitados.reduce((sum, r) => sum + (r.precio || 0), 0);
+        // Recalcular total con los ítems restantes (MEJORA-1)
+        const nuevoTotal = entidades.repuestos_solicitados.reduce((sum, r) => sum + ((r.precio || 0) * (r.cantidad || 1)), 0);
         entidades.total_cotizacion = nuevoTotal;
 
         const { rows } = await db.query(

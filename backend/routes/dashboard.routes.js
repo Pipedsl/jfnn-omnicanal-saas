@@ -73,18 +73,19 @@ router.post('/cotizaciones/responder', async (req, res) => {
             const isAgotado = disponibilidad === "SIN_STOCK";
             const isEncargo = disponibilidad === "POR_ENCARGO";
             const priceStr = item.precio ? parseInt(item.precio).toLocaleString('es-CL') : null;
+            const cant = item.cantidad || 1;
 
             if (isAgotado) {
                 return `❌ ${item.nombre} - Agotado momentáneamente`;
             }
 
-            if (priceStr) total += parseInt(item.precio);
+            if (priceStr) total += (parseInt(item.precio) * cant);
 
             if (isEncargo) {
-                return `📦 ${item.nombre} | $${priceStr} (Requiere abono previo)`;
+                return `📦 ${cant}x ${item.nombre} | $${priceStr} c/u (Requiere abono previo)`;
             }
 
-            return `✔️ ${item.nombre} | Cód: ${item.codigo || 'N/A'} | $${priceStr || 0}`;
+            return `✔️ ${cant}x ${item.nombre} | Cód: ${item.codigo || 'N/A'} | $${priceStr || 0} c/u${cant > 1 ? ` (Total: $${(parseInt(item.precio) * cant).toLocaleString('es-CL')})` : ''}`;
         }).join('\n');
 
         const message = `*COTIZACIÓN FORMAL - JFNN*\n` +
@@ -92,6 +93,7 @@ router.post('/cotizaciones/responder', async (req, res) => {
             `Estimado cliente, revisamos el stock de lo solicitado:\n\n` +
             `${details}\n\n` +
             (total > 0 ? `*TOTAL APROXIMADO: $${total.toLocaleString('es-CL')}*\n\n` : '') +
+            `${horario_entrega ? `📦 Logística: ${horario_entrega}\n\n` : ''}` +
             `${note ? `📝 Nota del asesor: ${note}\n\n` : ''}` +
             `--- \n` +
             `🏢 Origen: Venta Online / WhatsApp\n` +
@@ -213,9 +215,9 @@ router.get('/pending-approvals', async (req, res) => {
                 precio: normalizarPrecio(r.precio) || null
             }));
 
-            // Calcular total usando los precios ya normalizados
+            // Calcular total usando los precios ya normalizados y cantidades
             const totalCotizacion = repuestosNormalizados.reduce((acc, r) => {
-                return acc + (r.precio || 0);
+                return acc + ((r.precio || 0) * (r.cantidad || 1));
             }, 0);
 
             return {
@@ -442,9 +444,11 @@ router.post('/encargos/recibido', async (req, res) => {
         const e = session.entidades || {};
         
         const repuestos = (e.repuestos_solicitados || []).map(r => ({
-            ...r, precio: normalizarPrecio(r.precio) || 0
+            ...r, 
+            precio: normalizarPrecio(r.precio) || 0,
+            cantidad: r.cantidad || 1
         }));
-        const totalCotizacion = repuestos.reduce((acc, r) => acc + (r.precio || 0), 0);
+        const totalCotizacion = repuestos.reduce((acc, r) => acc + ((r.precio || 0) * r.cantidad), 0);
         
         const montoAbono = normalizarPrecio(e.pago_pendiente?.monto || 0);
         const saldoPendiente = Math.max(0, totalCotizacion - montoAbono);

@@ -15,6 +15,17 @@ CREATE TABLE IF NOT EXISTS user_sessions (
 CREATE INDEX IF NOT EXISTS idx_user_sessions_phone  ON user_sessions(phone);
 CREATE INDEX IF NOT EXISTS idx_user_sessions_estado ON user_sessions(estado);
 
+-- Tabla principal de clientes recurrentes (MEJORA-3)
+CREATE TABLE IF NOT EXISTS clientes (
+    phone       VARCHAR(30) PRIMARY KEY,
+    nombre      VARCHAR(100),
+    email       VARCHAR(100),
+    rut         VARCHAR(20),
+    historial_cotizaciones_ids TEXT[] DEFAULT '{}',
+    created_at  TIMESTAMPTZ DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Tabla de historial/pedidos archivados
 CREATE TABLE IF NOT EXISTS pedidos (
     id                  SERIAL PRIMARY KEY,

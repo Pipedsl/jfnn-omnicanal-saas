@@ -9,6 +9,7 @@ interface Repuesto {
     nombre: string;
     precio: number | null;
     codigo: string | null;
+    cantidad?: number;
 }
 
 interface Entidades {
@@ -277,15 +278,20 @@ export default function QuoteCard({ phone, estado, entidades, onResponded }: Quo
                                 repuestos.map((r, i) => (
                                     <div key={i} className="flex items-center justify-between text-xs bg-white/5 p-2 rounded-lg group/item transition-colors hover:bg-white/10">
                                         <div className="flex flex-col">
-                                            <span className="text-neutral-300 font-medium font-bold">• {r.nombre}</span>
+                                            <span className="text-neutral-300 font-medium font-bold">• {r.cantidad && r.cantidad > 1 ? `${r.cantidad}x ` : ''}{r.nombre}</span>
                                             {r.codigo && (
                                                 <span className="text-[10px] text-neutral-500 font-mono">Layla: {r.codigo}</span>
                                             )}
                                         </div>
                                         <div className="text-right">
                                             <span className={`font-bold ${r.precio ? 'text-green-400' : 'text-neutral-600 italic'}`}>
-                                                {r.precio ? `$${Number(String(r.precio).replace(/[^\d]/g, "")).toLocaleString('es-CL')}` : 'Sin precio'}
+                                                {r.precio ? `$${(Number(String(r.precio).replace(/[^\d]/g, "")) * (r.cantidad || 1)).toLocaleString('es-CL')}` : 'Sin precio'}
                                             </span>
+                                            {r.precio && r.cantidad && r.cantidad > 1 && (
+                                                <div className="text-[10px] text-neutral-500 mt-0.5">
+                                                    $ {Number(String(r.precio).replace(/[^\d]/g, "")).toLocaleString('es-CL')} c/u
+                                                </div>
+                                            )}
                                         </div>
 
                                     </div>
