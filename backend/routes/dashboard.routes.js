@@ -1,8 +1,28 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const sessionsService = require('../services/sessions.service');
 const whatsappService = require('../services/whatsapp.service');
+const geminiService = require('../services/gemini.service');
+const db = require('../config/db');
+
+const KNOWLEDGE_JSON_PATH = path.join(__dirname, '../data/knowledge.json');
+
+/**
+ * [P0] Calcular métricas del negocio
+ * GET /api/dashboard/metrics
+ */
+router.get('/metrics', async (req, res) => {
+    try {
+        const metrics = await sessionsService.getDashboardMetrics();
+        res.status(200).json(metrics);
+    } catch (error) {
+        console.error('Error obteniendo métricas:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
 
 /**
  * Obtener todas las cotizaciones en espera
@@ -24,11 +44,22 @@ router.get('/cotizaciones', async (req, res) => {
                 disponibilidad: r.disponibilidad || 'DISPONIBLE'
             }));
 
+            const vehiculosNormalizados = (e.vehiculos || []).map(v => ({
+                ...v,
+                repuestos_solicitados: (v.repuestos_solicitados || []).map(r => ({
+                    ...r,
+                    precio: normalizarPrecio(r.precio) || null,
+                    codigo: r.codigo || null,
+                    disponibilidad: r.disponibilidad || 'DISPONIBLE'
+                }))
+            }));
+
             return {
                 ...session,
                 entidades: {
                     ...e,
-                    repuestos_solicitados: repuestosNormalizados
+                    repuestos_solicitados: repuestosNormalizados,
+                    vehiculos: vehiculosNormalizados
                 }
             };
         });
@@ -59,39 +90,50 @@ router.get('/cotizaciones/historial', async (req, res) => {
  */
 router.post('/cotizaciones/responder', async (req, res) => {
     try {
-        const { phone, items, note, horario_entrega } = req.body;
+        const { phone, items, vehiculos, note, horario_entrega } = req.body;
 
-        if (!phone || !items || !Array.isArray(items)) {
+        if (!phone || (!items && !vehiculos)) {
             return res.status(400).json({ error: 'Faltan campos obligatorios' });
         }
 
         const quoteId = `JFNN-2026-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
         let total = 0;
+        let detailsText = '';
 
-        const details = items.map(item => {
+        const parseItem = (item) => {
             const disponibilidad = item.disponibilidad || "DISPONIBLE";
             const isAgotado = disponibilidad === "SIN_STOCK";
             const isEncargo = disponibilidad === "POR_ENCARGO";
-            const priceStr = item.precio ? parseInt(item.precio).toLocaleString('es-CL') : null;
             const cant = item.cantidad || 1;
+            const precio = item.precio ? parseInt(String(item.precio).replace(/[^\d]/g, "")) : null;
+            const priceStr = precio ? precio.toLocaleString("es-CL") : null;
 
             if (isAgotado) {
                 return `❌ ${item.nombre} - Agotado momentáneamente`;
             }
 
-            if (priceStr) total += (parseInt(item.precio) * cant);
-
+            if (precio) total += (precio * cant);
             if (isEncargo) {
                 return `📦 ${cant}x ${item.nombre} | $${priceStr} c/u (Requiere abono previo)`;
             }
 
             return `✔️ ${cant}x ${item.nombre} | Cód: ${item.codigo || 'N/A'} | $${priceStr || 0} c/u${cant > 1 ? ` (Total: $${(parseInt(item.precio) * cant).toLocaleString('es-CL')})` : ''}`;
-        }).join('\n');
+        };
+
+        if (vehiculos && vehiculos.length > 0) {
+            detailsText = vehiculos.map(v => {
+                let vehiculoHeader = `🚗 *${v.marca_modelo || 'Vehículo'} ${v.ano || ''}*\n`;
+                let vehiculoDetails = (v.repuestos_solicitados || []).map(parseItem).join('\n');
+                return vehiculoHeader + vehiculoDetails;
+            }).join('\n\n');
+        } else if (items) {
+            detailsText = items.map(parseItem).join('\n');
+        }
 
         const message = `*COTIZACIÓN FORMAL - JFNN*\n` +
             `📄 ID: ${quoteId}\n\n` +
             `Estimado cliente, revisamos el stock de lo solicitado:\n\n` +
-            `${details}\n\n` +
+            `${detailsText}\n\n` +
             (total > 0 ? `*TOTAL APROXIMADO: $${total.toLocaleString('es-CL')}*\n\n` : '') +
             `${horario_entrega ? `📦 Logística: ${horario_entrega}\n\n` : ''}` +
             `${note ? `📝 Nota del asesor: ${note}\n\n` : ''}` +
@@ -103,18 +145,76 @@ router.post('/cotizaciones/responder', async (req, res) => {
         await whatsappService.sendTextMessage(phone, message);
 
         // Actualizar sesión: Guardar ID de cotización, total, horario, precios y pasar al flujo de cierre
-        await sessionsService.updateEntidades(phone, {
+        const sessionUpdateParams = {
             quote_id: quoteId,
             total_cotizacion: total,
-            horario_entrega: horario_entrega || null,
-            repuestos_solicitados: items // Persitir los precios individuales editados por el vendedor
-        });
+            horario_entrega: horario_entrega || null
+        };
+        if (vehiculos && vehiculos.length > 0) {
+            sessionUpdateParams.vehiculos = vehiculos;
+        } else {
+            sessionUpdateParams.repuestos_solicitados = items;
+        }
+
+        await sessionsService.patchSellerData(phone, sessionUpdateParams);
         await sessionsService.setEstado(phone, 'CONFIRMANDO_COMPRA');
 
         res.status(200).json({ success: true, quoteId });
     } catch (error) {
         console.error('Error respondiendo al cliente:', error);
         res.status(500).json({ error: 'Error al enviar mensaje' });
+    }
+});
+
+/**
+ * Enviar plantilla HSM para re-enganchar al cliente
+ */
+router.post('/cotizaciones/template', async (req, res) => {
+    try {
+        const { phone, templateName, nombre, repuesto } = req.body;
+
+        if (!phone || !templateName) {
+            return res.status(400).json({ error: 'Faltan campos obligatorios (phone, templateName)' });
+        }
+
+        // Recuperar sesión para saber el estado actual
+        const session = await sessionsService.getSession(phone);
+        if (!session) {
+            return res.status(404).json({ error: 'Sesión no encontrada' });
+        }
+
+        // Construir parámetros con nombre (Meta API v19+ requiere parameter_name)
+        const bodyParams = [];
+        if (nombre) bodyParams.push({ name: 'nombre', text: nombre });
+        if (repuesto) bodyParams.push({ name: 'repuesto', text: repuesto });
+
+        // Idioma correcto según la plantilla registrada en Meta
+        const langMap = {
+            'cotizacion_lista': 'es',
+            'retomar_cotizacion': 'es_CL'
+        };
+        const languageCode = langMap[templateName] || 'es';
+
+        const response = await whatsappService.sendTemplateMessage(phone, templateName, languageCode, bodyParams);
+
+        // Si estaba ARCHIVADO o expirado, lo pasamos a ESPERANDO_VENDEDOR para que
+        // vuelva a aparecer activo en el tablero. Además, actualizamos ultimo_mensaje
+        // para que a nivel de UI el dashboard lo vea recién tocado.
+        const nuevosDatos = {};
+        if (session.estado === 'ARCHIVADO') {
+            await sessionsService.setEstado(phone, 'ESPERANDO_VENDEDOR');
+        }
+        
+        // Actualizamos el ultimo_mensaje en la DB para que suba en la bandeja.
+        await db.query(
+            `UPDATE user_sessions SET ultimo_mensaje = NOW() WHERE phone = $1`,
+            [phone]
+        );
+
+        res.status(200).json({ success: true, messageId: response?.messages?.[0]?.id || 'mocked' });
+    } catch (error) {
+        console.error('Error enviando plantilla HSM:', error);
+        res.status(500).json({ error: 'Error al enviar plantilla', detalle: error.message });
     }
 });
 
@@ -130,10 +230,18 @@ router.post('/cotizaciones/responder', async (req, res) => {
  */
 router.patch('/cotizaciones/estado', async (req, res) => {
     try {
-        const { phone, estado, notify, mensaje_logistica } = req.body;
+        const { phone, estado, notify, mensaje_logistica, numero_seguimiento } = req.body;
 
         if (!phone || !estado) {
             return res.status(400).json({ error: 'Faltan campos obligatorios' });
+        }
+
+        // Si viene numero_seguimiento, actualizar entidades
+        if (numero_seguimiento) {
+            const session = await sessionsService.getSession(phone);
+            const entidades = session.entidades || {};
+            entidades.numero_seguimiento = numero_seguimiento;
+            await sessionsService.updateEntidades(phone, entidades);
         }
 
         const session = await sessionsService.setEstado(phone, estado);
@@ -141,7 +249,7 @@ router.patch('/cotizaciones/estado', async (req, res) => {
         if (notify) {
             let message = "";
 
-            if (estado === 'ENTREGADO') {
+            if (estado === 'ESPERANDO_RETIRO' || estado === 'ENTREGADO') {
                 // El vendedor confirma la logística desde su panel.
                 // Si escribió un mensaje personalizado, se lo enviamos al cliente.
                 // Si no, usamos el mensaje genérico de entrega.
@@ -158,11 +266,12 @@ router.patch('/cotizaciones/estado', async (req, res) => {
                 }
             }
             // NOTA: El estado PAGO_VERIFICADO NO notifica al cliente.
-            // La notificación la gestiona el vendedor al confirmar la logística (ENTREGADO).
+            // La notificación la gestiona el vendedor al confirmar la logística (ESPERANDO_RETIRO o ENTREGADO).
             if (message) {
                 await whatsappService.sendTextMessage(phone, message);
-                
+
                 // HU-6: Solicitud de reseña en Google Maps
+                // Se envía cuando el cliente retira el producto o recibe el envío (estado ENTREGADO)
                 if (estado === 'ENTREGADO') {
                     // Pequeño delay de 5s para que no se envíe al mismo momento exacto
                     setTimeout(() => {
@@ -505,6 +614,190 @@ router.patch('/sessions/:phone/pausa', async (req, res) => {
     } catch (error) {
         console.error('Error al pausar agente:', error);
         res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+/**
+ * Actualizar las entidades de una sesión (útil para guardar repuestos agregados manualmente sin responder la cotización)
+ */
+router.patch('/sessions/:phone/entidades', async (req, res) => {
+    try {
+        const { phone } = req.params;
+        const { entidades } = req.body;
+
+        if (!entidades) {
+            return res.status(400).json({ error: 'El campo "entidades" es obligatorio.' });
+        }
+
+        const data = await sessionsService.updateEntidades(phone, entidades);
+        if (!data) {
+            return res.status(404).json({ error: 'Sesión no encontrada o error al actualizar.' });
+        }
+
+        res.status(200).json({ success: true, entidades: data.entidades });
+    } catch (error) {
+        console.error('Error al actualizar entidades:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// HU-7: Entrenador IA — Knowledge Base
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Regenera knowledge.json desde los training_examples activos en DB.
+ * Se llama después de insertar o desactivar reglas.
+ */
+async function regenerarKnowledgeJson() {
+    const result = await db.query(
+        `SELECT contenido_md FROM training_examples WHERE activo = TRUE ORDER BY fecha ASC`
+    );
+    // Extraer reglas parseando el contenido_md (formato: "regla: texto | categoria: cat")
+    const reglas = result.rows.map(row => {
+        const match = row.contenido_md.match(/^regla:\s*(.+?)(?:\s*\|\s*categoria:\s*(.+))?$/i);
+        return match
+            ? { regla: match[1].trim(), categoria: (match[2] || 'general').trim() }
+            : { regla: row.contenido_md.trim(), categoria: 'general' };
+    });
+    const data = { reglas, ultima_actualizacion: new Date().toISOString() };
+    fs.writeFileSync(KNOWLEDGE_JSON_PATH, JSON.stringify(data, null, 2), 'utf8');
+}
+
+/**
+ * [HU-7] Entrenar al agente con historial de conversaciones
+ * POST /api/settings/train
+ * Body: { texto: string }
+ */
+router.post('/settings/train', async (req, res) => {
+    try {
+        const { texto } = req.body;
+        if (!texto || texto.trim().length < 20) {
+            return res.status(400).json({ error: 'Se requiere un historial de conversación con al menos 20 caracteres.' });
+        }
+
+        const reglas = await geminiService.trainAgentWithHistory(texto);
+
+        if (reglas.length === 0) {
+            return res.status(200).json({ success: true, reglas: [], mensaje: 'No se encontraron reglas accionables en el texto proporcionado.' });
+        }
+
+        // Guardar cada regla en la tabla training_examples
+        for (const r of reglas) {
+            const contenidoMd = `regla: ${r.regla} | categoria: ${r.categoria || 'general'}`;
+            await db.query(
+                `INSERT INTO training_examples (contenido_md) VALUES ($1)`,
+                [contenidoMd]
+            );
+        }
+
+        // Sincronizar knowledge.json con la DB actualizada
+        await regenerarKnowledgeJson();
+
+        console.log(`[HU-7] ✅ ${reglas.length} reglas guardadas en DB y knowledge.json regenerado.`);
+        res.status(201).json({ success: true, reglas, total: reglas.length });
+
+    } catch (error) {
+        console.error('[HU-7] Error en POST /settings/train:', error);
+        res.status(500).json({ error: 'Error interno al entrenar al agente.' });
+    }
+});
+
+/**
+ * [HU-7] Listar reglas activas del knowledge base
+ * GET /api/settings/knowledge
+ */
+router.get('/settings/knowledge', async (_req, res) => {
+    try {
+        const result = await db.query(
+            `SELECT id, contenido_md, fecha FROM training_examples WHERE activo = TRUE ORDER BY fecha DESC`
+        );
+
+        const reglas = result.rows.map(row => {
+            const match = row.contenido_md.match(/^regla:\s*(.+?)(?:\s*\|\s*categoria:\s*(.+))?$/i);
+            return {
+                id: row.id,
+                regla: match ? match[1].trim() : row.contenido_md.trim(),
+                categoria: match ? (match[2] || 'general').trim() : 'general',
+                fecha: row.fecha
+            };
+        });
+
+        res.status(200).json({ total: reglas.length, reglas });
+
+    } catch (error) {
+        console.error('[HU-7] Error en GET /settings/knowledge:', error);
+        res.status(500).json({ error: 'Error interno al obtener las reglas.' });
+    }
+});
+
+/**
+ * [HU-7] Eliminar (desactivar) una regla del knowledge base
+ * DELETE /api/settings/knowledge/:id
+ */
+router.delete('/settings/knowledge/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await db.query(
+            `UPDATE training_examples SET activo = FALSE WHERE id = $1 RETURNING id`,
+            [id]
+        );
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: `No se encontró la regla con id ${id}.` });
+        }
+
+        // Regenerar knowledge.json sin la regla eliminada
+        await regenerarKnowledgeJson();
+
+        console.log(`[HU-7] 🗑️ Regla #${id} desactivada y knowledge.json actualizado.`);
+        res.status(200).json({ success: true, id: parseInt(id) });
+
+    } catch (error) {
+        console.error('[HU-7] Error en DELETE /settings/knowledge/:id:', error);
+        res.status(500).json({ error: 'Error interno al eliminar la regla.' });
+    }
+});
+
+/**
+ * [HU-8] Solicitar VIN manualmente desde el dashboard
+ * POST /api/dashboard/solicitar-vin
+ */
+router.post('/solicitar-vin', async (req, res) => {
+    try {
+        const { phone, itemName } = req.body;
+        if (!phone) {
+            return res.status(400).json({ error: 'El campo "phone" es obligatorio.' });
+        }
+
+        const mensaje = itemName
+            ? `Hola, para identificar con exactitud el repuesto "${itemName}", ¿podría enviarnos el VIN (número de chasis) de su vehículo, por favor?`
+            : `Hola, para verificar la compatibilidad exacta de los repuestos, ¿podría enviarnos el VIN (número de chasis) de su vehículo, por favor?`;
+
+        await whatsappService.sendTextMessage(phone, mensaje);
+
+        res.status(200).json({ success: true, mensaje: 'Solicitud de VIN enviada exitosamente.' });
+    } catch (error) {
+        console.error('Error enviando solicitud de VIN:', error);
+        res.status(500).json({ error: 'Error interno al enviar solicitud de VIN.' });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// POST /auto-archive — Archivado manual de sesiones abandonadas
+// ═══════════════════════════════════════════════════════════════
+router.post('/auto-archive', async (req, res) => {
+    try {
+        const hours = parseInt(req.body.hours) || 48;
+        const result = await sessionsService.autoArchiveStaleSessions(hours);
+        res.status(200).json({
+            success: true,
+            message: `Auto-archivado completado. ${result.archived} sesiones procesadas.`,
+            ...result
+        });
+    } catch (error) {
+        console.error('Error en auto-archive:', error);
+        res.status(500).json({ error: 'Error interno al ejecutar auto-archivado.' });
     }
 });
 

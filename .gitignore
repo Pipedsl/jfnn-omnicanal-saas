@@ -37,3 +37,6 @@ Thumbs.db
 # Design Inspo (User Rule)
 designInspo/
 !designInspo/design.md
+
+# HU-7: Knowledge base generada dinamicamente (no versionar)
+backend/data/knowledge.json

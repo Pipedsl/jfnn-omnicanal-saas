@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS pedidos (
     estado_final        VARCHAR(50),
     -- Vehículo
     marca_modelo        VARCHAR(100),
-    ano                 VARCHAR(10),
+    ano                 VARCHAR(50),
     patente             VARCHAR(20),
     vin                 VARCHAR(50),
     -- Productos
@@ -57,3 +57,13 @@ CREATE TABLE IF NOT EXISTS pedidos (
 
 CREATE INDEX IF NOT EXISTS idx_pedidos_phone    ON pedidos(phone);
 CREATE INDEX IF NOT EXISTS idx_pedidos_archivado ON pedidos(archivado_en DESC);
+
+-- Tabla de ejemplos de entrenamiento del agente IA (HU-7)
+CREATE TABLE IF NOT EXISTS training_examples (
+    id          SERIAL PRIMARY KEY,
+    contenido_md TEXT NOT NULL,
+    fecha       TIMESTAMPTZ DEFAULT NOW(),
+    activo      BOOLEAN DEFAULT TRUE
+);
+
+CREATE INDEX IF NOT EXISTS idx_training_activo ON training_examples(activo);

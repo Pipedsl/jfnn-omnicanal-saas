@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import Link from "next/link";
-import { ArrowLeft, CheckCircle, XCircle, FileSearch, ShieldCheck, X } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, FileSearch, ShieldCheck, X, Clock } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 interface PendingApproval {
@@ -19,7 +19,7 @@ interface PendingApproval {
         motor: string | null;
         combustible: string | null;
     };
-    repuestos: Record<string, unknown>[];
+    repuestos: {nombre?: string, codigo?: string, precio?: string|number|null}[];
     total_cotizacion: number | null;
     metodo_entrega: string | null;
     horario_entrega: string | null;
@@ -37,6 +37,45 @@ interface PendingApproval {
         es_saldo?: boolean;
         abono_previo?: number | null;
     } | null;
+}
+
+function ElapsedBadge({ since }: { since?: string }) {
+    const [elapsed, setElapsed] = useState("");
+    useEffect(() => {
+        if (!since) return;
+        const update = () => {
+            const diff = Math.floor((Date.now() - new Date(since).getTime()) / 1000);
+            if (diff < 60) setElapsed(`${diff}s`);
+            else if (diff < 3600) setElapsed(`${Math.floor(diff / 60)}m`);
+            else if (diff < 86400) setElapsed(`${Math.floor(diff / 3600)}h ${Math.floor((diff % 3600) / 60)}m`);
+            else setElapsed(`${Math.floor(diff / 86400)}d`);
+        };
+        update();
+        const id = setInterval(update, 30000);
+        return () => clearInterval(id);
+    }, [since]);
+
+    const arrivalTime = since ? new Date(since).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : null;
+    const arrivalDate = since ? new Date(since).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' }) : null;
+
+    return (
+        <div className="flex items-center gap-2 mt-2">
+            {arrivalTime && (
+                <span className="flex items-center gap-1 text-[10px] text-neutral-500">
+                    <Clock size={10} /> {arrivalDate} {arrivalTime}
+                </span>
+            )}
+            {elapsed && (
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                    elapsed.includes('d') ? 'text-red-400 bg-red-500/10 border-red-500/20' :
+                    elapsed.includes('h') ? 'text-orange-400 bg-orange-500/10 border-orange-500/20' :
+                    'text-neutral-500 bg-white/5 border-white/10'
+                }`}>
+                    ⏱ {elapsed}
+                </span>
+            )}
+        </div>
+    );
 }
 
 export default function VerificacionPage() {
@@ -94,7 +133,7 @@ export default function VerificacionPage() {
 
         try {
             setProcessing(true);
-            const bodyPayload: any = {
+            const bodyPayload: { phone: string; accion: string; nota_admin?: string; monto_corregido?: number } = {
                 phone: selected.phone,
                 accion,
                 nota_admin: accion === "reject" ? rejectReason : undefined,
@@ -170,6 +209,7 @@ export default function VerificacionPage() {
                                     <p className="text-xs text-neutral-500 mb-1">Cotización: {item.quote_id || "N/A"}</p>
                                     <p className="text-lg font-bold">{item.phone}</p>
                                     <p className="text-sm text-neutral-400 mt-1">Total: {formatCurrency(item.total_cotizacion)}</p>
+                                    <ElapsedBadge since={item.ultimo_mensaje} />
                                 </div>
                                 <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center group-hover:bg-accent/20 transition-colors">
                                     <ArrowLeft size={20} className="text-accent rotate-180" />
@@ -204,7 +244,7 @@ export default function VerificacionPage() {
                                     {selected.comprobante_url ? (
                                         // eslint-disable-next-line @next/next/no-img-element
                                         <img
-                                            src={selected.comprobante_url}
+                                            src={selected.comprobante_url.startsWith('/') ? `http://localhost:4000${selected.comprobante_url}` : selected.comprobante_url}
                                             alt="Comprobante"
                                             className="w-full h-full object-contain"
                                         />
@@ -213,6 +253,7 @@ export default function VerificacionPage() {
                                     )}
                                 </div>
                             </div>
+
 
                             {/* Comparativa y Acciones */}
                             <div className="flex flex-col">
@@ -306,7 +347,7 @@ export default function VerificacionPage() {
                                     <div className="mt-4 pt-4 border-t border-white/5">
                                         <p className="text-[10px] font-bold text-neutral-500 uppercase mb-2">Detalle de Productos</p>
                                         <div className="space-y-2">
-                                            {selected.repuestos.map((r: any, idx: number) => (
+                                            {selected.repuestos.map((r, idx) => (
                                                 <div key={idx} className="flex justify-between text-xs items-start">
                                                     <div className="flex flex-col">
                                                         <span className="text-neutral-300 font-medium">{r.nombre}</span>

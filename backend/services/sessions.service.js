@@ -14,6 +14,7 @@ const STATES = {
     ABONO_VERIFICADO: 'ABONO_VERIFICADO',
     ENCARGO_SOLICITADO: 'ENCARGO_SOLICITADO',
     ESPERANDO_SALDO: 'ESPERANDO_SALDO',
+    ESPERANDO_RETIRO: 'ESPERANDO_RETIRO',
     ENTREGADO: 'ENTREGADO',
     CICLO_COMPLETO: 'CICLO_COMPLETO',
     ARCHIVADO: 'ARCHIVADO'
@@ -26,6 +27,7 @@ const INITIAL_ENTITIES = {
     vin: null,
     motor: null,
     combustible: null,
+    vehiculos: [],
     repuestos_solicitados: [],
     sintomas_reportados: null,
     metodo_pago: null,
@@ -48,6 +50,35 @@ const INITIAL_ENTITIES = {
         id_transaccion: null, rut_origen: null, nombre_origen: null,
         datos_extraidos_por_ia: true
     }
+};
+
+// ─── Helpers de deduplicación de repuestos ──────────────────────
+/**
+ * Elimina anotaciones vehiculares entre paréntesis al final del nombre.
+ * "pastillas de freno delanteras (Nissan V16)" → "pastillas de freno delanteras"
+ */
+const stripVehicleAnnotation = (nombre) =>
+    (nombre || '').replace(/\s*\([^)]*\)\s*$/, '').toLowerCase().trim();
+
+/**
+ * Compara dos nombres de repuesto para determinar si son el mismo ítem refinado.
+ * Retorna 'exact' | 'refined' | 'similar' | false
+ * - exact: mismo nombre (después de strip)
+ * - refined: uno contiene al otro como substring (Gemini añadió/quitó calificadores)
+ * - similar: comparten ≥60% de tokens (reordenamiento o variación menor)
+ */
+const isSameRepuesto = (nombreA, nombreB) => {
+    const a = stripVehicleAnnotation(nombreA);
+    const b = stripVehicleAnnotation(nombreB);
+    if (!a || !b) return false;
+    if (a === b) return 'exact';
+    if (a.includes(b) || b.includes(a)) return 'refined';
+    const tokensA = new Set(a.split(/\s+/));
+    const tokensB = new Set(b.split(/\s+/));
+    const intersection = [...tokensA].filter(t => tokensB.has(t)).length;
+    const smaller = Math.min(tokensA.size, tokensB.size);
+    if (smaller > 0 && intersection / smaller >= 0.6) return 'similar';
+    return false;
 };
 
 // ─── Caché en memoria ───────────────────────────────────────────
@@ -158,25 +189,97 @@ const updateEntidades = async (phone, nuevasEntidades) => {
         const session = await getSession(phone);
         let entities = session.entidades || { ...INITIAL_ENTITIES };
 
-        // MERGE inteligente de repuestos
-        if (nuevasEntidades.repuestos_solicitados && Array.isArray(nuevasEntidades.repuestos_solicitados)) {
-            nuevasEntidades.repuestos_solicitados.forEach(nuevo => {
-                const nuevoNombre = nuevo.nombre.toLowerCase().trim();
+        // MERGE inteligente de vehículos múltiples (HU-5)
+        if (nuevasEntidades.vehiculos && Array.isArray(nuevasEntidades.vehiculos)) {
+            if (!entities.vehiculos) entities.vehiculos = [];
+            
+            nuevasEntidades.vehiculos.forEach(nuevoVehiculo => {
+                let targetAuto = entities.vehiculos.find(v => 
+                    v.marca_modelo === nuevoVehiculo.marca_modelo && v.ano === nuevoVehiculo.ano
+                );
+                
+                if (!targetAuto) {
+                    entities.vehiculos.push(nuevoVehiculo);
+                    targetAuto = entities.vehiculos[entities.vehiculos.length - 1];
+                } else {
+                    targetAuto.patente = nuevoVehiculo.patente || targetAuto.patente;
+                    targetAuto.vin = nuevoVehiculo.vin || targetAuto.vin;
+                    targetAuto.motor = nuevoVehiculo.motor || targetAuto.motor;
+                    targetAuto.combustible = nuevoVehiculo.combustible || targetAuto.combustible;
+                    
+                    if (!targetAuto.repuestos_solicitados) targetAuto.repuestos_solicitados = [];
+                    if (nuevoVehiculo.repuestos_solicitados && Array.isArray(nuevoVehiculo.repuestos_solicitados)) {
+                        nuevoVehiculo.repuestos_solicitados.forEach(nuevoRep => {
+                            // BUG-5: usar isSameRepuesto que strippea anotaciones vehiculares y usa similitud por tokens
+                            const refinedIdx = targetAuto.repuestos_solicitados.findIndex(ext => {
+                                const match = isSameRepuesto(nuevoRep.nombre, ext.nombre);
+                                return match === 'refined' || match === 'similar';
+                            });
 
+                            if (refinedIdx !== -1) {
+                                const viejo = targetAuto.repuestos_solicitados[refinedIdx];
+                                // Preservar el nombre más específico (más largo después de strip)
+                                const nombreFinal = stripVehicleAnnotation(nuevoRep.nombre).length >= stripVehicleAnnotation(viejo.nombre).length ? nuevoRep.nombre : viejo.nombre;
+                                const cantidadFinal = viejo.cantidad_fijada
+                                    ? (nuevoRep.cantidad != null ? nuevoRep.cantidad : (viejo.cantidad || 1))
+                                    : (nuevoRep.cantidad != null ? nuevoRep.cantidad : (viejo.cantidad || 1));
+                                targetAuto.repuestos_solicitados[refinedIdx] = {
+                                    ...viejo, nombre: nombreFinal,
+                                    cantidad: cantidadFinal,
+                                    estado: nuevoRep.estado || viejo.estado,
+                                    precio: viejo.precio != null ? viejo.precio : (nuevoRep.precio !== undefined ? nuevoRep.precio : null),
+                                    codigo: nuevoRep.codigo !== undefined ? nuevoRep.codigo : viejo.codigo,
+                                    disponibilidad: nuevoRep.disponibilidad || viejo.disponibilidad
+                                };
+                                return;
+                            }
+
+                            const exactIdx = targetAuto.repuestos_solicitados.findIndex(e => isSameRepuesto(nuevoRep.nombre, e.nombre) === 'exact');
+                            if (exactIdx !== -1) {
+                                const viejoExact = targetAuto.repuestos_solicitados[exactIdx];
+                                const cantidadFinalExact = viejoExact.cantidad_fijada
+                                    ? (nuevoRep.cantidad != null ? nuevoRep.cantidad : (viejoExact.cantidad || 1))
+                                    : (nuevoRep.cantidad != null ? nuevoRep.cantidad : (viejoExact.cantidad || 1));
+                                targetAuto.repuestos_solicitados[exactIdx] = {
+                                    ...viejoExact,
+                                    cantidad: cantidadFinalExact,
+                                    estado: nuevoRep.estado || viejoExact.estado,
+                                    precio: viejoExact.precio != null ? viejoExact.precio : (nuevoRep.precio !== undefined ? nuevoRep.precio : null),
+                                    codigo: nuevoRep.codigo !== undefined ? nuevoRep.codigo : viejoExact.codigo,
+                                    disponibilidad: nuevoRep.disponibilidad || viejoExact.disponibilidad
+                                };
+                            } else {
+                                targetAuto.repuestos_solicitados.push(nuevoRep);
+                            }
+                        });
+                    }
+                }
+            });
+            delete nuevasEntidades.vehiculos;
+        }
+
+        // MERGE inteligente de repuestos (Backward Compatibility)
+        if (nuevasEntidades.repuestos_solicitados && Array.isArray(nuevasEntidades.repuestos_solicitados)) {
+            if (!entities.repuestos_solicitados) entities.repuestos_solicitados = [];
+
+            nuevasEntidades.repuestos_solicitados.forEach(nuevo => {
+                // BUG-5: usar isSameRepuesto que strippea anotaciones vehiculares y usa similitud por tokens
                 const refinedIdx = entities.repuestos_solicitados.findIndex(existente => {
-                    const existenteNombre = existente.nombre.toLowerCase().trim();
-                    return existenteNombre !== nuevoNombre && (
-                        nuevoNombre.includes(existenteNombre) || existenteNombre.includes(nuevoNombre)
-                    );
+                    const match = isSameRepuesto(nuevo.nombre, existente.nombre);
+                    return match === 'refined' || match === 'similar';
                 });
 
                 if (refinedIdx !== -1) {
                     const viejo = entities.repuestos_solicitados[refinedIdx];
-                    const nombreFinal = nuevo.nombre.length >= viejo.nombre.length ? nuevo.nombre : viejo.nombre;
+                    const nombreFinal = stripVehicleAnnotation(nuevo.nombre).length >= stripVehicleAnnotation(viejo.nombre).length ? nuevo.nombre : viejo.nombre;
+                    const cantidadFinal = viejo.cantidad_fijada
+                        ? (nuevo.cantidad != null ? nuevo.cantidad : (viejo.cantidad || 1))
+                        : (nuevo.cantidad != null ? nuevo.cantidad : (viejo.cantidad || 1));
                     entities.repuestos_solicitados[refinedIdx] = {
                         ...viejo, nombre: nombreFinal,
+                        cantidad: cantidadFinal,
                         estado: nuevo.estado || viejo.estado,
-                        precio: nuevo.precio !== undefined ? nuevo.precio : viejo.precio,
+                        precio: viejo.precio != null ? viejo.precio : (nuevo.precio !== undefined ? nuevo.precio : null),
                         codigo: nuevo.codigo !== undefined ? nuevo.codigo : viejo.codigo,
                         disponibilidad: nuevo.disponibilidad || viejo.disponibilidad
                     };
@@ -184,16 +287,21 @@ const updateEntidades = async (phone, nuevasEntidades) => {
                 }
 
                 const exactIdx = entities.repuestos_solicitados.findIndex(
-                    e => e.nombre.toLowerCase().trim() === nuevoNombre
+                    e => isSameRepuesto(nuevo.nombre, e.nombre) === 'exact'
                 );
 
                 if (exactIdx !== -1) {
+                    const viejoExact = entities.repuestos_solicitados[exactIdx];
+                    const cantidadFinalExact = viejoExact.cantidad_fijada
+                        ? (nuevo.cantidad != null ? nuevo.cantidad : (viejoExact.cantidad || 1))
+                        : (nuevo.cantidad != null ? nuevo.cantidad : (viejoExact.cantidad || 1));
                     entities.repuestos_solicitados[exactIdx] = {
-                        ...entities.repuestos_solicitados[exactIdx],
-                        estado: nuevo.estado || entities.repuestos_solicitados[exactIdx].estado,
-                        precio: nuevo.precio !== undefined ? nuevo.precio : entities.repuestos_solicitados[exactIdx].precio,
-                        codigo: nuevo.codigo !== undefined ? nuevo.codigo : entities.repuestos_solicitados[exactIdx].codigo,
-                        disponibilidad: nuevo.disponibilidad || entities.repuestos_solicitados[exactIdx].disponibilidad
+                        ...viejoExact,
+                        cantidad: cantidadFinalExact,
+                        estado: nuevo.estado || viejoExact.estado,
+                        precio: viejoExact.precio != null ? viejoExact.precio : (nuevo.precio !== undefined ? nuevo.precio : null),
+                        codigo: nuevo.codigo !== undefined ? nuevo.codigo : viejoExact.codigo,
+                        disponibilidad: nuevo.disponibilidad || viejoExact.disponibilidad
                     };
                 } else {
                     entities.repuestos_solicitados.push(nuevo);
@@ -257,8 +365,9 @@ const getAllPendingSessions = async () => {
     try {
         const activeStates = [
             STATES.ESPERANDO_VENDEDOR, STATES.CONFIRMANDO_COMPRA,
+            STATES.ESPERANDO_APROBACION_ADMIN,
             STATES.PAGO_VERIFICADO, STATES.ABONO_VERIFICADO,
-            STATES.ENCARGO_SOLICITADO, STATES.ESPERANDO_SALDO, STATES.CICLO_COMPLETO
+            STATES.ENCARGO_SOLICITADO, STATES.ESPERANDO_SALDO, STATES.ESPERANDO_RETIRO, STATES.CICLO_COMPLETO
         ];
 
         const { rows } = await db.query(
@@ -339,6 +448,9 @@ const archiveSession = async (phone) => {
 
         const totalCotizacion = (e.repuestos_solicitados || []).reduce((acc, r) => acc + (parseInt(r.precio) || 0), 0);
 
+        // Truncar campos para respetar límites de columnas VARCHAR
+        const anoTruncado = (e.ano || '').substring(0, 10) || null;
+
         const { rows: pedidoRows } = await db.query(
             `INSERT INTO pedidos (phone, quote_id, estado_final, marca_modelo, ano, patente, vin,
              repuestos, total_cotizacion, metodo_pago, metodo_entrega, direccion_envio,
@@ -347,7 +459,7 @@ const archiveSession = async (phone) => {
              RETURNING *`,
             [
                 phone, e.quote_id || null, session.estado,
-                e.marca_modelo || null, e.ano || null, e.patente || null, e.vin || null,
+                e.marca_modelo || null, anoTruncado, e.patente || null, e.vin || null,
                 JSON.stringify(e.repuestos_solicitados || []), totalCotizacion,
                 e.metodo_pago || null, e.metodo_entrega || null, e.direccion_envio || null,
                 e.tipo_documento || null, JSON.stringify(e.datos_factura || {}),
@@ -452,15 +564,49 @@ const removeRepuesto = async (phone, nombreRepuesto) => {
 
         const nombreNorm = normalize(nombreRepuesto);
 
-        const antes = entidades.repuestos_solicitados?.length || 0;
+        let antes = entidades.repuestos_solicitados?.length || 0;
+        let despues = 0;
+        let removido = false;
+
+        // Limpiar el arreglo root por retrocompatibilidad
         entidades.repuestos_solicitados = (entidades.repuestos_solicitados || []).filter(r => {
             const rNorm = normalize(r.nombre);
-            return !rNorm.includes(nombreNorm) && !nombreNorm.includes(rNorm);
+            if (!rNorm.includes(nombreNorm) && !nombreNorm.includes(rNorm)) {
+                return true;
+            }
+            removido = true;
+            return false;
         });
-        const despues = entidades.repuestos_solicitados.length;
+        despues += entidades.repuestos_solicitados.length;
 
-        // Recalcular total con los ítems restantes (MEJORA-1)
-        const nuevoTotal = entidades.repuestos_solicitados.reduce((sum, r) => sum + ((r.precio || 0) * (r.cantidad || 1)), 0);
+        // HU-5 Limpiar dentro de la estructura multivehiculos
+        if (entidades.vehiculos && Array.isArray(entidades.vehiculos)) {
+            entidades.vehiculos.forEach(v => {
+                if (v.repuestos_solicitados && Array.isArray(v.repuestos_solicitados)) {
+                    antes += v.repuestos_solicitados.length;
+                    v.repuestos_solicitados = v.repuestos_solicitados.filter(r => {
+                        const rNorm = normalize(r.nombre);
+                        if (!rNorm.includes(nombreNorm) && !nombreNorm.includes(rNorm)) {
+                            return true;
+                        }
+                        removido = true;
+                        return false;
+                    });
+                    despues += v.repuestos_solicitados.length;
+                }
+            });
+        }
+
+        // Recalcular total con los ítems restantes (Root + Vehiculos)
+        let nuevoTotal = entidades.repuestos_solicitados.reduce((sum, r) => sum + ((r.precio || 0) * (r.cantidad || 1)), 0);
+        
+        if (entidades.vehiculos && Array.isArray(entidades.vehiculos)) {
+            entidades.vehiculos.forEach(v => {
+                const subTotal = (v.repuestos_solicitados || []).reduce((sum, r) => sum + ((r.precio || 0) * (r.cantidad || 1)), 0);
+                nuevoTotal += subTotal;
+            });
+        }
+        
         entidades.total_cotizacion = nuevoTotal;
 
         const { rows } = await db.query(
@@ -477,6 +623,260 @@ const removeRepuesto = async (phone, nombreRepuesto) => {
     }
 };
 
+// ─── getDashboardMetrics (Analytics) ──────────────────────────────
+const getDashboardMetrics = async () => {
+    try {
+        // 1. Métricas de Ventas Hoy (de la tabla pedidos que han sido cerrados hoy)
+        const ventasResult = await db.query(`
+            SELECT 
+                COUNT(*) as cantidad_ventas,
+                COALESCE(SUM(total_cotizacion), 0) as total_vendido
+            FROM pedidos
+            WHERE DATE(archivado_en AT TIME ZONE 'America/Santiago') = DATE(NOW() AT TIME ZONE 'America/Santiago')
+            AND estado_final IN ('ENTREGADO', 'PAGO_VERIFICADO')
+        `);
+
+        // 2. Sesiones activas (total de conversaciones en curso)
+        const activasResult = await db.query(`
+            SELECT COUNT(*) as sesiones_activas 
+            FROM user_sessions
+        `);
+
+        // 3. Tiempo promedio de espera del vendedor (minutos)
+        const tiempoEsperaResult = await db.query(`
+            SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (NOW() - ultimo_mensaje))) / 60, 0) as mins_espera
+            FROM user_sessions
+            WHERE estado = 'ESPERANDO_VENDEDOR'
+        `);
+
+        // 4. Conversión (Aproximada): Pagados Hoy / Total Iniciados Hoy
+        // Calculamos los iniciados hoy en user_sessions + los ya archivados hoy
+        const iniciadasResult = await db.query(`
+            SELECT 
+                (SELECT COUNT(*) FROM user_sessions WHERE DATE(created_at AT TIME ZONE 'America/Santiago') = DATE(NOW() AT TIME ZONE 'America/Santiago')) +
+                (SELECT COUNT(*) FROM pedidos WHERE DATE(created_at AT TIME ZONE 'America/Santiago') = DATE(NOW() AT TIME ZONE 'America/Santiago')) as total_iniciadas
+        `);
+
+        const cantidadVentas = parseInt(ventasResult.rows[0].cantidad_ventas, 10);
+        const totalVendido = parseInt(ventasResult.rows[0].total_vendido, 10);
+        const sesionesActivas = parseInt(activasResult.rows[0].sesiones_activas, 10);
+        const minsEspera = parseFloat(tiempoEsperaResult.rows[0].mins_espera);
+        const totalIniciadas = parseInt(iniciadasResult.rows[0].total_iniciadas, 10);
+
+        let tasaConversion = 0;
+        if (totalIniciadas > 0) {
+            tasaConversion = (cantidadVentas / totalIniciadas) * 100;
+        }
+
+        let ticketPromedio = 0;
+        if (cantidadVentas > 0) {
+            ticketPromedio = totalVendido / cantidadVentas;
+        }
+
+        return {
+            totalVendidoHoy: totalVendido,
+            cantidadVentasHoy: cantidadVentas,
+            ticketPromedioHoy: Math.round(ticketPromedio),
+            sesionesActivas: sesionesActivas,
+            tiempoPromedioEsperaVendedorMins: Math.round(minsEspera),
+            tasaConversionHoy: Math.round(tasaConversion * 10) / 10 // un decimal
+        };
+    } catch (err) {
+        console.error('[Sessions Analytics] ❌ Error en getDashboardMetrics:', err.message);
+        return {
+            totalVendidoHoy: 0,
+            cantidadVentasHoy: 0,
+            ticketPromedioHoy: 0,
+            sesionesActivas: 0,
+            tiempoPromedioEsperaVendedorMins: 0,
+            tasaConversionHoy: 0
+        };
+    }
+};
+
+
+// ─── patchSellerData ─────────────────────────────────────────────
+// Sobreescribe vehiculos/repuestos directamente sin merge inteligente.
+// Usado cuando el VENDEDOR envía una cotización desde el dashboard.
+// A diferencia de updateEntidades, NO aplica Math.max en cantidades
+// porque el vendedor tiene autoridad para reducir o cambiar valores.
+const patchSellerData = async (phone, patch) => {
+    try {
+        const session = await getSession(phone);
+        const entities = session.entidades || { ...INITIAL_ENTITIES };
+
+        // Detectar qué ruta usó el vendedor para saber cómo sincronizar
+        const patchIncludesVehiculos = 'vehiculos' in patch;
+
+        // Sobreescritura directa de los campos enviados por el vendedor
+        for (const [key, value] of Object.entries(patch)) {
+            if (value !== null && value !== undefined) {
+                entities[key] = value;
+            }
+        }
+
+        // Marcar cantidad_fijada en todos los repuestos para que Gemini no los sobreescriba accidentalmente
+        if (entities.repuestos_solicitados) {
+            entities.repuestos_solicitados = entities.repuestos_solicitados.map(r => ({ ...r, cantidad_fijada: true }));
+        }
+        if (entities.vehiculos) {
+            if (patchIncludesVehiculos) {
+                // Vendedor patcheó vía vehiculos → marcar y sincronizar flat desde vehiculos
+                entities.vehiculos = entities.vehiculos.map(v => ({
+                    ...v,
+                    repuestos_solicitados: (v.repuestos_solicitados || []).map(r => ({ ...r, cantidad_fijada: true }))
+                }));
+                entities.repuestos_solicitados = entities.vehiculos.flatMap(v =>
+                    (v.repuestos_solicitados || []).map(r => ({ ...r }))
+                );
+            } else {
+                // Vendedor patcheó vía items (flat) → actualizar vehiculos desde flat para mantener consistencia
+                // Evita que vehiculos con datos viejos sobreescriban los nuevos valores del vendedor
+                entities.vehiculos = entities.vehiculos.map(v => ({
+                    ...v,
+                    repuestos_solicitados: (v.repuestos_solicitados || []).map(vr => {
+                        const flatMatch = (entities.repuestos_solicitados || []).find(
+                            fr => fr.nombre?.toLowerCase().trim() === vr.nombre?.toLowerCase().trim()
+                        );
+                        return flatMatch ? { ...vr, ...flatMatch } : { ...vr, cantidad_fijada: true };
+                    })
+                }));
+            }
+        }
+
+        const { rows } = await db.query(
+            `UPDATE user_sessions SET entidades = $1, ultimo_mensaje = NOW()
+             WHERE phone = $2 RETURNING *`,
+            [JSON.stringify(entities), phone]
+        );
+
+        sessionCache.delete(phone);
+        globalPendingCache = { data: null, timestamp: 0 };
+        return rowToSession(rows[0]);
+    } catch (err) {
+        console.error('[Sessions] ❌ Error en patchSellerData:', err.message);
+        throw err;
+    }
+};
+
+// ─── autoArchiveStaleSessions ─────────────────────────────────────
+/**
+ * Archiva automáticamente las sesiones que llevan X horas sin actividad
+ * en estados PERFILANDO o ESPERANDO_VENDEDOR.
+ * @param {number} hoursThreshold - Horas de inactividad para archivar (default: 48)
+ * @returns {Promise<{archived: number, details: Array}>} - Resultado del archivado
+ */
+const autoArchiveStaleSessions = async (hoursThreshold = 48) => {
+    try {
+        const stalableStates = [STATES.PERFILANDO, STATES.ESPERANDO_VENDEDOR];
+
+        const { rows: staleSessions } = await db.query(
+            `SELECT * FROM user_sessions
+             WHERE estado = ANY($1)
+             AND ultimo_mensaje < NOW() - INTERVAL '1 hour' * $2`,
+            [stalableStates, hoursThreshold]
+        );
+
+        if (staleSessions.length === 0) {
+            console.log(`[AutoArchive] ✅ No hay sesiones inactivas (umbral: ${hoursThreshold}h).`);
+            return { archived: 0, details: [] };
+        }
+
+        console.log(`[AutoArchive] 🔍 Encontradas ${staleSessions.length} sesiones inactivas. Archivando...`);
+        const details = [];
+
+        for (const row of staleSessions) {
+            const session = rowToSession(row);
+            const e = session.entidades || {};
+
+            // Guardar snapshot en pedidos con estado_final = 'ABANDONADO'
+            await db.query(
+                `INSERT INTO pedidos (phone, quote_id, estado_final, marca_modelo, ano, patente, vin,
+                 repuestos, total_cotizacion, metodo_pago, metodo_entrega, direccion_envio,
+                 tipo_documento, datos_factura, comprobante_url, datos_comprobante, entidades_completas)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+                [
+                    session.phone, e.quote_id || null, 'ABANDONADO',
+                    e.marca_modelo || null, e.ano || null, e.patente || null, e.vin || null,
+                    JSON.stringify(e.repuestos_solicitados || []), 0,
+                    e.metodo_pago || null, e.metodo_entrega || null, e.direccion_envio || null,
+                    e.tipo_documento || null, JSON.stringify(e.datos_factura || {}),
+                    null, JSON.stringify({}),
+                    JSON.stringify(e)
+                ]
+            );
+
+            // Cambiar estado a ARCHIVADO (no resetear para poder retomar)
+            await db.query(
+                `UPDATE user_sessions SET estado = $1, ultimo_mensaje = NOW()
+                 WHERE phone = $2`,
+                [STATES.ARCHIVADO, session.phone]
+            );
+
+            sessionCache.delete(session.phone);
+            details.push({
+                phone: session.phone,
+                previousState: session.estado,
+                repuestos: (e.repuestos_solicitados || []).map(r => r.nombre).join(', ') || 'Sin repuestos',
+                inactiveSince: row.ultimo_mensaje
+            });
+
+            console.log(`[AutoArchive] 📦 ${session.phone} archivado (era: ${session.estado}, inactivo desde: ${row.ultimo_mensaje})`);
+        }
+
+        globalPendingCache = { data: null, timestamp: 0 };
+        console.log(`[AutoArchive] ✅ ${details.length} sesiones archivadas exitosamente.`);
+        return { archived: details.length, details };
+    } catch (err) {
+        console.error('[AutoArchive] ❌ Error:', err.message);
+        return { archived: 0, details: [], error: err.message };
+    }
+};
+
+// ─── getArchivedSessionForResume ──────────────────────────────────
+/**
+ * Verifica si un cliente tiene una sesión archivada con datos aprovechables
+ * para ofrecerle retomar la cotización cuando vuelve a escribir.
+ * @param {string} phone - Teléfono del cliente
+ * @returns {Promise<{hasArchived: boolean, summary: string, entidades: Object}|null>}
+ */
+const getArchivedSessionForResume = async (phone) => {
+    try {
+        const { rows } = await db.query(
+            `SELECT * FROM user_sessions WHERE phone = $1 AND estado = $2`,
+            [phone, STATES.ARCHIVADO]
+        );
+
+        if (rows.length === 0) return null;
+
+        const session = rowToSession(rows[0]);
+        const e = session.entidades || {};
+        const repuestos = e.repuestos_solicitados || [];
+        const vehiculos = e.vehiculos || [];
+
+        // Solo ofrecer retomar si hay datos sustanciales
+        if (repuestos.length === 0 && vehiculos.length === 0) return null;
+
+        const repNames = repuestos.map(r => r.nombre).filter(Boolean).join(', ');
+        const vehicleDesc = vehiculos.length > 0
+            ? vehiculos.map(v => `${v.marca_modelo || 'Vehículo'} ${v.ano || ''}`).join(', ')
+            : (e.marca_modelo ? `${e.marca_modelo} ${e.ano || ''}` : '');
+
+        const summary = vehicleDesc
+            ? `${repNames} para ${vehicleDesc}`
+            : repNames;
+
+        return {
+            hasArchived: true,
+            summary: summary || 'una cotización pendiente',
+            entidades: e
+        };
+    } catch (err) {
+        console.error('[Sessions] ❌ Error en getArchivedSessionForResume:', err.message);
+        return null;
+    }
+};
+
 module.exports = {
     getSession,
     updateEntidades,
@@ -489,5 +889,9 @@ module.exports = {
     getPendingApprovalSessions,
     setAgentePausado,
     removeRepuesto,
+    getDashboardMetrics,
+    patchSellerData,
+    autoArchiveStaleSessions,
+    getArchivedSessionForResume,
     STATES
 };

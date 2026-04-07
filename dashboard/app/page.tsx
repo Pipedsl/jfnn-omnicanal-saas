@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import axios from "axios";
-import { LayoutDashboard, RefreshCcw, Bell, Settings, Target, Zap, DollarSign, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, RefreshCcw, Bell, Settings, ShieldCheck } from "lucide-react";
 import QuoteCard from "@/components/QuoteCard";
+import DashboardMetrics from "@/components/DashboardMetrics";
 import Link from "next/link";
 
 interface Quote {
@@ -12,6 +13,8 @@ interface Quote {
   estado: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   entidades?: any; // Aceptamos any para el JSON dinámico
+  ultimo_mensaje?: string;
+  created_at?: string;
 }
 
 export default function Home() {
@@ -24,12 +27,7 @@ export default function Home() {
   const viewRef = useRef("pendientes");
   const fetchRef = useRef<(source?: string) => Promise<void>>(null!);
 
-  // Estado para Métrica
-  const [metrics, setMetrics] = useState({
-    cotizacionesHoy: 0,
-    conversionRate: 0,
-    ahorroHoras: 0
-  });
+  // Eliminado el estado 'metrics' local en favor del componente <DashboardMetrics />
 
   const fetchPendientes = async (source: string = "unknown") => {
     console.log(`[Fetch] Cotizaciones activas. Origen: ${source} a las ${new Date().toLocaleTimeString()}`);
@@ -40,12 +38,7 @@ export default function Home() {
 
       if (viewRef.current === "pendientes") setQuotes(pend);
 
-      const minutosAhorrados = pend.length * 15;
-      setMetrics(prev => ({
-        ...prev,
-        cotizacionesHoy: pend.length,
-        ahorroHoras: parseFloat((minutosAhorrados / 60).toFixed(1))
-      }));
+      if (viewRef.current === "pendientes") setQuotes(pend);
     } catch (error) {
       console.error("Error fetching cotizaciones:", error);
     } finally {
@@ -64,10 +57,7 @@ export default function Home() {
 
       setQuotes(hist);
 
-      const ventasCerradas = hist.filter((q: Quote) => q.estado === "ENTREGADO" || q.estado === "ARCHIVADO").length;
-      const totalSesiones = metrics.cotizacionesHoy + hist.length;
-      const tasaConversion = totalSesiones > 0 ? Math.round((ventasCerradas / totalSesiones) * 100) : 0;
-      setMetrics(prev => ({ ...prev, conversionRate: tasaConversion }));
+      setQuotes(hist);
     } catch (error) {
       console.error("Error fetching historial:", error);
     } finally {
@@ -96,8 +86,7 @@ export default function Home() {
     } else if (view === "historial") {
       fetchHistorial(); // Solo se llama cuando el usuario cambia a historial
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view]);
+  }, [view, filter]);
 
   // Polling cada 10s (sin Supabase Realtime)
   useEffect(() => {
@@ -108,14 +97,9 @@ export default function Home() {
       }
     }, 10000);
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const stats = [
-    { label: "Cotizaciones Activas", value: metrics.cotizacionesHoy.toString(), icon: <Target className="text-blue-500" size={16} />, trend: "Live" },
-    { label: "Ahorro de Tiempo IA", value: `${metrics.ahorroHoras} hrs`, icon: <Zap className="text-yellow-500" size={16} />, trend: "Automatizado" },
-    { label: "Tasa Conversión", value: `${metrics.conversionRate}%`, icon: <DollarSign className="text-green-500" size={16} />, trend: "Ventas / Total" },
-  ];
+  // Ya no necesitamos 'stats' locales aquí.
 
   return (
     <main className="min-h-screen pb-20">
@@ -169,22 +153,7 @@ export default function Home() {
 
       <div className="max-w-7xl mx-auto px-6">
         {/* KPI Panel */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-8">
-          {stats.map((stat, i) => (
-            <div key={i} className="glass p-5 rounded-2xl flex items-center justify-between border-white/5">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2 text-neutral-500">
-                  {stat.icon}
-                  <span className="text-[10px] font-bold uppercase tracking-wider">{stat.label}</span>
-                </div>
-                <p className="text-2xl font-bold">{stat.value}</p>
-              </div>
-              <span className="bg-green-500/10 text-green-500 text-[10px] font-black px-2 py-1 rounded-full border border-green-500/20">
-                {stat.trend}
-              </span>
-            </div>
-          ))}
-        </div>
+        <DashboardMetrics />
 
         {/* Hero Section */}
         <header className="py-12">
@@ -225,6 +194,8 @@ export default function Home() {
             { id: 'todos', label: 'Todos' },
             { id: 'ESPERANDO_VENDEDOR', label: 'Esperando Precios' },
             { id: 'CONFIRMANDO_COMPRA', label: 'Cierres' },
+            { id: 'ESPERANDO_APROBACION_ADMIN', label: 'Revisión Admin' },
+            { id: 'ESPERANDO_RETIRO', label: 'Esperando Retiro' },
             { id: 'CICLO_COMPLETO', label: 'Por Validar Pago' },
             { id: 'PAGO_VERIFICADO', label: 'Pagados' }
           ].map((f) => (
@@ -256,14 +227,15 @@ export default function Home() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {quotes
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                .filter((q: any) => filter === 'todos' || q.estado === filter)
-                .map((quote: any) => (
+                .filter((q) => filter === 'todos' || q.estado === filter)
+                .sort((a, b) => new Date(a.created_at || a.ultimo_mensaje || 0).getTime() - new Date(b.created_at || b.ultimo_mensaje || 0).getTime())
+                .map((quote) => (
                   <QuoteCard
                     key={quote.id || quote.phone}
                     phone={quote.phone}
                     estado={quote.estado}
                     entidades={quote.entidades}
+                    ultimoMensaje={quote.ultimo_mensaje}
                     onResponded={() => fetchQuotesAndMetrics("onResponded_QuoteCard")}
                   />
                 ))}
