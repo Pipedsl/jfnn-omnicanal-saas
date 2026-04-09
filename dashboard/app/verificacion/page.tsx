@@ -355,7 +355,7 @@ export default function VerificacionPage() {
                                                             <span className="text-[10px] text-neutral-500 font-mono mt-0.5">Cód: {r.codigo}</span>
                                                         )}
                                                     </div>
-                                                    <span className="font-mono">{formatCurrency(r.precio)}</span>
+                                                    <span className="font-mono">{formatCurrency(r.precio || 0)}</span>
                                                 </div>
                                             ))}
                                         </div>
