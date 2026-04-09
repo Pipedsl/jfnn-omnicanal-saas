@@ -11,7 +11,12 @@ const app = express();
 const port = process.env.PORT || 4000;
 
 app.use(cors({
-    origin: ['http://localhost:3000'],
+    origin: [
+        'http://localhost:3000',
+        'https://panel.repuestosjfnn.cl',
+        // Acepta cualquier subdominio de vercel.app durante el deploy
+        /\.vercel\.app$/,
+    ],
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true
 }));
@@ -24,6 +29,11 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Registro de rutas
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+
+// Health check para Railway
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', uptime: process.uptime(), env: process.env.NODE_ENV });
+});
 
 app.get('/', (req, res) => {
     res.json({ message: 'JFNN Omnicanal API is running' });
