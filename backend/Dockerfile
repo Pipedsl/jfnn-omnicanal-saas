@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Copia dependencias primero (cache layer)
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 # Copia el resto del código
 COPY . .
@@ -15,4 +15,4 @@ ENV NODE_ENV=production
 
 EXPOSE $PORT
 
-CMD ["node", "server.js"]
+CMD ["node", "index.js"]
