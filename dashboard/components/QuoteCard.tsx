@@ -52,6 +52,8 @@ interface QuoteCardProps {
     entidades: Entidades;
     ultimoMensaje?: string;
     onResponded: () => void;
+    autoOpen?: boolean;
+    onClose?: () => void;
 }
 
 function useElapsed(since?: string) {
@@ -72,11 +74,12 @@ function useElapsed(since?: string) {
     return elapsed;
 }
 
-export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onResponded }: QuoteCardProps) {
+export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onResponded, autoOpen = false, onClose }: QuoteCardProps) {
     const elapsed = useElapsed(ultimoMensaje);
     const arrivalTime = ultimoMensaje ? new Date(ultimoMensaje).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : null;
     const arrivalDate = ultimoMensaje ? new Date(ultimoMensaje).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' }) : null;
-    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [isModalOpen, setIsModalOpen] = useState(autoOpen);
+    const closeModal = () => { setIsModalOpen(false); onClose?.(); };
     const [isEditing, setIsEditing] = useState(false);
     const [showLogisticsModal, setShowLogisticsModal] = useState(false);
     const [mensajeLogistica, setMensajeLogistica] = useState("");
@@ -154,7 +157,7 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                 estado: nuevoEstado,
                 notify
             });
-            setIsModalOpen(false);
+            closeModal();
             onResponded();
         } catch (error) {
             console.error("Error actualizando estado:", error);
@@ -176,7 +179,7 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
             setShowLogisticsModal(false);
             setMensajeLogistica("");
             setNumeroSeguimiento("");
-            setIsModalOpen(false);
+            closeModal();
             onResponded();
         } catch (error) {
             console.error("Error confirmando logística:", error);
@@ -218,6 +221,7 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
     return (
         <>
             {/* ── Compact Card ─────────────────────────────────────── */}
+            {!autoOpen && (
             <div
                 onClick={() => setIsModalOpen(true)}
                 className={`glass rounded-2xl p-4 cursor-pointer transition-all duration-200 hover:border-accent/40 group relative ${needsAction ? 'ring-1 ring-accent/20' : ''}`}
@@ -319,14 +323,15 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                     </div>
                 </div>
             </div>
+            )}
 
             {/* ── Full Detail Modal ─────────────────────────────────── */}
             {isModalOpen && (
                 <div
-                    className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
-                    onClick={(e) => { if (e.target === e.currentTarget) setIsModalOpen(false); }}
+                    className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6 bg-black/70 backdrop-blur-sm"
+                    onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}
                 >
-                    <div className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto glass rounded-2xl">
+                    <div className="relative w-full w-[95vw] sm:max-w-4xl md:max-w-6xl lg:max-w-7xl max-h-[95vh] flex flex-col glass rounded-2xl">
                         {/* Modal Header */}
                         <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 bg-background/80 backdrop-blur-sm border-b border-white/5">
                             <div className="flex items-center gap-3">
@@ -359,8 +364,20 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                 <span className={`px-3 py-1 text-[10px] font-bold uppercase tracking-tighter rounded-full border ${statusConfig.class}`}>
                                     {statusConfig.label}
                                 </span>
+                                {/* Pause/Resume Agent Toggle */}
                                 <button
-                                    onClick={() => setIsModalOpen(false)}
+                                    onClick={togglePausa}
+                                    disabled={loadingPausa}
+                                    title={isPaused ? "Reactivar Agente IA" : "Pausar Agente IA"}
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-all text-[10px] font-bold uppercase tracking-wider ${isPaused
+                                        ? 'bg-orange-500/10 border-orange-500/30 text-orange-400 hover:bg-orange-500/20'
+                                        : 'bg-white/5 border-white/10 text-neutral-500 hover:bg-white/10 hover:text-green-400 hover:border-green-500/30'}`}
+                                >
+                                    {isPaused ? <MessageSquareOff size={12} /> : <Bot size={12} />}
+                                    {loadingPausa ? '...' : isPaused ? 'Pausado' : 'AI Activa'}
+                                </button>
+                                <button
+                                    onClick={() => closeModal()}
                                     className="p-1.5 rounded-lg hover:bg-white/10 text-neutral-500 hover:text-white transition-colors"
                                 >
                                     <X size={16} />
@@ -368,9 +385,11 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                             </div>
                         </div>
 
-                        {/* Modal Body */}
-                        <div className="p-6 space-y-5">
-                            {/* Síntomas */}
+                        {/* Modal Body container for Grid */}
+                        <div className="flex-1 overflow-hidden flex flex-col md:flex-row min-h-0">
+                            {/* Columna Izquierda: Información */}
+                            <div className={`p-6 space-y-5 overflow-y-auto custom-scrollbar ${ (estado === 'ESPERANDO_VENDEDOR' || isEditing) ? 'w-full md:w-5/12 lg:w-1/3 border-r border-white/5' : 'w-full' }`}>
+                                {/* Síntomas */}
                             {entidades.sintomas_reportados && (
                                 <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-3">
                                     <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-1">Síntoma Técnico</p>
@@ -559,39 +578,121 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                 </div>
                             )}
 
-                            {/* ── Acciones ── */}
-                            <div className="pt-2 border-t border-white/5 flex flex-col gap-2">
-                                {estado === 'CONFIRMANDO_COMPRA' && !isEditing && (
-                                    <button
-                                        onClick={() => setIsEditing(true)}
-                                        className="w-full py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-neutral-400 text-[10px] font-bold uppercase tracking-widest hover:bg-neutral-700 hover:text-white transition-all flex items-center justify-center gap-2"
-                                    >
-                                        <Edit3 size={12} /> Corregir Precios / Stock
-                                    </button>
-                                )}
+                            </div> {/* Cierra Columna Izquierda */}
 
-                                {(estado === 'ESPERANDO_VENDEDOR' || isEditing) && (
-                                    <div className="animate-in fade-in slide-in-from-top-2 duration-300">
-                                        <SellerActionForm
-                                            phone={phone}
-                                            items={repuestos}
-                                            vehiculos={vehiculos}
-                                            onResponded={() => {
-                                                setIsEditing(false);
-                                                setIsModalOpen(false);
-                                                onResponded();
-                                            }}
-                                        />
-                                        {isEditing && (
-                                            <button
-                                                onClick={() => setIsEditing(false)}
-                                                className="w-full mt-2 py-2 text-[10px] text-neutral-500 font-bold uppercase hover:text-red-400 transition-colors"
-                                            >
-                                                Cancelar edición
-                                            </button>
-                                        )}
-                                    </div>
-                                )}
+                            {/* Formulario de Vendedor (Columna Derecha) */}
+                            {(estado === 'ESPERANDO_VENDEDOR' || isEditing) && (
+                                <div className="flex-1 flex flex-col overflow-hidden relative animate-in fade-in slide-in-from-right-4 duration-300">
+                                    <SellerActionForm
+                                        phone={phone}
+                                        items={repuestos}
+                                        vehiculos={vehiculos}
+                                        onResponded={() => {
+                                            setIsEditing(false);
+                                            closeModal();
+                                            onResponded();
+                                        }}
+                                        footerActions={
+                                            <>
+                                                {isEditing && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setIsEditing(false)}
+                                                        className="w-full mb-2 py-2 rounded-xl text-[10px] text-neutral-500 font-bold uppercase hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                                                    >
+                                                        Cancelar edición
+                                                    </button>
+                                                )}
+                                                <div className="flex flex-col gap-2 pt-2 border-t border-white/5">
+                                                    {(estado === 'ARCHIVADO' || estado === 'ESPERANDO_VENDEDOR') && (
+                                                        <>
+                                                            <p className="text-[10px] text-neutral-500 text-center uppercase tracking-wider font-bold">
+                                                                📨 Re-enganche (si pasaron +24h)
+                                                            </p>
+                                                            <div className="flex gap-2">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={async () => {
+                                                                        try {
+                                                                            await axios.post("http://localhost:4000/api/dashboard/cotizaciones/template", {
+                                                                                phone,
+                                                                                templateName: 'cotizacion_lista',
+                                                                                nombre: entidades.nombre_cliente || "Cliente",
+                                                                                repuesto: "los repuestos solicitados"
+                                                                            });
+                                                                            alert("✅ Plantilla 'Cotización Lista' enviada.");
+                                                                            closeModal();
+                                                                            onResponded();
+                                                                        } catch (err) {
+                                                                            console.error(err);
+                                                                            alert("Error al enviar la plantilla.");
+                                                                        }
+                                                                    }}
+                                                                    className="flex-1 py-2 rounded-xl bg-green-500/10 border border-green-500/30 text-green-400 text-[10px] font-bold hover:bg-green-500/20 transition-colors flex items-center justify-center gap-1.5"
+                                                                    title="Notifica al cliente que su cotización está lista para revisión."
+                                                                >
+                                                                    <Send size={12} /> Cotización Lista
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={async () => {
+                                                                        try {
+                                                                            await axios.post("http://localhost:4000/api/dashboard/cotizaciones/template", {
+                                                                                phone,
+                                                                                templateName: 'retomar_cotizacion',
+                                                                                nombre: entidades.nombre_cliente || "Cliente",
+                                                                                repuesto: "los repuestos solicitados"
+                                                                            });
+                                                                            alert("✅ Plantilla 'Retomar Cotización' enviada.");
+                                                                            closeModal();
+                                                                            onResponded();
+                                                                        } catch (err) {
+                                                                            console.error(err);
+                                                                            alert("Error al enviar la plantilla.");
+                                                                        }
+                                                                    }}
+                                                                    className="flex-1 py-2 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-400 text-[10px] font-bold hover:bg-purple-500/20 transition-colors flex items-center justify-center gap-1.5"
+                                                                    title="Envía un recordatorio al cliente para que retome una cotización abandonada."
+                                                                >
+                                                                    <MessageSquareOff size={12} /> Retomar Conversación
+                                                                </button>
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                    {estado !== 'ARCHIVADO' && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                const confirmed = confirm('¿Estás seguro de que deseas archivar esta cotización? La podrás ver luego en la pestaña "Cierres".');
+                                                                if (confirmed) {
+                                                                    handleStatusUpdate('ARCHIVADO', false);
+                                                                }
+                                                            }}
+                                                            className="w-full mt-1 py-1.5 rounded-lg bg-neutral-800/50 border border-neutral-700/50 text-neutral-500 text-[10px] font-medium hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 transition-all flex items-center justify-center gap-1.5"
+                                                            title="Archiva esta cotización. Aparecerá en la pestaña Cierres."
+                                                        >
+                                                            <Archive size={11} /> Archivar / Descartar
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </>
+                                        }
+                                    />
+                                </div>
+                            )}
+                        </div>
+
+                        {/* ── Footer: Acciones (visible solo cuando NO se está cotizando/editando) ── */}
+                        {!(estado === 'ESPERANDO_VENDEDOR' || isEditing) && (
+                            <div className="shrink-0 px-6 py-4 border-t border-white/5 bg-background/80 backdrop-blur-sm rounded-b-2xl flex flex-col gap-2">
+                            {estado === 'CONFIRMANDO_COMPRA' && !isEditing && (
+                                <button
+                                    onClick={() => setIsEditing(true)}
+                                    className="w-full py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-neutral-400 text-[10px] font-bold uppercase tracking-widest hover:bg-neutral-700 hover:text-white transition-all flex items-center justify-center gap-2"
+                                >
+                                    <Edit3 size={12} /> Corregir Precios / Stock
+                                </button>
+                            )}
 
                                 {(estado === 'PAGO_VERIFICADO' || estado === 'ABONO_VERIFICADO') && !showLogisticsModal && !showEtaModal && (
                                     <button
@@ -676,7 +777,7 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                                     setLoadingEncargo(true);
                                                     try {
                                                         const response = await axios.post('http://localhost:4000/api/dashboard/encargos/solicitar', { phone, dias_eta: diasEta });
-                                                        if (response.data.success) { setShowEtaModal(false); setIsModalOpen(false); onResponded(); }
+                                                        if (response.data.success) { setShowEtaModal(false); closeModal(); onResponded(); }
                                                     } catch (error) {
                                                         console.error(error);
                                                         alert("Error al solicitar encargo");
@@ -699,7 +800,7 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                             setLoadingEncargo(true);
                                             try {
                                                 const response = await axios.post('http://localhost:4000/api/dashboard/encargos/recibido', { phone });
-                                                if (response.data.success) { setIsModalOpen(false); onResponded(); }
+                                                if (response.data.success) { closeModal(); onResponded(); }
                                             } catch (error) {
                                                 console.error(error);
                                                 alert("Error al validar llegada de encargo");
@@ -721,7 +822,7 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                                 await axios.patch("http://localhost:4000/api/dashboard/cotizaciones/estado", {
                                                     phone, estado: 'PAGO_VERIFICADO', notify: false
                                                 });
-                                                setIsModalOpen(false);
+                                                closeModal();
                                                 onResponded();
                                             } catch (error) {
                                                 console.error("Error confirmando pago presencial:", error);
@@ -768,7 +869,7 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                                             repuesto: "los repuestos solicitados"
                                                         });
                                                         alert("✅ Plantilla 'Cotización Lista' enviada.");
-                                                        setIsModalOpen(false);
+                                                        closeModal();
                                                         onResponded();
                                                     } catch (err) {
                                                         console.error(err);
@@ -790,7 +891,7 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                                             repuesto: "los repuestos solicitados"
                                                         });
                                                         alert("✅ Plantilla 'Retomar Cotización' enviada.");
-                                                        setIsModalOpen(false);
+                                                        closeModal();
                                                         onResponded();
                                                     } catch (err) {
                                                         console.error(err);
@@ -805,8 +906,24 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                         </div>
                                     </div>
                                 )}
+
+                                {/* Botón universal de archivado - visible en TODOS los estados excepto ARCHIVADO */}
+                                {estado !== 'ARCHIVADO' && (
+                                    <button
+                                        onClick={() => {
+                                            const confirmed = confirm('¿Estás seguro de que deseas archivar esta cotización? La podrás ver luego en la pestaña "Cierres".');
+                                            if (confirmed) {
+                                                handleStatusUpdate('ARCHIVADO', false);
+                                            }
+                                        }}
+                                        className="w-full mt-3 py-1.5 rounded-lg bg-neutral-800/50 border border-neutral-700/50 text-neutral-500 text-[10px] font-medium hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 transition-all flex items-center justify-center gap-1.5"
+                                        title="Archiva esta cotización. Aparecerá en la pestaña Cierres."
+                                    >
+                                        <Archive size={11} /> Archivar / Descartar
+                                    </button>
+                                )}
                             </div>
-                        </div>
+                        )}
                     </div>
                 </div>
             )}

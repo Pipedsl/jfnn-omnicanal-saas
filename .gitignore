@@ -24,6 +24,10 @@ dashboard/.env.local
 # Cualquier .env en subdirectorios (cobertura total)
 **/.env
 **/.env.local
+# Archivos de producción con credenciales (NO subir a GitHub)
+**/.env.production
+backend/.env.production
+dashboard/.env.production
 
 # Debug logs
 npm-debug.log*

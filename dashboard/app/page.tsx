@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import axios from "axios";
-import { LayoutDashboard, RefreshCcw, Bell, Settings, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, RefreshCcw, Bell, Settings, ShieldCheck, Search, LogOut } from "lucide-react";
 import QuoteCard from "@/components/QuoteCard";
+import BandejaTable from "@/components/BandejaTable";
+import HistorialTable from "@/components/HistorialTable";
 import DashboardMetrics from "@/components/DashboardMetrics";
 import Link from "next/link";
 
@@ -17,26 +19,42 @@ interface Quote {
   created_at?: string;
 }
 
+const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000';
+
 export default function Home() {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState("pendientes"); // "pendientes" | "historial"
   const [filter, setFilter] = useState("todos");
   const [isSyncing, setIsSyncing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null);
+  const [userRole, setUserRole] = useState<string>('vendedor');
   // useRef para capturar el `view` y `fetchQuotesAndMetrics` actual sin closures stale
   const viewRef = useRef("pendientes");
   const fetchRef = useRef<(source?: string) => Promise<void>>(null!);
 
   // Eliminado el estado 'metrics' local en favor del componente <DashboardMetrics />
 
+  // Leer rol del usuario desde localStorage al montar
+  useEffect(() => {
+    const storedRole = localStorage.getItem('jfnn_role');
+    if (storedRole) setUserRole(storedRole);
+  }, []);
+
+  const handleLogout = async () => {
+    await fetch('/api/logout', { method: 'POST' });
+    localStorage.removeItem('jfnn_role');
+    localStorage.removeItem('jfnn_token');
+    window.location.href = '/login';
+  };
+
   const fetchPendientes = async (source: string = "unknown") => {
     console.log(`[Fetch] Cotizaciones activas. Origen: ${source} a las ${new Date().toLocaleTimeString()}`);
     try {
       setLoading(true);
-      const resPend = await axios.get(`http://localhost:4000/api/dashboard/cotizaciones?t=${Date.now()}`);
+      const resPend = await axios.get(`${API_URL}/api/dashboard/cotizaciones?t=${Date.now()}`);
       const pend: Quote[] = resPend.data || [];
-
-      if (viewRef.current === "pendientes") setQuotes(pend);
 
       if (viewRef.current === "pendientes") setQuotes(pend);
     } catch (error) {
@@ -52,10 +70,8 @@ export default function Home() {
     console.log(`[Fetch] Historial bajo demanda a las ${new Date().toLocaleTimeString()}`);
     try {
       setLoading(true);
-      const resHist = await axios.get(`http://localhost:4000/api/dashboard/cotizaciones/historial?t=${Date.now()}`);
+      const resHist = await axios.get(`${API_URL}/api/dashboard/cotizaciones/historial?t=${Date.now()}`);
       const hist: Quote[] = resHist.data || [];
-
-      setQuotes(hist);
 
       setQuotes(hist);
     } catch (error) {
@@ -81,12 +97,14 @@ export default function Home() {
 
   useEffect(() => {
     viewRef.current = view; // Sync ref
+    setFilter("todos"); // Reset filter on view change
+    setSearchQuery(""); // Reset search on view change
     if (view === "pendientes") {
       fetchPendientes("useEffect[view=pendientes]");
     } else if (view === "historial") {
       fetchHistorial(); // Solo se llama cuando el usuario cambia a historial
     }
-  }, [view, filter]);
+  }, [view]);
 
   // Polling cada 10s (sin Supabase Realtime)
   useEffect(() => {
@@ -142,10 +160,19 @@ export default function Home() {
             <div className="h-8 w-[1px] bg-white/10 mx-2"></div>
             <div className="flex items-center gap-3">
               <div className="text-right hidden sm:block">
-                <p className="text-xs font-bold">Admin JFNN</p>
-                <p className="text-[10px] text-neutral-500">Vendedor Senior</p>
+                <p className="text-xs font-bold">JFNN Repuestos</p>
+                <p className="text-[10px] text-neutral-500 capitalize">{userRole}</p>
               </div>
-              <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-accent to-blue-300"></div>
+              <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-accent to-blue-300 flex items-center justify-center text-white text-xs font-bold">
+                {userRole === 'admin' ? '★' : 'V'}
+              </div>
+              <button
+                onClick={handleLogout}
+                className="p-2 hover:bg-red-500/10 rounded-lg text-neutral-500 hover:text-red-400 transition-colors"
+                title="Cerrar sesión"
+              >
+                <LogOut size={16} />
+              </button>
             </div>
           </div>
         </div>
@@ -190,7 +217,7 @@ export default function Home() {
 
         {/* Filters */}
         <div className="flex items-center gap-2 pb-6 overflow-x-auto no-scrollbar">
-          {view === 'pendientes' && [
+          {(view === 'pendientes' ? [
             { id: 'todos', label: 'Todos' },
             { id: 'ESPERANDO_VENDEDOR', label: 'Esperando Precios' },
             { id: 'CONFIRMANDO_COMPRA', label: 'Cierres' },
@@ -198,7 +225,11 @@ export default function Home() {
             { id: 'ESPERANDO_RETIRO', label: 'Esperando Retiro' },
             { id: 'CICLO_COMPLETO', label: 'Por Validar Pago' },
             { id: 'PAGO_VERIFICADO', label: 'Pagados' }
-          ].map((f) => (
+          ] : [
+            { id: 'todos', label: 'Todos' },
+            { id: 'ENTREGADO', label: '✅ Ventas Completas' },
+            { id: 'ARCHIVADO', label: '📦 Archivados' },
+          ]).map((f) => (
             <button
               key={f.id}
               onClick={() => setFilter(f.id)}
@@ -210,9 +241,21 @@ export default function Home() {
               {f.label}
             </button>
           ))}
+
+          {/* Búsqueda */}
+          <div className="relative ml-auto">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Buscar por teléfono, nombre o vehículo..."
+              className="pl-9 pr-4 py-1.5 rounded-full text-xs bg-white/5 border border-white/10 text-neutral-300 placeholder:text-neutral-600 focus:border-accent/50 focus:outline-none transition-colors w-72"
+            />
+          </div>
         </div>
 
-        {/* Grid */}
+        {/* Grid / Table */}
         <section>
           {loading && quotes.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 glass rounded-3xl animate-pulse">
@@ -224,24 +267,41 @@ export default function Home() {
               <LayoutDashboard size={48} className="text-neutral-800 mb-4" />
               <p className="text-neutral-500 font-medium">No hay registros en esta sección.</p>
             </div>
+          ) : view === 'pendientes' ? (
+            /* ── Vista Pendientes: Tabla Compacta ── */
+            <BandejaTable
+              quotes={quotes}
+              filter={filter}
+              searchQuery={searchQuery}
+              onOpenDetail={(quote) => setSelectedQuote(quote)}
+              onRefresh={() => fetchPendientes('onRefresh_PauseToggle')}
+            />
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {quotes
-                .filter((q) => filter === 'todos' || q.estado === filter)
-                .sort((a, b) => new Date(a.created_at || a.ultimo_mensaje || 0).getTime() - new Date(b.created_at || b.ultimo_mensaje || 0).getTime())
-                .map((quote) => (
-                  <QuoteCard
-                    key={quote.id || quote.phone}
-                    phone={quote.phone}
-                    estado={quote.estado}
-                    entidades={quote.entidades}
-                    ultimoMensaje={quote.ultimo_mensaje}
-                    onResponded={() => fetchQuotesAndMetrics("onResponded_QuoteCard")}
-                  />
-                ))}
-            </div>
+            /* ── Vista Historial: Tabla Compacta ── */
+            <HistorialTable
+              quotes={quotes}
+              filter={filter}
+              searchQuery={searchQuery}
+              onOpenDetail={(quote) => setSelectedQuote(quote)}
+            />
           )}
         </section>
+
+        {/* Modal de detalle (funciona para ambas vistas) */}
+        {selectedQuote && (
+          <div className="fixed inset-0 z-50">
+            <QuoteCard
+              key={selectedQuote.id || selectedQuote.phone}
+              phone={selectedQuote.phone}
+              estado={selectedQuote.estado}
+              entidades={selectedQuote.entidades}
+              ultimoMensaje={selectedQuote.ultimo_mensaje}
+              onResponded={() => { setSelectedQuote(null); view === 'historial' ? fetchHistorial() : fetchPendientes('onResponded_Modal'); }}
+              autoOpen={true}
+              onClose={() => setSelectedQuote(null)}
+            />
+          </div>
+        )}
       </div>
     </main>
   );

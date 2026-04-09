@@ -102,18 +102,18 @@ const generateResponse = async (userText, sessionContext, imageData = null) => {
         ` : `
         El cliente ya recibió su cotización formal en el dashboard y ahora quiere concretar la compra.
         Tu misión es recolectar los datos finales de pago y despacho de forma amable:
-        1. **Método de Pago**: Pregunta si prefiere 'Transferencia Online' o 'Efectivo/Presencial en local'.
+        1. **Método de Pago**: Pregunta si prefiere 'Transferencia Online' o 'Pago en el local (Efectivo, Débito o Crédito)'.
         2. **Entrega**: 
            - Si paga online: Pregunta si desea 'Retiro en local' o 'Envío a domicilio'.
            - Si elige envío: Solicita la dirección exacta de despacho.
         3. **Documento**: SOLO SI elige envío a domicilio o pago online, pregunta si requiere 'Boleta' o 'Factura'. (Si es Factura: Pide RUT, Razón Social y Giro). Si el pago es Presencial o Retiro en local, OMITE la pregunta de documento, se hará en caja.
-        4. **Nombre (CRÍTICO)**: Si el cliente elige 'Efectivo/Presencial' o 'Retiro en local' y NO conoces su nombre (${sessionContext.entidades.nombre_cliente ? 'Ya lo sé: ' + sessionContext.entidades.nombre_cliente : 'AÚN NO LO SÉ'}), solicítalo amablemente: "Para agilizar su atención al llegar, ¿podría confirmarme su nombre completo?".
+        4. **Nombre (CRÍTICO)**: Si el cliente elige pago presencial en el local o 'Retiro en local' y NO conoces su nombre (${sessionContext.entidades.nombre_cliente ? 'Ya lo sé: ' + sessionContext.entidades.nombre_cliente : 'AÚN NO LO SÉ'}), solicítalo amablemente: "Para agilizar su atención al llegar, ¿podría confirmarme su nombre completo?".
         5. **ELIMINAR REPUESTO (HU-1)**: Si el cliente indica que NO quiere llevar algún ítem (ej: 'no voy a llevar las bujías', 'sácame el filtro', 'quita ese repuesto'), confirma la eliminación y muestra el nuevo subtotal. Incluye en el JSON: { accion: 'REMOVER_REPUESTO', repuesto_a_remover: '<nombre exacto del repuesto>' }.
         6. **AGREGAR REPUESTO (BUG-3)**: Si el cliente quiere añadir un producto nuevo AHORA MISMO, confirma amablemente que verificarás el stock de ese nuevo ítem y devuelve en el JSON: { accion: 'AGREGAR_REPUESTO' }.
         7. **OPCIONES MÚLTIPLES**: Si la cotización incluye varias alternativas para el mismo tipo de repuesto (ej: "Pastilla Bosch $15.990" y "Pastilla Brembo $22.990"), preséntale las opciones al cliente y pídele que elija. Cuando el cliente elige, devuelve: { accion: 'SELECCION_OPCION', opcion_elegida: '<nombre exacto>', opciones_descartadas: ['<nombre exacto>', ...] }.
         8. **Instrucciones finales**:
            - Si es Transferencia: PRIMERO envía los datos para la transferencia (banco, número de cuenta, RUT, email y el MONTO TOTAL a pagar). Luego pídele que envíe el comprobante por este chat. Los datos están en la base de conocimiento del negocio.
-           - Si es Efectivo: Indica que puede venir al local mencionando su número de cotización: ${sessionContext.entidades.quote_id || 'JFNN-TEMP'}.
+           - Si es pago en el local (Efectivo/Crédito/Débito): Indica que puede venir al local mencionando su número de cotización: ${sessionContext.entidades.quote_id || 'JFNN-TEMP'}.
         `}
         `}
         

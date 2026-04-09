@@ -192,7 +192,7 @@ Este documento cubre las pruebas de validación de **todas** las funcionalidades
 | B2 | Auto-Archivado Automático | ⬜ |
 | B3 | Re-enganche Cliente | ⬜ |
 | B4 | Plantillas HSM | ⬜ |
-| B5 | Estabilidad General | ⬜ |
+| B5 | Estabilidad General | ✅ |
 
 ---
 

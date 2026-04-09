@@ -26,94 +26,99 @@ interface SellerActionFormProps {
     items?: Item[];
     vehiculos?: Vehiculo[];
     onResponded: () => void;
+    footerActions?: React.ReactNode;
 }
 
 const RenderItemInput = ({ item, isSinStock, onChange, onRemove }: { item: Item, isSinStock: boolean, onChange: (field: keyof Item, val: string | number | null | boolean) => void, onRemove?: () => void }) => (
-    <div className="p-3 bg-neutral-900/50 rounded-xl border border-neutral-800 space-y-3 relative overflow-hidden transition-all duration-300">
+    <div className="p-3 bg-neutral-900/50 rounded-xl border border-neutral-800 flex flex-col md:flex-row md:items-center gap-3 relative overflow-hidden transition-all duration-300">
         {isSinStock && <div className="absolute inset-0 bg-neutral-950/40 backdrop-blur-[1px] z-0 pointer-events-none" />}
-        <div className="relative z-10 flex justify-between items-center">
-            <div className="flex items-center gap-2">
+        
+        {/* PARTE 1: Nombre y Cantidad (Toma el 40% del ancho) */}
+        <div className="relative z-10 flex items-center justify-between md:justify-start gap-2 md:w-[40%]">
+            <div className="flex items-center gap-2 flex-grow">
                 {!item._isNew && item.nombre ? (
-                    <p className="text-[10px] font-bold uppercase text-accent tracking-wider">{item.nombre}</p>
+                    <p className="text-[10px] font-bold uppercase text-accent tracking-wider break-words">{item.nombre}</p>
                 ) : (
                     <input
                         type="text"
                         placeholder="Nombre del repuesto..."
-                        className="bg-transparent text-[10px] font-bold uppercase text-accent tracking-wider focus:outline-none border-b border-accent/30 w-40"
+                        className="bg-transparent text-[10px] font-bold uppercase text-accent tracking-wider focus:outline-none border-b border-accent/30 w-full"
                         value={item.nombre}
                         onChange={(e) => onChange("nombre", e.target.value)}
                         required
                     />
                 )}
-                <div className="flex items-center gap-1 bg-neutral-800 border border-white/10 rounded px-1.5 py-0.5">
-                    <Package className="h-3 w-3 text-neutral-500" />
-                    <input
-                        type="number"
-                        min="1"
-                        value={item.cantidad || 1}
-                        onChange={(e) => onChange("cantidad", Math.max(1, Number(e.target.value)))}
-                        className="w-8 bg-transparent text-[10px] text-white text-center font-bold focus:outline-none"
-                    />
-                    <span className="text-[10px] text-neutral-500">und</span>
-                </div>
             </div>
-            <div className="flex items-center gap-2">
-                <select
-                    value={item.disponibilidad || "DISPONIBLE"}
-                    onChange={(e) => onChange("disponibilidad", e.target.value)}
-                    className={`bg-neutral-800 text-[10px] border px-2 py-0.5 rounded font-bold uppercase tracking-wider ${isSinStock ? 'text-red-400 border-red-500/30 ring-1 ring-red-500/20' :
-                            item.disponibilidad === "POR_ENCARGO" ? 'text-yellow-400 border-yellow-500/30' :
-                                'text-green-400 border-green-500/30'
-                        }`}
-                >
-                    <option value="DISPONIBLE" className="text-green-400 bg-neutral-900">🟢 En Stock</option>
-                    <option value="POR_ENCARGO" className="text-yellow-400 bg-neutral-900">🟡 Encargo (+Abono)</option>
-                    <option value="SIN_STOCK" className="text-red-400 bg-neutral-900">🔴 Agotado / No disp.</option>
-                </select>
-                {onRemove && (
-                    <button
-                        type="button"
-                        onClick={onRemove}
-                        className="p-1 rounded hover:bg-red-500/20 text-red-400/60 hover:text-red-400 transition-colors"
-                        title="Eliminar repuesto"
-                    >
-                        <Trash2 size={12} />
-                    </button>
-                )}
+            <div className="flex items-center gap-1 bg-neutral-800 border border-white/10 rounded px-1.5 py-0.5 whitespace-nowrap">
+                <Package className="h-3 w-3 text-neutral-500" />
+                <input
+                    type="number"
+                    min="1"
+                    value={item.cantidad || 1}
+                    onChange={(e) => onChange("cantidad", Math.max(1, Number(e.target.value)))}
+                    className="w-8 bg-transparent text-[10px] text-white text-center font-bold focus:outline-none"
+                />
+                <span className="text-[10px] text-neutral-500">und</span>
             </div>
         </div>
-        {!isSinStock && (
-            <div className="relative z-10 flex gap-2">
-                <div className="relative w-1/3">
-                    <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
-                        <Hash className="h-3 w-3 text-neutral-500" />
-                    </div>
-                    <input
-                        type="text"
-                        placeholder="Cód. Sistema"
-                        className="bg-neutral-800/80 text-white text-xs border border-white/5 rounded-lg block w-full pl-6 p-2 focus:ring-accent focus:border-accent"
-                        value={item.codigo || ""}
-                        onChange={(e) => onChange("codigo", e.target.value)}
-                    />
+
+        {/* PARTE 2: Cód Sistema y Precio (Visibles solo si hay stock, toman el 40%) */}
+        <div className={`relative z-10 flex gap-2 flex-1 md:w-[40%] ${isSinStock ? 'opacity-0 pointer-events-none md:hidden' : ''}`}>
+            <div className="relative flex-1 max-w-[120px]">
+                <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+                    <Hash className="h-3 w-3 text-neutral-500" />
                 </div>
-                <div className="relative flex-1">
-                    <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
-                        <DollarSign className="h-3 w-3 text-neutral-500" />
-                    </div>
-                    <input
-                        type="number"
-                        placeholder="Precio final c/u"
-                        className="bg-neutral-800/80 text-white text-xs border border-white/5 rounded-lg block w-full pl-6 p-2 focus:ring-accent focus:border-accent"
-                        value={item.precio ?? ""}
-                        onChange={(e) => onChange("precio", Number(e.target.value))}
-                    />
-                </div>
+                <input
+                    type="text"
+                    placeholder="Código"
+                    className="bg-neutral-800/80 text-white text-xs border border-white/5 rounded-lg block w-full pl-6 p-2 focus:ring-accent focus:border-accent"
+                    value={item.codigo || ""}
+                    onChange={(e) => onChange("codigo", e.target.value)}
+                />
             </div>
-        )}
+            <div className="relative flex-1">
+                <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+                    <DollarSign className="h-3 w-3 text-neutral-500" />
+                </div>
+                <input
+                    type="number"
+                    placeholder="Precio total"
+                    className="bg-neutral-800/80 text-white text-xs border border-white/5 rounded-lg block w-full pl-6 p-2 focus:ring-accent focus:border-accent font-bold"
+                    value={item.precio ?? ""}
+                    onChange={(e) => onChange("precio", Number(e.target.value))}
+                />
+            </div>
+        </div>
+
+        {/* PARTE 3: Disponibilidad y Basurero (Toman el 20%) */}
+        <div className="relative z-10 flex items-center justify-end gap-2 md:w-[20%]">
+            <select
+                value={item.disponibilidad || "DISPONIBLE"}
+                onChange={(e) => onChange("disponibilidad", e.target.value)}
+                className={`w-full max-w-[160px] bg-neutral-800 text-[10px] border px-2 py-2 rounded font-bold uppercase tracking-wider ${isSinStock ? 'text-red-400 border-red-500/30 ring-1 ring-red-500/20' :
+                        item.disponibilidad === "POR_ENCARGO" ? 'text-yellow-400 border-yellow-500/30' :
+                            'text-green-400 border-green-500/30'
+                    }`}
+            >
+                <option value="DISPONIBLE" className="text-green-400 bg-neutral-900">🟢 En Stock</option>
+                <option value="POR_ENCARGO" className="text-yellow-400 bg-neutral-900">🟡 Abono</option>
+                <option value="SIN_STOCK" className="text-red-400 bg-neutral-900">🔴 Agotado</option>
+            </select>
+            {onRemove && (
+                <button
+                    type="button"
+                    onClick={onRemove}
+                    className="p-1.5 rounded hover:bg-red-500/20 text-red-400/60 hover:text-red-400 transition-colors shrink-0"
+                    title="Eliminar repuesto"
+                >
+                    <Trash2 size={14} />
+                </button>
+            )}
+        </div>
     </div>
 );
 
-export default function SellerActionForm({ phone, items = [], vehiculos = [], onResponded }: SellerActionFormProps) {
+export default function SellerActionForm({ phone, items = [], vehiculos = [], onResponded, footerActions }: SellerActionFormProps) {
     const parseItems = (list: Item[]) => {
         return list.map((item) => {
             let precioLimpio = item.precio;
@@ -260,17 +265,34 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
         }
     };
 
-
-
     return (
-        <form onSubmit={handleSubmit} className="pt-4 border-t border-white/5 space-y-4">
-            <div className="space-y-4">
+        <form onSubmit={handleSubmit} className="flex flex-col h-full bg-black/20">
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-4">
+                <h4 className="text-[10px] font-black text-accent uppercase tracking-widest mb-4">Completar Cotización</h4>
                 {formVehiculos.length > 0 ? (
                     formVehiculos.map((v, vIdx) => (
                         <div key={vIdx} className="space-y-3 bg-neutral-900/30 p-3 rounded-xl border border-white/5">
-                            <div className="flex items-center gap-2 mb-2">
-                                <Car size={14} className="text-accent" />
-                                <span className="text-xs font-bold text-accent tracking-wide uppercase">{v.marca_modelo} {v.ano}</span>
+                            <div className="flex items-center justify-between gap-2 mb-3 border-b border-white/5 pb-2">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-6 h-6 rounded-lg bg-accent/20 flex items-center justify-center">
+                                        <Car size={13} className="text-accent" />
+                                    </div>
+                                    <span className="text-xs font-bold text-accent tracking-wide uppercase">
+                                        {v.marca_modelo || "Vehículo sin modelo"} {v.ano ? ` - ${v.ano}` : ""}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    {v.patente && (
+                                        <span className="px-2 py-0.5 bg-neutral-800 text-[10px] font-mono border border-white/10 rounded shadow-sm text-neutral-300">
+                                            PAT: {v.patente.toUpperCase()}
+                                        </span>
+                                    )}
+                                    {v.vin && (
+                                        <span className="px-2 py-0.5 bg-neutral-800 text-[10px] font-mono border border-white/10 rounded shadow-sm text-neutral-300">
+                                            VIN: {v.vin.toUpperCase()}
+                                        </span>
+                                    )}
+                                </div>
                             </div>
                             {v.repuestos_solicitados.map((item, rIdx) => (
                                 <RenderItemInput
@@ -312,30 +334,34 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
                 )}
             </div>
 
-            <textarea
-                placeholder="📝 Nota adicional (Opcional)... Ej: Repuestos alternativos japoneses"
-                className="bg-neutral-800 text-white text-xs border border-white/10 rounded-xl block w-full p-3 focus:ring-accent focus:border-accent placeholder-neutral-500"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                rows={2}
-            />
+            {/* Footer Fijo de Cotización */}
+            <div className="shrink-0 p-6 border-t border-white/5 bg-background/80 flex flex-col gap-3">
+                <textarea
+                    placeholder="📝 Nota adicional (Opcional)... Ej: Repuestos alternativos japoneses"
+                    className="bg-neutral-900 border border-white/10 rounded-xl block w-full p-3 text-xs text-white focus:ring-accent focus:border-accent placeholder-neutral-500 resize-none"
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    rows={2}
+                />
 
-            <input
-                type="text"
-                placeholder="🚚 Logística (Opcional)... Ej: Retiros hoy hasta las 18:00 o Envíos mañana."
-                className="bg-neutral-800 text-white text-xs border border-white/10 rounded-xl block w-full p-3 focus:ring-accent focus:border-accent placeholder-neutral-500"
-                value={horarioEntrega}
-                onChange={(e) => setHorarioEntrega(e.target.value)}
-            />
+                <input
+                    type="text"
+                    placeholder="🚚 Logística (Opcional)... Ej: Retiros hoy hasta las 18:00 o Envíos mañana."
+                    className="bg-neutral-900 border border-white/10 rounded-xl block w-full p-3 text-xs text-white focus:ring-accent focus:border-accent placeholder-neutral-500"
+                    value={horarioEntrega}
+                    onChange={(e) => setHorarioEntrega(e.target.value)}
+                />
 
-            <button
-                type="submit"
-                disabled={loading}
-                className="w-full flex items-center justify-center gap-2 text-white bg-accent hover:bg-accent/80 focus:ring-4 focus:ring-accent/20 font-bold rounded-xl text-sm px-5 py-3 transition-colors disabled:opacity-50"
-            >
-                {loading ? 'Enviando...' : 'Enviar Cotización Revisada'}
-                <Send className="w-4 h-4" />
-            </button>
+                <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full py-3 rounded-xl bg-accent text-accent-foreground font-bold uppercase tracking-widest text-[10px] hover:bg-accent/90 focus:ring-4 focus:ring-accent/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                    {loading ? 'Calculando Precios...' : 'Enviar Cotización'}
+                </button>
+
+                {footerActions}
+            </div>
         </form>
     );
 }

@@ -68,8 +68,11 @@ const processBufferedMessages = async (customerPhone) => {
             if (archived && archived.hasArchived) {
                 // Detectar intención del usuario
                 const textoLower = userText.toLowerCase().trim();
-                const quiereContinuar = /^(s[ií]|continuar|retomar|la misma|seguir|esa|dale)/i.test(textoLower);
+                const quiereContinuar = /^(s[ií]|continuar|retomar|la misma|seguir|esa|dale|obvio|claro)/i.test(textoLower);
                 const quiereNueva = /^(no|nueva|otro|diferente|empezar|de cero|nada)/i.test(textoLower);
+                
+                // Si es un saludo corto, o solo dicen "hola"
+                const esSaludoCorto = /^(hola|buenas|ola|q tal|que tal|buenos|hello)/i.test(textoLower) && textoLower.length < 35;
 
                 if (quiereContinuar) {
                     // Restaurar sesión al estado PERFILANDO con las entidades preservadas
@@ -79,8 +82,8 @@ const processBufferedMessages = async (customerPhone) => {
                     await new Promise(resolve => setTimeout(resolve, delayMs));
                     await whatsappService.sendTextMessage(customerPhone, msg);
                     return;
-                } else if (quiereNueva) {
-                    // Resetear completamente
+                } else if (quiereNueva || !esSaludoCorto) {
+                    // Resetear completamente si dice que NO explícitamente, o si ya nos mandó un texto largo (empezando a pedir repuestos)
                     await sessionsService.resetSession(customerPhone);
                     session = await sessionsService.getSession(customerPhone);
                     // Continuar flujo normal (caerá al flujo de PERFILANDO abajo)
