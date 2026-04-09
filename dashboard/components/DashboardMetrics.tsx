@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { Target, Zap, DollarSign, Clock, TrendingUp, ShoppingCart } from "lucide-react";
+import { BACKEND_URL } from "@/lib/api";
 
 interface MetricsData {
     totalVendidoHoy: number;
@@ -27,7 +28,7 @@ export default function DashboardMetrics() {
 
     const fetchMetrics = async () => {
         try {
-            const res = await axios.get(`http://localhost:4000/api/dashboard/metrics?t=${Date.now()}`);
+            const res = await axios.get(`${BACKEND_URL}/api/dashboard/metrics?t=${Date.now()}`);
             setMetrics(res.data);
         } catch (error) {
             console.error("Error fetching metrics:", error);

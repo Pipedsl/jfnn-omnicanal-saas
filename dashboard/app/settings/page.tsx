@@ -5,7 +5,9 @@ import { Settings, Brain, Sparkles, ChevronLeft, Save, Loader2, X, Zap, BookOpen
 import Link from "next/link";
 import axios from "axios";
 
-const API = "http://localhost:4000/api/dashboard";
+import { BACKEND_URL } from "@/lib/api";
+
+const API = `${BACKEND_URL}/api/dashboard`;
 
 interface Regla {
     id: number;

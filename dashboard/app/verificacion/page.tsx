@@ -5,6 +5,7 @@ import axios from "axios";
 import Link from "next/link";
 import { ArrowLeft, CheckCircle, XCircle, FileSearch, ShieldCheck, X, Clock } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { BACKEND_URL } from "@/lib/api";
 
 interface PendingApproval {
     phone: string;
@@ -98,7 +99,7 @@ export default function VerificacionPage() {
         console.log(`[Fetch Trigger Verificacion] Origen: ${source} a las ${new Date().toLocaleTimeString()}`);
         try {
             setLoading(true);
-            const res = await axios.get("http://localhost:4000/api/dashboard/pending-approvals");
+            const res = await axios.get(`${BACKEND_URL}/api/dashboard/pending-approvals`);
             setApprovals(res.data.aprobaciones_pendientes || []);
         } catch (error) {
             console.error("Error fetching approvals:", error);
@@ -146,7 +147,9 @@ export default function VerificacionPage() {
                 }
             }
 
-            await axios.post("http://localhost:4000/api/dashboard/verify-payment", bodyPayload);
+            setProcessing(true);
+            await axios.post(`${BACKEND_URL}/api/dashboard/verify-payment`, bodyPayload);
+            setSelected(null);
             setSelected(null);
             setRejectReason("");
             fetchApprovals("handleAction_post");
@@ -244,7 +247,7 @@ export default function VerificacionPage() {
                                     {selected.comprobante_url ? (
                                         // eslint-disable-next-line @next/next/no-img-element
                                         <img
-                                            src={selected.comprobante_url.startsWith('/') ? `http://localhost:4000${selected.comprobante_url}` : selected.comprobante_url}
+                                            src={selected.comprobante_url.startsWith('/') ? `${BACKEND_URL}${selected.comprobante_url}` : selected.comprobante_url}
                                             alt="Comprobante"
                                             className="w-full h-full object-contain"
                                         />

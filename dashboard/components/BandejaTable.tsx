@@ -3,6 +3,7 @@
 import { Car, Hash, User, Package, ChevronRight, Search, Bot, MessageSquareOff } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { BACKEND_URL } from "@/lib/api";
 
 interface Quote {
     id: string;
@@ -62,7 +63,7 @@ function PauseToggle({ phone, paused, onToggled }: { phone: string; paused: bool
         setLoading(true);
         const nuevoEstado = !isPaused;
         try {
-            await axios.patch(`http://localhost:4000/api/dashboard/sessions/${phone}/pausa`, { pausado: nuevoEstado });
+            await axios.patch(`${BACKEND_URL}/api/dashboard/sessions/${phone}/pausa`, { pausado: nuevoEstado });
             setIsPaused(nuevoEstado);
             onToggled(); // Recargar la tabla
         } catch (err) {
