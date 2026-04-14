@@ -381,7 +381,11 @@ const getAllPendingSessions = async () => {
         return data;
     } catch (err) {
         console.error('[Sessions] ❌ Error en getAllPendingSessions:', err.message);
-        return globalPendingCache.data || [];
+        // Si tenemos cache previa válida, devolvemos eso como fallback degradado.
+        // Pero si nunca hubo datos (primer error tras un deploy), propagamos el error
+        // para que el endpoint responda 500 y el problema sea visible de inmediato.
+        if (globalPendingCache.data) return globalPendingCache.data;
+        throw err;
     }
 };
 

@@ -6,6 +6,7 @@ require('dotenv').config();
 const whatsappRoutes = require('./routes/whatsapp.routes');
 const dashboardRoutes = require('./routes/dashboard.routes');
 const sessionsService = require('./services/sessions.service');
+const db = require('./config/db');
 
 const app = express();
 const port = process.env.PORT || 4000;
@@ -30,9 +31,23 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 
-// Health check para Railway
+// Health check básico para Railway (liveness — no toca la DB)
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', uptime: process.uptime(), env: process.env.NODE_ENV });
+});
+
+// Health check profundo — verifica conexión real a la base de datos.
+// Útil para detectar URLs/tenants inválidos sin esperar a que falle una ruta de negocio.
+app.get('/api/health/db', async (req, res) => {
+    try {
+        const { rows } = await db.query(
+            'SELECT current_database() AS db, current_user AS "user", (SELECT count(*) FROM user_sessions) AS sessions'
+        );
+        res.json({ status: 'ok', ...rows[0] });
+    } catch (err) {
+        console.error('[Health] ❌ DB check falló:', err.message);
+        res.status(503).json({ status: 'error', error: err.message, code: err.code });
+    }
 });
 
 app.get('/', (req, res) => {

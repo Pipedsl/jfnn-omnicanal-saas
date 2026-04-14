@@ -44,3 +44,16 @@ designInspo/
 
 # HU-7: Knowledge base generada dinamicamente (no versionar)
 backend/data/knowledge.json
+
+# Documentación con información sensible (claves, tokens, contexto interno)
+documentacion/CONTEXTO_IA_TRANSFER.md
+documentacion/**/*SECRETS*
+documentacion/**/*SECRET*
+documentacion/**/*CREDENCIALES*
+documentacion/**/*_PRIVATE*
+# Archivos de credenciales y llaves en cualquier lugar del repo
+**/credentials.json
+**/secrets.json
+**/*.pem
+**/*.key
+**/service-account*.json
