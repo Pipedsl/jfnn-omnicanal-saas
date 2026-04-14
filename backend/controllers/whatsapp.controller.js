@@ -420,7 +420,7 @@ const receiveMessage = async (req, res) => {
 
         // Guard: descartar payloads sin mensajes (Read Receipts, notificaciones de estado, etc.)
         if (message) {
-            console.log(`[Webhook] 📨 Tipo recibido: "${message.type}" de ${message.from}`);
+            console.log(`[Webhook] 📨 Tipo recibido: "${message.type}" de ${message.from} (auto-deploy test)`);
         }
         if (!message || !['text', 'image', 'audio'].includes(message.type)) {
             return res.status(200).send('EVENT_RECEIVED');
