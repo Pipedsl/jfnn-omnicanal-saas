@@ -254,9 +254,13 @@ router.patch('/cotizaciones/estado', async (req, res) => {
                 // Si escribió un mensaje personalizado, se lo enviamos al cliente.
                 // Si no, usamos el mensaje genérico de entrega.
                 if (mensaje_logistica && mensaje_logistica.trim()) {
+                    const seguimientoLinea = numero_seguimiento && numero_seguimiento.trim()
+                        ? `📮 *Número de seguimiento:* ${numero_seguimiento.trim()}\n\n`
+                        : '';
                     message =
                         `✅ *¡Su pago fue confirmado!* Gracias por su preferencia.\n\n` +
                         `📦 *Información de despacho/retiro:*\n${mensaje_logistica.trim()}\n\n` +
+                        seguimientoLinea +
                         `¡Muchas gracias por preferir *Repuestos JFNN*! 🙌`;
                 } else {
                     message =
