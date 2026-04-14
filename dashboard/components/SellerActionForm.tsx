@@ -83,11 +83,17 @@ const RenderItemInput = ({ item, isSinStock, onChange, onRemove }: { item: Item,
                 </div>
                 <input
                     type="number"
-                    placeholder="Precio total"
+                    placeholder="Precio c/u"
+                    title="Precio por unidad (el sistema calcula el total según la cantidad)"
                     className="bg-neutral-800/80 text-white text-xs border border-white/5 rounded-lg block w-full pl-6 p-2 focus:ring-accent focus:border-accent font-bold"
                     value={item.precio ?? ""}
                     onChange={(e) => onChange("precio", Number(e.target.value))}
                 />
+                {item.precio && item.cantidad && item.cantidad > 1 && (
+                    <div className="absolute -bottom-4 left-0 text-[9px] text-green-400 font-bold whitespace-nowrap">
+                        Total: ${(item.precio * item.cantidad).toLocaleString('es-CL')}
+                    </div>
+                )}
             </div>
         </div>
 
