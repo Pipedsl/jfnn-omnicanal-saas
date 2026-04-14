@@ -527,7 +527,7 @@ router.post('/encargos/solicitar', async (req, res) => {
         await sessionsService.setEstado(phone, 'ENCARGO_SOLICITADO');
         
         const mensaje = `✅ *¡Su encargo ha sido procesado!*\n\n` +
-                        `📦 Hemos solicitado sus repuestos a nuestro proveedor. ` +
+                        `📦 Sus repuestos fueron solicitados a nuestra bodega central. ` +
                         `El tiempo estimado de llegada a nuestro local es de *${dias_eta} día(s)* hábiles aproximados.\n\n` +
                         `Le notificaremos inmediatamente por este medio cuando los repuestos estén listos para entrega/despacho. ¡Gracias por confiar en *Repuestos JFNN*! 🙌`;
                         
