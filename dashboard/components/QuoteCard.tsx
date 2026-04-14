@@ -96,7 +96,7 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
     const handleSolicitarVin = async (itemName: string) => {
         setSolicitandoVinId(itemName);
         try {
-            await axios.post("${BACKEND_URL}/api/dashboard/solicitar-vin", {
+            await axios.post(`${BACKEND_URL}/api/dashboard/solicitar-vin`, {
                 phone,
                 itemName
             });
@@ -153,7 +153,7 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
 
     const handleStatusUpdate = async (nuevoEstado: string, notify: boolean = true) => {
         try {
-            await axios.patch("${BACKEND_URL}/api/dashboard/cotizaciones/estado", {
+            await axios.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, {
                 phone,
                 estado: nuevoEstado,
                 notify
@@ -170,7 +170,7 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
         setLoadingPago(true);
         try {
             const estadoFinal = esRetiro ? 'ESPERANDO_RETIRO' : 'ENTREGADO';
-            await axios.patch("${BACKEND_URL}/api/dashboard/cotizaciones/estado", {
+            await axios.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, {
                 phone,
                 estado: estadoFinal,
                 notify: true,
@@ -615,7 +615,7 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                                                     type="button"
                                                                     onClick={async () => {
                                                                         try {
-                                                                            await axios.post("${BACKEND_URL}/api/dashboard/cotizaciones/template", {
+                                                                            await axios.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
                                                                                 phone,
                                                                                 templateName: 'cotizacion_lista',
                                                                                 nombre: entidades.nombre_cliente || "Cliente",
@@ -638,7 +638,7 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                                                     type="button"
                                                                     onClick={async () => {
                                                                         try {
-                                                                            await axios.post("${BACKEND_URL}/api/dashboard/cotizaciones/template", {
+                                                                            await axios.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
                                                                                 phone,
                                                                                 templateName: 'retomar_cotizacion',
                                                                                 nombre: entidades.nombre_cliente || "Cliente",
@@ -777,7 +777,7 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                                 onClick={async () => {
                                                     setLoadingEncargo(true);
                                                     try {
-                                                        const response = await axios.post('${BACKEND_URL}/api/dashboard/encargos/solicitar', { phone, dias_eta: diasEta });
+                                                        const response = await axios.post(`${BACKEND_URL}/api/dashboard/encargos/solicitar`, { phone, dias_eta: diasEta });
                                                         if (response.data.success) { setShowEtaModal(false); closeModal(); onResponded(); }
                                                     } catch (error) {
                                                         console.error(error);
@@ -800,7 +800,7 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                             if (!confirm('¿Los repuestos ya llegaron al local? Se calculará el saldo y se notificará al cliente.')) return;
                                             setLoadingEncargo(true);
                                             try {
-                                                const response = await axios.post('${BACKEND_URL}/api/dashboard/encargos/recibido', { phone });
+                                                const response = await axios.post(`${BACKEND_URL}/api/dashboard/encargos/recibido`, { phone });
                                                 if (response.data.success) { closeModal(); onResponded(); }
                                             } catch (error) {
                                                 console.error(error);
@@ -820,7 +820,7 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                         onClick={async () => {
                                             if (!confirm(`¿Confirmas que se recibió el pago presencial en caja${entidades.nombre_cliente ? ` de ${entidades.nombre_cliente}` : ''}? El sistema avanzará al flujo de logística.`)) return;
                                             try {
-                                                await axios.patch("${BACKEND_URL}/api/dashboard/cotizaciones/estado", {
+                                                await axios.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, {
                                                     phone, estado: 'PAGO_VERIFICADO', notify: false
                                                 });
                                                 closeModal();
@@ -863,7 +863,7 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                             <button
                                                 onClick={async () => {
                                                     try {
-                                                        await axios.post("${BACKEND_URL}/api/dashboard/cotizaciones/template", {
+                                                        await axios.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
                                                             phone,
                                                             templateName: 'cotizacion_lista',
                                                             nombre: entidades.nombre_cliente || "Cliente",
@@ -885,7 +885,7 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                             <button
                                                 onClick={async () => {
                                                     try {
-                                                        await axios.post("${BACKEND_URL}/api/dashboard/cotizaciones/template", {
+                                                        await axios.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
                                                             phone,
                                                             templateName: 'retomar_cotizacion',
                                                             nombre: entidades.nombre_cliente || "Cliente",
