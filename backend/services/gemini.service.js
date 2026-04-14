@@ -25,17 +25,19 @@ try {
  * @param {Object} imageData - Opcional. Objeto con { buffer: Buffer, mimeType: string }
  * @returns {Promise<Object>} - Objeto con mensaje_cliente y nuevas entidades
  */
-const generateResponse = async (userText, sessionContext, imageData = null) => {
+const generateResponse = async (userText, sessionContext, imageData = null, audioData = null) => {
     try {
         const state = sessionContext.estado;
         const hasImage = !!imageData;
+        const hasAudio = !!audioData;
         const safeText = userText || ''; // Guard: previene ReferenceError si userText es undefined
 
         // Selección inteligente de modelo:
-        // - Pro: Para razonamiento profundo (diagnósticos, síntomas, cierre de venta complejo)
+        // - Pro: Para razonamiento profundo (diagnósticos, síntomas, cierre de venta complejo, y SIEMPRE con audio)
         // - Flash: Para velocidad y procesamiento visual estándar
-        const isComplex = state === 'CONFIRMANDO_COMPRA' || (safeText.length > 100 || safeText.toLowerCase().includes('calienta') || safeText.toLowerCase().includes('ruido') || safeText.toLowerCase().includes('falla'));
+        const isComplex = hasAudio || state === 'CONFIRMANDO_COMPRA' || (safeText.length > 100 || safeText.toLowerCase().includes('calienta') || safeText.toLowerCase().includes('ruido') || safeText.toLowerCase().includes('falla'));
         const modelName = isComplex ? "gemini-3.1-pro-preview" : "gemini-3-flash-preview";
+        if (hasAudio) console.log(`[Audio] 🎤 Usando ${modelName} para procesar nota de voz de ${sessionContext.phone || 'cliente'}.`);
 
         const model = genAI.getGenerativeModel({ model: modelName });
 
@@ -124,9 +126,10 @@ const generateResponse = async (userText, sessionContext, imageData = null) => {
         - Si el cliente solo confirma ("sí", "dale", "confirmo", "de acuerdo"), devuelve la MISMA cantidad que ya está en el contexto.
         ${isConfirming && (sessionContext.entidades.repuestos_solicitados || []).some(r => r.cantidad_fijada) ? `⚠️ Cotización vigente (NO CAMBIAR salvo pedido explícito del cliente): ${(sessionContext.entidades.repuestos_solicitados || []).filter(r => r.precio).map(r => `${r.cantidad || 1}x ${r.nombre} | $${r.precio}`).join('; ')}` : ''}
 
-        ## INSTRUCCIONES MULTIMODALES (VISIÓN):
+        ## INSTRUCCIONES MULTIMODALES (VISIÓN Y AUDIO):
         - Si el cliente envía una FOTO DE UN REPUESTO: Identifica técnicamente la pieza (ej: 'Veo que es una bomba de agua') y pregúntale por los datos del auto si te faltan (Año, Patente o VIN).
         - Si el cliente envía una FOTO DE UN COMPROBANTE DE PAGO: Agradécele formalmente y dile que un asesor validará la transferencia en unos minutos para agendar el despacho.
+        - Si el cliente envía una NOTA DE VOZ: Transcríbela internamente y trátala exactamente como si fuera texto escrito. Extrae patente, año, marca, modelo, repuestos y cualquier dato del vehículo que mencione. NO menciones que recibiste un audio en tu respuesta, responde directamente al contenido.
 
         ## ⛔ REGLAS DURAS DE ESTADOS (OBLIGATORIO):
         - Tu alcance máximo de estados es: PERFILANDO → ESPERANDO_VENDEDOR → CONFIRMANDO_COMPRA → ESPERANDO_COMPROBANTE → ESPERANDO_SALDO → CICLO_COMPLETO.
@@ -196,6 +199,15 @@ const generateResponse = async (userText, sessionContext, imageData = null) => {
                 inlineData: {
                     data: imageData.buffer.toString("base64"),
                     mimeType: imageData.mimeType
+                }
+            });
+        }
+
+        if (audioData) {
+            parts.push({
+                inlineData: {
+                    data: audioData.buffer.toString("base64"),
+                    mimeType: audioData.mimeType
                 }
             });
         }

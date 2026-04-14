@@ -54,6 +54,14 @@ const processBufferedMessages = async (customerPhone) => {
             lastMediaId = lastImageMsg.message.image.id;
         }
 
+        // Audios: tomar el último del lote (igual que imágenes)
+        const audios = messages.filter(m => m.hasAudio);
+        const hasAudio = audios.length > 0;
+        let lastAudioMediaId = null;
+        if (hasAudio) {
+            lastAudioMediaId = audios[audios.length - 1].audioMediaId;
+        }
+
         console.log(`[Debounce] Procesando lote de ${customerPhone} (${messages.length} mensaje/s): "${userText.replace(/\n/g, ' ')}"`);
 
         // 1. Obtener o crear sesión
@@ -174,6 +182,19 @@ const processBufferedMessages = async (customerPhone) => {
         }
 
         // ═══════════════════════════════════════════════════════
+        // AUDIO EN ESTADO ESPERANDO COMPROBANTE: recordar al cliente
+        // ═══════════════════════════════════════════════════════
+        if (hasAudio && (
+            session.estado === sessionsService.STATES.ESPERANDO_COMPROBANTE ||
+            session.estado === sessionsService.STATES.ESPERANDO_SALDO
+        )) {
+            const msg = 'Recibí tu audio, pero en este momento estamos esperando la imagen del comprobante de pago. ¿Lo tienes listo? 📸';
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            await whatsappService.sendTextMessage(customerPhone, msg);
+            return;
+        }
+
+        // ═══════════════════════════════════════════════════════
         // REINICIO DE FLUJO: ENTREGADO o ARCHIVADO
         // ═══════════════════════════════════════════════════════
         const reengageStates = [sessionsService.STATES.ENTREGADO, sessionsService.STATES.ARCHIVADO];
@@ -228,8 +249,20 @@ const processBufferedMessages = async (customerPhone) => {
             imageData = await whatsappService.downloadMedia(lastMediaId);
         }
 
+        let audioData = null;
+        if (hasAudio && lastAudioMediaId) {
+            console.log(`[Audio] 🎤 Descargando nota de voz ${lastAudioMediaId} para ${customerPhone}...`);
+            audioData = await whatsappService.downloadMedia(lastAudioMediaId);
+            if (!audioData) {
+                console.error(`[Audio] ❌ No se pudo descargar el audio de ${customerPhone}.`);
+                await whatsappService.sendTextMessage(customerPhone, 'Tuve un problema al escuchar tu audio. ¿Lo puedes reenviar o escribir tu consulta?');
+                return;
+            }
+            console.log(`[Audio] ✅ Audio descargado (${(audioData.buffer.length / 1024).toFixed(1)} KB, ${audioData.mimeType})`);
+        }
+
         // 3. Obtener respuesta y entidades de Gemini con selección dinámica de modelo
-        let aiJson = await geminiService.generateResponse(userText, session, imageData);
+        let aiJson = await geminiService.generateResponse(userText, session, imageData, audioData);
         
         // Normalización: Gemini a veces devuelve array en vez de objeto
         if (Array.isArray(aiJson)) {
@@ -386,13 +419,15 @@ const receiveMessage = async (req, res) => {
         const message = value?.messages?.[0];
 
         // Guard: descartar payloads sin mensajes (Read Receipts, notificaciones de estado, etc.)
-        if (!message || !['text', 'image'].includes(message.type)) {
+        if (!message || !['text', 'image', 'audio'].includes(message.type)) {
             return res.status(200).send('EVENT_RECEIVED');
         }
 
         const customerPhone = message.from;
         const userText = message.text?.body || message.image?.caption || '';
         const hasImage = message.type === 'image';
+        const hasAudio = message.type === 'audio';
+        const audioMediaId = hasAudio ? message.audio?.id : null;
 
         // -------------------------------------------------------------
         // DEBOUNCE LOGIC
@@ -402,7 +437,7 @@ const receiveMessage = async (req, res) => {
             buffer = { messages: [], timer: null };
         }
 
-        buffer.messages.push({ userText, hasImage, message, timestamp: Date.now() });
+        buffer.messages.push({ userText, hasImage, hasAudio, audioMediaId, message, timestamp: Date.now() });
 
         if (buffer.timer) {
             clearTimeout(buffer.timer);
