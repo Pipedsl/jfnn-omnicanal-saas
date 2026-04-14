@@ -224,7 +224,7 @@ const updateEntidades = async (phone, nuevasEntidades) => {
                                     ? (nuevoRep.cantidad != null ? nuevoRep.cantidad : (viejo.cantidad || 1))
                                     : (nuevoRep.cantidad != null ? nuevoRep.cantidad : (viejo.cantidad || 1));
                                 targetAuto.repuestos_solicitados[refinedIdx] = {
-                                    ...viejo, nombre: nombreFinal,
+                                    ...viejo, ...nuevoRep, nombre: nombreFinal,
                                     cantidad: cantidadFinal,
                                     estado: nuevoRep.estado || viejo.estado,
                                     precio: viejo.precio != null ? viejo.precio : (nuevoRep.precio !== undefined ? nuevoRep.precio : null),
@@ -241,7 +241,7 @@ const updateEntidades = async (phone, nuevasEntidades) => {
                                     ? (nuevoRep.cantidad != null ? nuevoRep.cantidad : (viejoExact.cantidad || 1))
                                     : (nuevoRep.cantidad != null ? nuevoRep.cantidad : (viejoExact.cantidad || 1));
                                 targetAuto.repuestos_solicitados[exactIdx] = {
-                                    ...viejoExact,
+                                    ...viejoExact, ...nuevoRep,
                                     cantidad: cantidadFinalExact,
                                     estado: nuevoRep.estado || viejoExact.estado,
                                     precio: viejoExact.precio != null ? viejoExact.precio : (nuevoRep.precio !== undefined ? nuevoRep.precio : null),
@@ -276,7 +276,7 @@ const updateEntidades = async (phone, nuevasEntidades) => {
                         ? (nuevo.cantidad != null ? nuevo.cantidad : (viejo.cantidad || 1))
                         : (nuevo.cantidad != null ? nuevo.cantidad : (viejo.cantidad || 1));
                     entities.repuestos_solicitados[refinedIdx] = {
-                        ...viejo, nombre: nombreFinal,
+                        ...viejo, ...nuevo, nombre: nombreFinal,
                         cantidad: cantidadFinal,
                         estado: nuevo.estado || viejo.estado,
                         precio: viejo.precio != null ? viejo.precio : (nuevo.precio !== undefined ? nuevo.precio : null),
@@ -296,7 +296,7 @@ const updateEntidades = async (phone, nuevasEntidades) => {
                         ? (nuevo.cantidad != null ? nuevo.cantidad : (viejoExact.cantidad || 1))
                         : (nuevo.cantidad != null ? nuevo.cantidad : (viejoExact.cantidad || 1));
                     entities.repuestos_solicitados[exactIdx] = {
-                        ...viejoExact,
+                        ...viejoExact, ...nuevo,
                         cantidad: cantidadFinalExact,
                         estado: nuevo.estado || viejoExact.estado,
                         precio: viejoExact.precio != null ? viejoExact.precio : (nuevo.precio !== undefined ? nuevo.precio : null),

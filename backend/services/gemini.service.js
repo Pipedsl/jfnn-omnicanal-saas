@@ -25,11 +25,13 @@ try {
  * @param {Object} imageData - Opcional. Objeto con { buffer: Buffer, mimeType: string }
  * @returns {Promise<Object>} - Objeto con mensaje_cliente y nuevas entidades
  */
-const generateResponse = async (userText, sessionContext, imageData = null, audioData = null) => {
+const generateResponse = async (userText, sessionContext, imageData = null, audioDataList = []) => {
     try {
         const state = sessionContext.estado;
         const hasImage = !!imageData;
-        const hasAudio = !!audioData;
+        // Acepta tanto un array como un objeto único por compatibilidad
+        const audioList = Array.isArray(audioDataList) ? audioDataList : (audioDataList ? [audioDataList] : []);
+        const hasAudio = audioList.length > 0;
         const safeText = userText || ''; // Guard: previene ReferenceError si userText es undefined
 
         // Selección inteligente de modelo:
@@ -37,7 +39,7 @@ const generateResponse = async (userText, sessionContext, imageData = null, audi
         // - Flash: Para velocidad y procesamiento visual estándar
         const isComplex = hasAudio || state === 'CONFIRMANDO_COMPRA' || (safeText.length > 100 || safeText.toLowerCase().includes('calienta') || safeText.toLowerCase().includes('ruido') || safeText.toLowerCase().includes('falla'));
         const modelName = isComplex ? "gemini-3.1-pro-preview" : "gemini-3-flash-preview";
-        if (hasAudio) console.log(`[Audio] 🎤 Usando ${modelName} para procesar nota de voz de ${sessionContext.phone || 'cliente'}.`);
+        if (hasAudio) console.log(`[Audio] 🎤 Usando ${modelName} para procesar ${audioList.length} nota(s) de voz de ${sessionContext.phone || 'cliente'}.`);
 
         const model = genAI.getGenerativeModel({ model: modelName });
 
@@ -127,7 +129,7 @@ const generateResponse = async (userText, sessionContext, imageData = null, audi
         ${isConfirming && (sessionContext.entidades.repuestos_solicitados || []).some(r => r.cantidad_fijada) ? `⚠️ Cotización vigente (NO CAMBIAR salvo pedido explícito del cliente): ${(sessionContext.entidades.repuestos_solicitados || []).filter(r => r.precio).map(r => `${r.cantidad || 1}x ${r.nombre} | $${r.precio}`).join('; ')}` : ''}
 
         ## INSTRUCCIONES MULTIMODALES (VISIÓN Y AUDIO):
-        - Si el cliente envía una FOTO DE UN REPUESTO: Identifica técnicamente la pieza (ej: 'Veo que es una bomba de agua') y pregúntale por los datos del auto si te faltan (Año, Patente o VIN).
+        - Si el cliente envía una FOTO DE UN REPUESTO: NO le digas al cliente el nombre de la pieza. Responde brevemente que recibiste su foto y que un asesor la revisará pronto. Pide los datos del auto si te faltan (Año, Patente o VIN).
         - Si el cliente envía una FOTO DE UN COMPROBANTE DE PAGO: Agradécele formalmente y dile que un asesor validará la transferencia en unos minutos para agendar el despacho.
         - Si el cliente envía una NOTA DE VOZ: Transcríbela internamente y trátala exactamente como si fuera texto escrito. Extrae patente, año, marca, modelo, repuestos y cualquier dato del vehículo que mencione. NO menciones que recibiste un audio en tu respuesta, responde directamente al contenido.
 
@@ -203,11 +205,11 @@ const generateResponse = async (userText, sessionContext, imageData = null, audi
             });
         }
 
-        if (audioData) {
+        for (const aData of audioList) {
             parts.push({
                 inlineData: {
-                    data: audioData.buffer.toString("base64"),
-                    mimeType: audioData.mimeType
+                    data: aData.buffer.toString("base64"),
+                    mimeType: aData.mimeType
                 }
             });
         }
@@ -228,6 +230,46 @@ const generateResponse = async (userText, sessionContext, imageData = null, audi
             mensaje_cliente: "Disculpe, tuvimos un inconveniente técnico momentáneo. ¿Podría repetirme lo último, por favor?",
             entidades: {}
         };
+    }
+};
+
+/**
+ * Identifica técnicamente una pieza automotriz a partir de una imagen.
+ * Usado para el flujo de identificación de repuestos por foto del cliente.
+ * @param {Object} imageData - { buffer: Buffer, mimeType: string }
+ * @param {string} contextoVehiculo - Descripción del vehículo para mejorar la identificación
+ * @returns {Promise<{nombre_sugerido, descripcion, confianza, es_repuesto}>}
+ */
+const identifyPartFromImage = async (imageData, contextoVehiculo = '') => {
+    try {
+        const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+        const prompt = `Eres un experto en repuestos y mecánica automotriz. Analiza la imagen enviada y determina qué pieza o componente automotriz es.
+${contextoVehiculo ? `Contexto del vehículo del cliente: ${contextoVehiculo}` : ''}
+
+Responde ÚNICAMENTE con un JSON válido con esta estructura:
+{
+    "nombre_sugerido": "nombre técnico corto de la pieza (ej: 'Bomba de agua', 'Filtro de aceite', 'Pastilla de freno delantera', 'Correa de distribución'). Si no reconoces la pieza, devuelve 'Pieza sin identificar'.",
+    "descripcion": "descripción breve de lo que ves en la imagen (1-2 frases técnicas)",
+    "confianza": número del 1 al 10 donde 10 = completamente seguro,
+    "es_repuesto": true si es claramente una pieza automotriz, false si no
+}`;
+
+        const parts = [
+            { text: prompt },
+            { inlineData: { data: imageData.buffer.toString("base64"), mimeType: imageData.mimeType } }
+        ];
+
+        const result = await model.generateContent({
+            contents: [{ role: "user", parts }],
+            generationConfig: { response_mime_type: "application/json" }
+        });
+
+        const parsed = JSON.parse(result.response.text());
+        console.log(`[Gemini] 🔍 Pieza identificada: "${parsed.nombre_sugerido}" (confianza: ${parsed.confianza}/10)`);
+        return parsed;
+    } catch (err) {
+        console.error('[Gemini] ❌ Error identificando pieza desde imagen:', err.message);
+        return { nombre_sugerido: 'Pieza sin identificar', descripcion: 'No se pudo analizar la imagen automáticamente', confianza: 0, es_repuesto: true };
     }
 };
 
@@ -331,5 +373,6 @@ Mensaje: "${text}"`;
 module.exports = {
     generateResponse,
     extractVoucherData,
-    classifyIntent
+    classifyIntent,
+    identifyPartFromImage
 };

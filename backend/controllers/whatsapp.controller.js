@@ -2,6 +2,7 @@ const geminiService = require('../services/gemini.service');
 const whatsappService = require('../services/whatsapp.service');
 const sessionsService = require('../services/sessions.service');
 const storageService = require('../services/storage.service');
+const db = require('../config/db');
 const { printShadowQuote } = require('../utils/shadowQuote');
 
 /**
@@ -47,20 +48,9 @@ const processBufferedMessages = async (customerPhone) => {
         const images = messages.filter(m => m.hasImage);
         const hasImage = images.length > 0;
 
-        // Tomaremos solo la última imagen del buffer (comportamiento actual)
-        let lastMediaId = null;
-        if (hasImage) {
-            const lastImageMsg = images[images.length - 1];
-            lastMediaId = lastImageMsg.message.image.id;
-        }
-
-        // Audios: tomar el último del lote (igual que imágenes)
+        // Audios: recolectar TODOS del lote
         const audios = messages.filter(m => m.hasAudio);
         const hasAudio = audios.length > 0;
-        let lastAudioMediaId = null;
-        if (hasAudio) {
-            lastAudioMediaId = audios[audios.length - 1].audioMediaId;
-        }
 
         console.log(`[Debounce] Procesando lote de ${customerPhone} (${messages.length} mensaje/s): "${userText.replace(/\n/g, ' ')}"`);
 
@@ -133,6 +123,100 @@ const processBufferedMessages = async (customerPhone) => {
         }
 
         // ═══════════════════════════════════════════════════════
+        // FLUJO ESPECIAL: Identificación de piezas por foto
+        // Solo en PERFILANDO o ESPERANDO_VENDEDOR
+        // ═══════════════════════════════════════════════════════
+        if (hasImage && (
+            session.estado === sessionsService.STATES.PERFILANDO ||
+            session.estado === sessionsService.STATES.ESPERANDO_VENDEDOR
+        )) {
+            console.log(`[ImageID] 📸 ${images.length} imagen(s) recibida(s) de ${customerPhone} para identificación de piezas...`);
+
+            const contextoVehiculo = session.entidades?.marca_modelo
+                ? `${session.entidades.marca_modelo}${session.entidades.ano ? ' ' + session.entidades.ano : ''}`
+                : '';
+
+            // Procesar TODAS las imágenes en paralelo: descargar + identificar + guardar
+            const imageResults = await Promise.all(images.map(async (imgMsg) => {
+                const mediaId = imgMsg.message.image?.id;
+                if (!mediaId) return null;
+
+                const imageData = await whatsappService.downloadMedia(mediaId);
+                if (!imageData) {
+                    console.error(`[ImageID] ❌ No se pudo descargar imagen ${mediaId}`);
+                    return null;
+                }
+
+                const [imagePath, identificacion] = await Promise.all([
+                    storageService.uploadPartImage(customerPhone, imageData.buffer, imageData.mimeType),
+                    geminiService.identifyPartFromImage(imageData, contextoVehiculo)
+                ]);
+
+                return { imagePath, identificacion };
+            }));
+
+            const validResults = imageResults.filter(Boolean);
+
+            // Agregar cada pieza identificada como repuesto pendiente en la sesión
+            for (const { imagePath, identificacion } of validResults) {
+                await sessionsService.updateEntidades(customerPhone, {
+                    repuestos_solicitados: [{
+                        nombre: identificacion.nombre_sugerido || 'Pieza sin identificar',
+                        cantidad: 1,
+                        precio: null,
+                        estado: 'pendiente',
+                        pendiente_identificacion: true,
+                        imagen_url: imagePath,
+                        identificacion_ia: identificacion.descripcion,
+                        confianza_ia: identificacion.confianza,
+                        notas_ia: null
+                    }]
+                });
+            }
+
+            session = await sessionsService.getSession(customerPhone);
+
+            // Si hay también texto en el lote, procesarlo con Gemini para extraer datos del vehículo
+            if (userText.trim()) {
+                const aiJson = await geminiService.generateResponse(userText, session, null, []);
+                if (Array.isArray(aiJson)) {
+                    // ignore malformed
+                } else if (aiJson?.entidades) {
+                    await sessionsService.updateEntidades(customerPhone, aiJson.entidades);
+                    session = await sessionsService.getSession(customerPhone);
+                }
+            }
+
+            // Verificar si ya tenemos datos mínimos del vehículo para pasar a ESPERANDO_VENDEDOR
+            const e = session.entidades;
+            const tieneVehiculo = (e.ano && (e.patente || e.vin)) ||
+                (Array.isArray(e.vehiculos) && e.vehiculos.some(v => v.ano && (v.patente || v.vin)));
+
+            if (session.estado === sessionsService.STATES.PERFILANDO) {
+                if (tieneVehiculo) {
+                    await sessionsService.setEstado(customerPhone, sessionsService.STATES.ESPERANDO_VENDEDOR);
+                    const nFotos = validResults.length;
+                    const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''}. Un asesor las revisará y te cotizará en breve. 🔧`;
+                    await new Promise(r => setTimeout(r, 1500));
+                    await whatsappService.sendTextMessage(customerPhone, msg);
+                } else {
+                    const nFotos = validResults.length;
+                    const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''}. Para cotizar necesito también los datos del auto: marca, año y patente. ¿Me los puedes enviar?`;
+                    await new Promise(r => setTimeout(r, 1500));
+                    await whatsappService.sendTextMessage(customerPhone, msg);
+                }
+            } else {
+                // ESPERANDO_VENDEDOR: nueva imagen llegó, notificar que se agregó
+                const nFotos = validResults.length;
+                const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''} adicional${nFotos > 1 ? 'es' : ''}. El asesor las revisará junto a la cotización. 🔧`;
+                await new Promise(r => setTimeout(r, 1500));
+                await whatsappService.sendTextMessage(customerPhone, msg);
+            }
+
+            return;
+        }
+
+        // ═══════════════════════════════════════════════════════
         // FLUJO ESPECIAL: Imagen de pago (Abono o Saldo Restante)
         // ═══════════════════════════════════════════════════════
         if (hasImage && (
@@ -153,7 +237,9 @@ const processBufferedMessages = async (customerPhone) => {
                 }
             }
 
-            const imageData = await whatsappService.downloadMedia(lastMediaId);
+            // Usar la primera imagen del buffer como comprobante
+            const voucherMediaId = images[0].message.image?.id;
+            const imageData = await whatsappService.downloadMedia(voucherMediaId);
 
             if (!imageData) {
                 console.error(`[P1] ❌ No se pudo descargar la imagen de ${customerPhone}.`);
@@ -243,26 +329,27 @@ const processBufferedMessages = async (customerPhone) => {
 
         console.log(`[Webhook] Enviando a Gemini mensaje final de ${customerPhone}: "${userText.replace(/\n/g, ' ')}"`);
 
+        // Para estados no cubiertos arriba, imageData se pasa null (ya se manejaron arriba o no aplica)
         let imageData = null;
-        if (hasImage && lastMediaId) {
-            console.log(`[Media] Descargando imagen ${lastMediaId} para ${customerPhone}...`);
-            imageData = await whatsappService.downloadMedia(lastMediaId);
-        }
 
-        let audioData = null;
-        if (hasAudio && lastAudioMediaId) {
-            console.log(`[Audio] 🎤 Descargando nota de voz ${lastAudioMediaId} para ${customerPhone}...`);
-            audioData = await whatsappService.downloadMedia(lastAudioMediaId);
-            if (!audioData) {
-                console.error(`[Audio] ❌ No se pudo descargar el audio de ${customerPhone}.`);
+        // Descargar TODOS los audios del lote
+        let audioDataList = [];
+        if (hasAudio) {
+            console.log(`[Audio] 🎤 Descargando ${audios.length} nota(s) de voz de ${customerPhone}...`);
+            const downloadResults = await Promise.all(
+                audios.map(a => whatsappService.downloadMedia(a.audioMediaId))
+            );
+            audioDataList = downloadResults.filter(Boolean);
+            if (audioDataList.length === 0) {
+                console.error(`[Audio] ❌ No se pudo descargar ningún audio de ${customerPhone}.`);
                 await whatsappService.sendTextMessage(customerPhone, 'Tuve un problema al escuchar tu audio. ¿Lo puedes reenviar o escribir tu consulta?');
                 return;
             }
-            console.log(`[Audio] ✅ Audio descargado (${(audioData.buffer.length / 1024).toFixed(1)} KB, ${audioData.mimeType})`);
+            console.log(`[Audio] ✅ ${audioDataList.length} audio(s) descargados`);
         }
 
         // 3. Obtener respuesta y entidades de Gemini con selección dinámica de modelo
-        let aiJson = await geminiService.generateResponse(userText, session, imageData, audioData);
+        let aiJson = await geminiService.generateResponse(userText, session, imageData, audioDataList);
         
         // Normalización: Gemini a veces devuelve array en vez de objeto
         if (Array.isArray(aiJson)) {

@@ -1,8 +1,9 @@
 "use client";
 
-import { Car, Package, User, CheckCircle, Truck, Archive, Edit3, MessageSquareOff, Bot, X, ChevronRight, Hash, Clock, Send } from 'lucide-react';
+import { Car, Package, User, CheckCircle, Truck, Archive, Edit3, MessageSquareOff, Bot, X, ChevronRight, Hash, Clock, Send, ZoomIn, Check } from 'lucide-react';
 import { useState, useEffect } from "react";
 import SellerActionForm from "./SellerActionForm";
+import ImageLightbox from "./ImageLightbox";
 import axios from "axios";
 import { BACKEND_URL } from "@/lib/api";
 
@@ -11,6 +12,11 @@ interface Repuesto {
     precio: number | null;
     codigo: string | null;
     cantidad?: number;
+    pendiente_identificacion?: boolean;
+    imagen_url?: string | null;
+    identificacion_ia?: string | null;
+    confianza_ia?: number | null;
+    notas_ia?: string | null;
 }
 
 interface Vehiculo {
@@ -92,6 +98,28 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
     const [numeroSeguimiento, setNumeroSeguimiento] = useState("");
 
     const [solicitandoVinId, setSolicitandoVinId] = useState<string | null>(null);
+    const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+    const [confirmandoImagen, setConfirmandoImagen] = useState<string | null>(null); // imagen_url en proceso
+    const [nombreConfirmInput, setNombreConfirmInput] = useState<Record<string, string>>({});
+
+    const handleConfirmarImagen = async (imagen_url: string) => {
+        const nombre = nombreConfirmInput[imagen_url]?.trim();
+        if (!nombre) return;
+        setConfirmandoImagen(imagen_url);
+        try {
+            await axios.patch(`${BACKEND_URL}/api/dashboard/repuestos/confirmar-imagen`, {
+                phone,
+                imagen_url,
+                nombre_confirmado: nombre
+            });
+            onResponded();
+        } catch (err) {
+            console.error("Error confirmando imagen:", err);
+            alert("No se pudo confirmar la identificación.");
+        } finally {
+            setConfirmandoImagen(null);
+        }
+    };
 
     const handleSolicitarVin = async (itemName: string) => {
         setSolicitandoVinId(itemName);
@@ -504,31 +532,102 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                                 <span className="text-[9px] font-bold uppercase tracking-wider">Repuestos</span>
                                             </div>
                                             {repuestos.map((r, i) => (
-                                                <div key={i} className="flex items-center justify-between text-xs bg-white/5 p-2 rounded-lg hover:bg-white/10 transition-colors">
-                                                    <div className="flex flex-col">
-                                                        <span className="text-neutral-300 font-bold">• {r.cantidad && r.cantidad > 1 ? `${r.cantidad}x ` : ''}{r.nombre}</span>
-                                                        {r.codigo && <span className="text-[10px] text-neutral-500 font-mono">Código: {r.codigo}</span>}
-                                                        {estado === 'ESPERANDO_VENDEDOR' && !entidades.vin && (
+                                                <div key={i} className={`text-xs rounded-lg transition-colors ${r.pendiente_identificacion ? 'bg-amber-500/10 border border-amber-500/30 p-3' : 'bg-white/5 p-2 hover:bg-white/10'}`}>
+                                                    {r.pendiente_identificacion && r.imagen_url ? (
+                                                        /* ── Repuesto pendiente de identificación ── */
+                                                        <div className="flex gap-3">
+                                                            {/* Thumbnail clickable */}
                                                             <button
-                                                                onClick={(e) => { e.stopPropagation(); handleSolicitarVin(r.nombre); }}
-                                                                disabled={solicitandoVinId === r.nombre || !entidades.patente}
-                                                                className="mt-2 w-max text-xs px-3 py-1.5 rounded-lg border border-green-500/50 bg-green-500/20 text-green-400 font-bold hover:bg-green-500/30 disabled:opacity-30 disabled:border-neutral-700 disabled:text-neutral-500 transition-colors cursor-pointer"
-                                                                title={!entidades.patente ? "Se requiere patente para solicitar VIN" : ""}
+                                                                type="button"
+                                                                onClick={(e) => { e.stopPropagation(); setLightboxSrc(r.imagen_url!); }}
+                                                                className="shrink-0 relative group"
+                                                                title="Clic para ampliar"
                                                             >
-                                                                {solicitandoVinId === r.nombre ? 'Enviando...' : 'Solicitar VIN'}
+                                                                <img
+                                                                    src={r.imagen_url.startsWith('http') ? r.imagen_url : `${BACKEND_URL}${r.imagen_url}`}
+                                                                    alt="Pieza"
+                                                                    className="w-16 h-16 object-cover rounded-lg border border-amber-500/30 group-hover:border-amber-400 transition-colors"
+                                                                />
+                                                                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/40 rounded-lg transition-opacity">
+                                                                    <ZoomIn size={16} className="text-white" />
+                                                                </div>
                                                             </button>
-                                                        )}
-                                                    </div>
-                                                    <div className="text-right">
-                                                        <span className={`font-bold ${r.precio ? 'text-green-400' : 'text-neutral-600 italic'}`}>
-                                                            {r.precio ? `$${(Number(String(r.precio).replace(/[^\d]/g, "")) * (r.cantidad || 1)).toLocaleString('es-CL')}` : 'Sin precio'}
-                                                        </span>
-                                                        {r.precio && r.cantidad && r.cantidad > 1 && (
-                                                            <div className="text-[10px] text-neutral-500 mt-0.5">
-                                                                ${Number(String(r.precio).replace(/[^\d]/g, "")).toLocaleString('es-CL')} c/u
+                                                            <div className="flex-1 flex flex-col gap-1.5">
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <span className="text-[9px] font-bold uppercase tracking-wider text-amber-400 bg-amber-500/20 px-1.5 py-0.5 rounded">IA sugiere</span>
+                                                                    <span className="text-amber-300 font-bold text-[10px]">{r.nombre}</span>
+                                                                    {r.confianza_ia && <span className="text-[9px] text-neutral-500">{r.confianza_ia}/10</span>}
+                                                                </div>
+                                                                {r.identificacion_ia && (
+                                                                    <p className="text-[9px] text-neutral-500 italic">{r.identificacion_ia}</p>
+                                                                )}
+                                                                {/* Input de confirmación */}
+                                                                <div className="flex gap-1.5 mt-0.5">
+                                                                    <input
+                                                                        type="text"
+                                                                        placeholder="Nombre correcto de la pieza..."
+                                                                        value={nombreConfirmInput[r.imagen_url] || ''}
+                                                                        onChange={(e) => { e.stopPropagation(); setNombreConfirmInput(prev => ({ ...prev, [r.imagen_url!]: e.target.value })); }}
+                                                                        onClick={(e) => e.stopPropagation()}
+                                                                        className="flex-1 bg-neutral-900 border border-amber-500/30 rounded px-2 py-1 text-[10px] text-white placeholder-neutral-600 focus:outline-none focus:border-amber-400"
+                                                                    />
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => { e.stopPropagation(); handleConfirmarImagen(r.imagen_url!); }}
+                                                                        disabled={!nombreConfirmInput[r.imagen_url]?.trim() || confirmandoImagen === r.imagen_url}
+                                                                        className="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/40 border border-amber-500/40 rounded text-amber-400 disabled:opacity-30 transition-colors"
+                                                                        title="Confirmar identificación"
+                                                                    >
+                                                                        <Check size={12} />
+                                                                    </button>
+                                                                </div>
                                                             </div>
-                                                        )}
-                                                    </div>
+                                                        </div>
+                                                    ) : (
+                                                        /* ── Repuesto normal ── */
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex items-center gap-2">
+                                                                {r.imagen_url && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => { e.stopPropagation(); setLightboxSrc(r.imagen_url!); }}
+                                                                        className="shrink-0 relative group"
+                                                                        title="Ver imagen"
+                                                                    >
+                                                                        <img
+                                                                            src={r.imagen_url.startsWith('http') ? r.imagen_url : `${BACKEND_URL}${r.imagen_url}`}
+                                                                            alt="Pieza"
+                                                                            className="w-8 h-8 object-cover rounded border border-white/10 group-hover:border-accent transition-colors"
+                                                                        />
+                                                                    </button>
+                                                                )}
+                                                                <div className="flex flex-col">
+                                                                    <span className="text-neutral-300 font-bold">• {r.cantidad && r.cantidad > 1 ? `${r.cantidad}x ` : ''}{r.nombre}</span>
+                                                                    {r.codigo && <span className="text-[10px] text-neutral-500 font-mono">Código: {r.codigo}</span>}
+                                                                    {estado === 'ESPERANDO_VENDEDOR' && !entidades.vin && (
+                                                                        <button
+                                                                            onClick={(e) => { e.stopPropagation(); handleSolicitarVin(r.nombre); }}
+                                                                            disabled={solicitandoVinId === r.nombre || !entidades.patente}
+                                                                            className="mt-2 w-max text-xs px-3 py-1.5 rounded-lg border border-green-500/50 bg-green-500/20 text-green-400 font-bold hover:bg-green-500/30 disabled:opacity-30 disabled:border-neutral-700 disabled:text-neutral-500 transition-colors cursor-pointer"
+                                                                            title={!entidades.patente ? "Se requiere patente para solicitar VIN" : ""}
+                                                                        >
+                                                                            {solicitandoVinId === r.nombre ? 'Enviando...' : 'Solicitar VIN'}
+                                                                        </button>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            <div className="text-right">
+                                                                <span className={`font-bold ${r.precio ? 'text-green-400' : 'text-neutral-600 italic'}`}>
+                                                                    {r.precio ? `$${(Number(String(r.precio).replace(/[^\d]/g, "")) * (r.cantidad || 1)).toLocaleString('es-CL')}` : 'Sin precio'}
+                                                                </span>
+                                                                {r.precio && r.cantidad && r.cantidad > 1 && (
+                                                                    <div className="text-[10px] text-neutral-500 mt-0.5">
+                                                                        ${Number(String(r.precio).replace(/[^\d]/g, "")).toLocaleString('es-CL')} c/u
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             ))}
                                         </div>
@@ -927,6 +1026,11 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                         )}
                     </div>
                 </div>
+            )}
+
+            {/* ── Lightbox de imagen de pieza ─── */}
+            {lightboxSrc && (
+                <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
             )}
         </>
     );

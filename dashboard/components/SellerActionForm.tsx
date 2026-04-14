@@ -12,6 +12,8 @@ interface Item {
     cantidad?: number;
     disponibilidad?: "DISPONIBLE" | "SIN_STOCK" | "POR_ENCARGO";
     _isNew?: boolean; // Prop interna para saber si el item fue agregado manualmente por el vendedor
+    pendiente_identificacion?: boolean;
+    imagen_url?: string | null;
 }
 
 interface Vehiculo {
@@ -359,9 +361,26 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
                     onChange={(e) => setHorarioEntrega(e.target.value)}
                 />
 
+                {(() => {
+                    const allItems = formVehiculos.length > 0
+                        ? formVehiculos.flatMap(v => v.repuestos_solicitados)
+                        : formItems;
+                    const hasPending = allItems.some(item => item.pendiente_identificacion);
+                    return hasPending ? (
+                        <div className="w-full py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-bold text-center">
+                            ⚠️ Confirma todas las piezas identificadas por IA antes de cotizar
+                        </div>
+                    ) : null;
+                })()}
+
                 <button
                     type="submit"
-                    disabled={loading}
+                    disabled={loading || (() => {
+                        const allItems = formVehiculos.length > 0
+                            ? formVehiculos.flatMap(v => v.repuestos_solicitados)
+                            : formItems;
+                        return allItems.some(item => item.pendiente_identificacion);
+                    })()}
                     className="w-full py-3 rounded-xl bg-accent text-accent-foreground font-bold uppercase tracking-widest text-[10px] hover:bg-accent/90 focus:ring-4 focus:ring-accent/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                 >
                     {loading ? 'Calculando Precios...' : 'Enviar Cotización'}

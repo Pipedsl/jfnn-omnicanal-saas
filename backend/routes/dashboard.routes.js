@@ -296,6 +296,104 @@ router.patch('/cotizaciones/estado', async (req, res) => {
 
 
 /**
+ * Confirmar identificación de pieza por imagen desde el dashboard del vendedor.
+ * PATCH /api/dashboard/repuestos/confirmar-imagen
+ * Body: { phone, imagen_url, nombre_confirmado }
+ *
+ * Flujo:
+ * 1. Encuentra el repuesto con esa imagen_url en la sesión (root o vehiculos)
+ * 2. Actualiza: pendiente_identificacion=false, nombre=nombre_confirmado
+ * 3. Graba en part_image_dataset para entrenamiento futuro
+ * 4. Envía WhatsApp al cliente confirmando la pieza + pregunta si quiere cotizar más
+ */
+router.patch('/repuestos/confirmar-imagen', async (req, res) => {
+    try {
+        const { phone, imagen_url, nombre_confirmado } = req.body;
+        if (!phone || !imagen_url || !nombre_confirmado) {
+            return res.status(400).json({ error: 'Faltan campos: phone, imagen_url, nombre_confirmado' });
+        }
+
+        const session = await sessionsService.getSession(phone);
+        if (!session) {
+            return res.status(404).json({ error: 'Sesión no encontrada' });
+        }
+
+        const entidades = session.entidades || {};
+        let encontrado = false;
+        let repuestoViejo = null;
+
+        // Buscar en repuestos_solicitados raíz
+        const repuestosRaiz = entidades.repuestos_solicitados || [];
+        const idxRaiz = repuestosRaiz.findIndex(r => r.imagen_url === imagen_url);
+        if (idxRaiz !== -1) {
+            repuestoViejo = { ...repuestosRaiz[idxRaiz] };
+            repuestosRaiz[idxRaiz] = {
+                ...repuestosRaiz[idxRaiz],
+                nombre: nombre_confirmado,
+                pendiente_identificacion: false
+            };
+            entidades.repuestos_solicitados = repuestosRaiz;
+            encontrado = true;
+        }
+
+        // Buscar en vehiculos si no se encontró en raíz
+        if (!encontrado && Array.isArray(entidades.vehiculos)) {
+            for (const v of entidades.vehiculos) {
+                const reps = v.repuestos_solicitados || [];
+                const idx = reps.findIndex(r => r.imagen_url === imagen_url);
+                if (idx !== -1) {
+                    repuestoViejo = { ...reps[idx] };
+                    reps[idx] = { ...reps[idx], nombre: nombre_confirmado, pendiente_identificacion: false };
+                    encontrado = true;
+                    break;
+                }
+            }
+        }
+
+        if (!encontrado) {
+            return res.status(404).json({ error: 'Repuesto con esa imagen_url no encontrado en la sesión' });
+        }
+
+        // Guardar entidades actualizadas directamente
+        await db.query(
+            `UPDATE user_sessions SET entidades = $1, ultimo_mensaje = NOW() WHERE phone = $2`,
+            [JSON.stringify(entidades), phone]
+        );
+
+        // Registrar en dataset de entrenamiento
+        try {
+            await db.query(
+                `INSERT INTO part_image_dataset (phone, image_url, identificacion_ia, nombre_ia, confianza_ia, nombre_confirmado, session_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                [
+                    phone,
+                    imagen_url,
+                    repuestoViejo?.identificacion_ia || null,
+                    repuestoViejo?.nombre || null,
+                    repuestoViejo?.confianza_ia || null,
+                    nombre_confirmado,
+                    session.id || null
+                ]
+            );
+        } catch (dbErr) {
+            // No bloquear el flujo si falla el dataset (tabla puede no existir aún en prod)
+            console.warn('[Dashboard] ⚠️ No se pudo grabar en part_image_dataset:', dbErr.message);
+        }
+
+        // Notificar al cliente por WhatsApp
+        const msg = `✅ ¡Identificamos la pieza de tu foto! Es: *${nombre_confirmado}*.\n\n¿Necesitas cotizar algún otro repuesto o producto? Estoy acá para ayudarte. 🔧`;
+        await whatsappService.sendTextMessage(phone, msg);
+
+        console.log(`[Dashboard] ✅ Pieza confirmada: "${nombre_confirmado}" para ${phone} (imagen: ${imagen_url})`);
+        res.status(200).json({ success: true, nombre_confirmado });
+
+    } catch (error) {
+        console.error('[Dashboard] Error confirmando imagen:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+/**
  * Helper: Normaliza un precio a número entero limpio.
  * Maneja strings con formato chileno ("8.500"), strings puros ("8500") y números.
  * @param {any} precio
