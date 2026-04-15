@@ -104,6 +104,11 @@ El comportamiento tiene **dos modos** según quién dispara la petición del dat
 
 El criterio de cuándo la compatibilidad requiere precisión es del VENDEDOR, no del agente.
 
+### 🔧 Sobre el Historial de Vehículos por Cliente (Mejora #7 — Mecánicos)
+- Para clientes con **≤2 vehículos históricos** (cliente regular): el agente puede sugerir vehículos previos ("¿es para tu Hilux de siempre?") y usar datos ya guardados.
+- Para clientes con **>2 vehículos históricos** (perfil mecánico): el agente NO debe asumir vehículo. Siempre preguntar "¿Para qué vehículo es la cotización hoy?" y mostrar solo los 2 más recientes como referencia.
+- El historial completo se conserva en la base de datos para análisis del vendedor, pero el agente solo opera con los últimos 2 para no contaminar la cotización actual.
+
 ### 📄 Sobre el Padrón del Vehículo (Permiso de Circulación / Certificado de Anotaciones Vigentes)
 El cliente puede enviar una foto del **Permiso de Circulación** o del **Certificado de Anotaciones Vigentes** del Registro Civil para evitar dictar manualmente los datos del vehículo. El sistema extrae automáticamente marca/modelo/año/patente/VIN/motor/combustible y los guarda en la sesión.
 

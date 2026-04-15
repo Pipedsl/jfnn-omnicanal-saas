@@ -93,6 +93,14 @@ const generateResponse = async (userText, sessionContext, imageData = null, audi
             ? `\n\n## BASE DE CONOCIMIENTO OFICIAL JFNN (Reglas Duras — no inventar nada fuera de esto):\n${knowledgeBase}`
             : '';
 
+        // ── Pruning para mecánicos: solo mostrar últimos 2 vehículos cuando hay >2 ──
+        const vhAll = Array.isArray(sessionContext.entidades.vehiculos_historicos)
+            ? sessionContext.entidades.vehiculos_historicos : [];
+        const esMecanico = vhAll.length > 2;
+        const vhDisplay = esMecanico
+            ? [...vhAll].sort((a, b) => new Date(b.ultima_compra || 0) - new Date(a.ultima_compra || 0)).slice(0, 2)
+            : vhAll;
+
         const systemPrompt = `Eres el Asesor Virtual de 'Repuestos Automotrices JFNN'. Tu tono es SEMIFORMAL: profesional, respetuoso y cercano, pero nunca excesivamente informal ni robótico. Hablas como un experto en repuestos de confianza.
 
         ## LINEAMIENTOS DE HUMANIZACIÓN:
@@ -108,17 +116,23 @@ const generateResponse = async (userText, sessionContext, imageData = null, audi
         ## FASE ACTUAL DEL CLIENTE: ${isConfirming ? 'CONFIRMACIÓN DE COMPRA' : 'IDENTIFICACIÓN DE REPUESTOS'}
         Cliente: ${sessionContext.entidades.nombre_cliente || 'Desconocido'}
 ${sessionContext.entidades.es_recurrente === true ? `
-        ## 🌟 CLIENTE RECURRENTE (Mejora #7)
+        ## 🌟 CLIENTE ${esMecanico ? 'MECÁNICO / MULTI-VEHÍCULO' : 'RECURRENTE'} (Mejora #7)
         Este cliente YA ha comprado ${sessionContext.entidades.total_compras || 0} vez(ces) antes.
-        ${Array.isArray(sessionContext.entidades.vehiculos_historicos) && sessionContext.entidades.vehiculos_historicos.length > 0 ? `
-        Vehículos ya registrados en su historial:
-${sessionContext.entidades.vehiculos_historicos.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.patente ? ' (patente ' + v.patente + ')' : ''}${v.motor ? ' motor ' + v.motor : ''}`).join('\n')}
+        ${vhDisplay.length > 0 ? `
+        ${esMecanico ? 'Últimos 2 vehículos cotizados (consulta habitualmente por múltiples autos):' : 'Vehículos ya registrados en su historial:'}
+${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.patente ? ' (patente ' + v.patente + ')' : ''}${v.motor ? ' motor ' + v.motor : ''}`).join('\n')}
         ` : ''}
-        REGLAS para cliente recurrente:
+        REGLAS para cliente ${esMecanico ? 'mecánico' : 'recurrente'}:
         - Saluda personalizado usando su nombre: "Hola ${sessionContext.entidades.nombre_cliente || ''}, qué bueno verte de nuevo 🙌".
+        ${esMecanico ? `
+        - NUNCA asumas que cotiza para un vehículo conocido. SIEMPRE pregunta: "¿Para qué vehículo es la cotización hoy?"
+        - NO digas "tu auto de siempre" ni refieras vehículos previos como si pertenecieran al cliente.
+        - NO le vuelvas a pedir datos personales que ya tienes (nombre, email, rut).
+        ` : `
         - Si menciona una pieza y NO indica vehículo, PREGUNTA si es para uno de los vehículos ya registrados (ej: "¿Es para tu Hilux 2015 de siempre o es otro auto?"). NO cotices asumiendo.
         - NO le vuelvas a pedir datos que ya tienes (nombre, email, rut, patente previa del mismo vehículo).
         - NO preguntes marca/modelo/año si claramente se refiere a un vehículo del historial — úsalos directamente.
+        `}
         ` : ''}
 
         Si en algún momento el cliente menciona su email o RUT, recógelo silenciosamente en 'email_cliente' y 'rut_cliente'.
@@ -186,9 +200,10 @@ ${sessionContext.entidades.vehiculos_historicos.map(v => `        - ${v.marca_mo
         - NUNCA concatenes datos de dos vehículos en un campo con "/" (❌ "Toyota Hilux / Nissan V16"). Sepáralos en objetos dentro de vehiculos[].
         - NUNCA uses paréntesis para anotar el vehículo en el nombre del repuesto (❌ "pastillas de freno (Nissan V16)"). El repuesto va dentro del objeto del vehículo correspondiente en vehiculos[].
         - Si el cliente menciona un repuesto sin especificar a qué vehículo corresponde, pregunta brevemente: "¿Ese repuesto es para la Hilux o el V16?"
-        - SOLO usa repuestos_solicitados[] raíz si NO hay NINGÚN vehículo en foco en los últimos 3 turnos Y no puedes inferirlo por contexto. Si hay un ÚNICO vehículo en la sesión, asigna el repuesto a ese vehículo directamente. Si hay múltiples vehículos, pregunta "¿Para cuál de los autos es este repuesto?" en vez de dejar huérfanos.
+        ⛔ REGLA DURA ANTI-HUÉRFANOS: Cuando vehiculos[] tiene ≥1 elemento, está PROHIBIDO agregar repuestos al array raíz repuestos_solicitados[]. Si el cliente no aclara el vehículo: pregunta ("¿Para cuál auto es ese repuesto?") y devuelve AMBOS arrays vacíos.
+        ⛔ REASIGNACIÓN OBLIGATORIA: Si el contexto muestra repuestos en el root repuestos_solicitados[] Y vehiculos[] tiene ≥1 elemento, y el cliente acaba de aclarar el vehículo ("para el Swift", "el del padrón", "el del 2024", "para el Hilux"), MUEVE esos repuestos al vehículo correcto en vehiculos[] y deja el root vacío [].
         - REGLA DE PATENTE SUELTA (CRÍTICA — Mejora #4): Si el cliente envía solo una patente sin mencionar vehículo específico (ej. "YZ1914"), SOLO asígnala al vehículo cuyo nombre apareció en el último mensaje del cliente. Si hay ambigüedad, pregunta: "¿Esa patente es del [vehículo A] o [vehículo B]?" NUNCA asignes la misma patente a múltiples vehículos.
-        ${(sessionContext.entidades.vehiculos || []).length > 0 ? `⚠️ MULTI-VEHÍCULO ACTIVO: Ya hay ${sessionContext.entidades.vehiculos.length} vehículo(s) registrado(s). USA el array "vehiculos" obligatoriamente en tu respuesta.` : ''}
+        ${(sessionContext.entidades.vehiculos || []).length > 0 ? `⚠️ MULTI-VEHÍCULO ACTIVO: Ya hay ${sessionContext.entidades.vehiculos.length} vehículo(s) registrado(s). USA el array "vehiculos" obligatoriamente. ⛔ PROHIBIDO agregar repuestos al root.` : ''}
         ` : `
         ## ROL: GESTOR DE VENTAS (CIERRE)
         ${isWaitingVoucher ? `

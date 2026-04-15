@@ -1029,6 +1029,84 @@ const getArchivedSessionForResume = async (phone) => {
     }
 };
 
+/**
+ * Safety net: mueve repuestos huérfanos del root a un vehículo específico
+ * cuando el cliente acaba de aclarar a cuál pertenecen.
+ * Se llama después del merge de Gemini solo si hay huérfanos + multi-vehículo.
+ * @param {string} phone
+ * @param {string} userText - Último mensaje del cliente para detectar vehículo destino
+ * @returns {Promise<Object>} sesión actualizada (o sesión sin cambios si no hay match)
+ */
+const reassignOrphanRepuestos = async (phone, userText) => {
+    try {
+        const session = await getSession(phone);
+        const entities = session.entidades || {};
+        const orphans = entities.repuestos_solicitados || [];
+        const vehiculos = entities.vehiculos || [];
+
+        if (orphans.length === 0 || vehiculos.length === 0) return session;
+
+        const lower = (userText || '').toLowerCase();
+        let target = null;
+
+        // Estrategia 1: "padrón" → el último vehículo agregado (el más reciente)
+        if (/\bpadr[oó]n\b/i.test(lower)) {
+            target = vehiculos[vehiculos.length - 1];
+        }
+
+        // Estrategia 2: match por marca_modelo (substring de token ≥4 chars)
+        if (!target) {
+            target = vehiculos.find(v => {
+                if (!v.marca_modelo) return false;
+                return v.marca_modelo.toLowerCase().split(/\s+/)
+                    .filter(t => t.length >= 4)
+                    .some(t => lower.includes(t));
+            });
+        }
+
+        // Estrategia 3: match por año
+        if (!target) {
+            target = vehiculos.find(v => v.ano && lower.includes(v.ano));
+        }
+
+        // Estrategia 4: match por patente
+        if (!target) {
+            const upperText = (userText || '').toUpperCase().replace(/[-\s]/g, '');
+            target = vehiculos.find(v => v.patente && upperText.includes(v.patente.replace(/[-\s]/g, '')));
+        }
+
+        // Estrategia 5: si solo hay UN vehículo, asignar sin match
+        if (!target && vehiculos.length === 1) {
+            target = vehiculos[0];
+        }
+
+        if (!target) return session; // No fue posible determinar vehículo destino
+
+        // Mover repuestos huérfanos al vehículo target (con dedup)
+        if (!target.repuestos_solicitados) target.repuestos_solicitados = [];
+        for (const orphan of orphans) {
+            const yaExiste = target.repuestos_solicitados.some(r => isSameRepuesto(r.nombre, orphan.nombre));
+            if (!yaExiste) target.repuestos_solicitados.push(orphan);
+        }
+
+        // Limpiar root
+        entities.repuestos_solicitados = [];
+
+        await db.query(
+            `UPDATE user_sessions SET entidades = $1, ultimo_mensaje = NOW() WHERE phone = $2`,
+            [JSON.stringify(entities), phone]
+        );
+        sessionCache.delete(phone);
+        globalPendingCache = { data: null, timestamp: 0 };
+
+        console.log(`[Reassign] 🔀 ${orphans.length} repuesto(s) huérfano(s) → ${target.marca_modelo || target.patente || 'vehículo'} para ${phone}`);
+        return getSession(phone);
+    } catch (err) {
+        console.error('[Sessions] ❌ Error en reassignOrphanRepuestos:', err.message);
+        return getSession(phone);
+    }
+};
+
 module.exports = {
     getSession,
     updateEntidades,
@@ -1045,5 +1123,6 @@ module.exports = {
     patchSellerData,
     autoArchiveStaleSessions,
     getArchivedSessionForResume,
+    reassignOrphanRepuestos,
     STATES
 };

@@ -541,6 +541,19 @@ const processBufferedMessages = async (customerPhone) => {
             session = originalSession; // Mantener estado anterior para no perder el contexto del render
         }
 
+        // Safety net anti-huérfanos: si Gemini igual creó repuestos en el root con multi-vehículo
+        // activo, intentar reasignar basándonos en lo que el cliente dijo en este turno.
+        if (
+            session &&
+            Array.isArray(session.entidades?.repuestos_solicitados) &&
+            session.entidades.repuestos_solicitados.length > 0 &&
+            Array.isArray(session.entidades?.vehiculos) &&
+            session.entidades.vehiculos.length > 0 &&
+            userText
+        ) {
+            session = await sessionsService.reassignOrphanRepuestos(customerPhone, userText);
+        }
+
         let finalMessage = aiJson.mensaje_cliente;
 
         // HU-1: Remoción de repuesto solicitada por el cliente en CONFIRMANDO_COMPRA
