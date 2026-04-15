@@ -10,12 +10,22 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // --- Carga de Knowledge Base (una sola vez al arrancar el módulo) ---
 let knowledgeBase = '';
-try {
-    const kbPath = path.join(__dirname, '../../knowledge-base.md');
-    knowledgeBase = fs.readFileSync(kbPath, 'utf8');
-    console.log('[Gemini] ✅ knowledge-base.md cargado correctamente.');
-} catch (err) {
-    console.warn('[Gemini] ⚠️ knowledge-base.md no encontrado. Usando prompt base sin contexto de negocio.');
+// Fallback: prueba paths locales (dev) y paths del contenedor Docker (prod)
+const kbCandidates = [
+    path.join(__dirname, '../../knowledge-base.md'),  // dev: desde backend/services → repo root
+    path.join(__dirname, '../knowledge-base.md'),     // prod Docker: desde /app/services → /app/knowledge-base.md
+];
+for (const kbPath of kbCandidates) {
+    try {
+        knowledgeBase = fs.readFileSync(kbPath, 'utf8');
+        console.log(`[Gemini] ✅ knowledge-base.md cargado desde ${kbPath}.`);
+        break;
+    } catch (err) {
+        // continue al siguiente candidato
+    }
+}
+if (!knowledgeBase) {
+    console.warn('[Gemini] ⚠️ knowledge-base.md no encontrado en ningún path. Usando prompt base sin contexto de negocio.');
 }
 
 // --- MÉTRICAS DE JSON FALLBACK (Mejora #1) ---
