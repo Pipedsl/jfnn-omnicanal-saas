@@ -554,6 +554,29 @@ const processBufferedMessages = async (customerPhone) => {
             session = await sessionsService.reassignOrphanRepuestos(customerPhone, userText);
         }
 
+        // Safety net staging: si hay repuestos_pendiente_vehiculo (staging entre turnos)
+        // y el cliente acaba de asignar un vehículo, mover al destino correcto.
+        const staged = session?.entidades?.repuestos_pendiente_vehiculo;
+        if (Array.isArray(staged) && staged.length > 0 && userText) {
+            const e = session.entidades;
+            const vehiculoEnRoot = !!(e.marca_modelo);
+            const vehiculosArray = Array.isArray(e.vehiculos) && e.vehiculos.length > 0;
+
+            if (vehiculoEnRoot || vehiculosArray) {
+                // Inyectar los staged como repuestos_solicitados para que el merge y
+                // la Mejora #5 los asignen al vehículo correcto automáticamente.
+                session = await sessionsService.updateEntidades(customerPhone, {
+                    repuestos_solicitados: staged,
+                    repuestos_pendiente_vehiculo: []
+                });
+                // Si hay multi-vehículo, también intentar reasignar por texto
+                if (vehiculosArray) {
+                    session = await sessionsService.reassignOrphanRepuestos(customerPhone, userText);
+                }
+                console.log(`[Staged] 🔀 ${staged.length} repuesto(s) del staging asignados al vehículo para ${customerPhone}`);
+            }
+        }
+
         let finalMessage = aiJson.mensaje_cliente;
 
         // HU-1: Remoción de repuesto solicitada por el cliente en CONFIRMANDO_COMPRA

@@ -123,7 +123,7 @@ ${sessionContext.entidades.es_recurrente === true ? `
 ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.patente ? ' (patente ' + v.patente + ')' : ''}${v.motor ? ' motor ' + v.motor : ''}`).join('\n')}
         ` : ''}
         REGLAS para cliente ${esMecanico ? 'mecánico' : 'recurrente'}:
-        - Saluda personalizado usando su nombre: "Hola ${sessionContext.entidades.nombre_cliente || ''}, qué bueno verte de nuevo 🙌".
+        - Saluda usando su nombre SOLO en el PRIMER mensaje de la sesión ("Hola ${sessionContext.entidades.nombre_cliente || ''}, qué bueno verte de nuevo 🙌"). En turnos siguientes, NO repitas el saludo — continúa directamente con la gestión del repuesto.
         ${esMecanico ? `
         - NUNCA asumas que cotiza para un vehículo conocido. SIEMPRE pregunta: "¿Para qué vehículo es la cotización hoy?"
         - NO digas "tu auto de siempre" ni refieras vehículos previos como si pertenecieran al cliente.
@@ -200,8 +200,8 @@ ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.paten
         - NUNCA concatenes datos de dos vehículos en un campo con "/" (❌ "Toyota Hilux / Nissan V16"). Sepáralos en objetos dentro de vehiculos[].
         - NUNCA uses paréntesis para anotar el vehículo en el nombre del repuesto (❌ "pastillas de freno (Nissan V16)"). El repuesto va dentro del objeto del vehículo correspondiente en vehiculos[].
         - Si el cliente menciona un repuesto sin especificar a qué vehículo corresponde, pregunta brevemente: "¿Ese repuesto es para la Hilux o el V16?"
-        ⛔ REGLA DURA ANTI-HUÉRFANOS: Cuando vehiculos[] tiene ≥1 elemento, está PROHIBIDO agregar repuestos al array raíz repuestos_solicitados[]. Si el cliente no aclara el vehículo: pregunta ("¿Para cuál auto es ese repuesto?") y devuelve AMBOS arrays vacíos.
-        ⛔ REASIGNACIÓN OBLIGATORIA: Si el contexto muestra repuestos en el root repuestos_solicitados[] Y vehiculos[] tiene ≥1 elemento, y el cliente acaba de aclarar el vehículo ("para el Swift", "el del padrón", "el del 2024", "para el Hilux"), MUEVE esos repuestos al vehículo correcto en vehiculos[] y deja el root vacío [].
+        ⛔ REGLA DURA ANTI-HUÉRFANOS: Cuando vehiculos[] tiene ≥1 elemento, está PROHIBIDO agregar repuestos al array raíz repuestos_solicitados[]. Si el cliente no aclara el vehículo: pregunta ("¿Para cuál auto es ese repuesto?") y guarda el repuesto en el campo 'repuestos_pendiente_vehiculo' (staging) para no perder el contexto entre turnos.
+        ⛔ REASIGNACIÓN OBLIGATORIA: Si el contexto tiene 'repuestos_pendiente_vehiculo' con items Y el cliente acaba de aclarar el vehículo ("para el V16", "el del padrón", "el del 2024", "para el Hilux"), MUEVE esos repuestos al vehículo correcto y devuelve 'repuestos_pendiente_vehiculo: []' para limpiar el staging.
         - REGLA DE PATENTE SUELTA (CRÍTICA — Mejora #4): Si el cliente envía solo una patente sin mencionar vehículo específico (ej. "YZ1914"), SOLO asígnala al vehículo cuyo nombre apareció en el último mensaje del cliente. Si hay ambigüedad, pregunta: "¿Esa patente es del [vehículo A] o [vehículo B]?" NUNCA asignes la misma patente a múltiples vehículos.
         ${(sessionContext.entidades.vehiculos || []).length > 0 ? `⚠️ MULTI-VEHÍCULO ACTIVO: Ya hay ${sessionContext.entidades.vehiculos.length} vehículo(s) registrado(s). USA el array "vehiculos" obligatoriamente. ⛔ PROHIBIDO agregar repuestos al root.` : ''}
         ` : `
@@ -287,6 +287,7 @@ ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.paten
                     }
                 ],
                 "repuestos_solicitados": [{ "nombre": "...", "cantidad": 1, "precio": null, "estado": "pendiente" }],
+                "repuestos_pendiente_vehiculo": [{ "nombre": "...", "cantidad": 1, "precio": null, "estado": "pendiente" }],
                 "sintomas_reportados": "...",
                 "metodo_pago": "online | local | null",
                 "metodo_entrega": "retiro | domicilio | null",
