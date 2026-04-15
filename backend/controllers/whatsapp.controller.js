@@ -58,6 +58,43 @@ const processBufferedMessages = async (customerPhone) => {
         let session = await sessionsService.getSession(customerPhone);
 
         // ═══════════════════════════════════════════════════════
+        // MEJORA #2b: Pre-carga de nombre_cliente desde tabla clientes
+        // ═══════════════════════════════════════════════════════
+        if (!session.entidades?.nombre_cliente) {
+            try {
+                const clienteResult = await db.query(
+                    'SELECT nombre FROM clientes WHERE telefono = $1 LIMIT 1',
+                    [customerPhone]
+                );
+                if (clienteResult.rows.length > 0) {
+                    const nombrePrevio = clienteResult.rows[0].nombre;
+                    await sessionsService.updateEntidades(customerPhone, { nombre_cliente: nombrePrevio });
+                    session.entidades.nombre_cliente = nombrePrevio;
+                    console.log(`[PreCarga] ✅ Nombre pre-cargado desde BD: ${nombrePrevio}`);
+                }
+            } catch (err) {
+                console.warn(`[PreCarga] ⚠️ Error buscando nombre en BD:`, err.message);
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════
+        // MEJORA #3: Pre-filtro de saludos puros (sin interrogatorio)
+        // ═══════════════════════════════════════════════════════
+        const textoTrimmed = userText.trim().toLowerCase();
+        const esSaludoPuro = /^(hola|buenas|buenos|buenos días|buenas noches|buenas tardes|ola|q tal|que tal|hey|holi|oi)[\s.,!?¡¿👋🙏]*$/.test(textoTrimmed);
+        const tieneEntidades = !!(session.entidades?.marca_modelo || session.entidades?.ano || session.entidades?.patente ||
+                                   (Array.isArray(session.entidades?.vehiculos) && session.entidades.vehiculos.length > 0));
+
+        if (esSaludoPuro && !tieneEntidades) {
+            console.log(`[Saludo] 👋 Saludo puro detectado sin entidades previas. Respuesta local, sin llamar a Gemini.`);
+            const saludoRespuesta = '¡Hola! 👋 ¿En qué puedo ayudarte hoy?';
+            const delayMs = Math.min(saludoRespuesta.length * 25, 1500);
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+            await whatsappService.sendTextMessage(customerPhone, saludoRespuesta);
+            return;
+        }
+
+        // ═══════════════════════════════════════════════════════
         // ESTADO: ARCHIVADO → Ofrecer re-enganche o iniciar nueva
         // ═══════════════════════════════════════════════════════
         if (session.estado === sessionsService.STATES.ARCHIVADO) {

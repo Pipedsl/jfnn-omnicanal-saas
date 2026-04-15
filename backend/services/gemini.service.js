@@ -18,6 +18,38 @@ try {
     console.warn('[Gemini] ⚠️ knowledge-base.md no encontrado. Usando prompt base sin contexto de negocio.');
 }
 
+// --- MÉTRICAS DE JSON FALLBACK (Mejora #1) ---
+let jsonParseFailures = 0;
+let jsonRetrySuccesses = 0;
+
+/**
+ * MEJORA #1: Extrae JSON válido del texto de Gemini de forma robusta.
+ * Si el parse directo falla, intenta extraer el primer bloque {...} balanceado.
+ * Si todo falla, retorna null para disparar reintento.
+ */
+const extractValidJSON = (text) => {
+    // Intento 1: parse directo
+    try {
+        return JSON.parse(text);
+    } catch (e) {
+        // Intento 2: extraer primer bloque {...} balanceado
+        const match = text.match(/\{[\s\S]*\}/);
+        if (!match) return null;
+
+        try {
+            return JSON.parse(match[0]);
+        } catch (e2) {
+            // Si tiene comentarios JSON inválidos, limpiar antes de paréntesis
+            const cleaned = match[0].replace(/\/\/.*$/gm, '').replace(/,\s*\}/g, '}');
+            try {
+                return JSON.parse(cleaned);
+            } catch (e3) {
+                return null;
+            }
+        }
+    }
+};
+
 /**
  * Genera una respuesta basada en el texto del usuario y el contexto de la sesión
  * @param {string} userText - Mensaje enviado por el cliente
@@ -65,27 +97,77 @@ const generateResponse = async (userText, sessionContext, imageData = null, audi
         TONO INCORRECTO: "¡Perfecto! He registrado su Toyota Hilux. Para continuar con la cotización, ¿me podría indicar el año y la patente del segundo vehículo?"
         ## FASE ACTUAL DEL CLIENTE: ${isConfirming ? 'CONFIRMACIÓN DE COMPRA' : 'IDENTIFICACIÓN DE REPUESTOS'}
         Cliente: ${sessionContext.entidades.nombre_cliente || 'Desconocido'}
+${sessionContext.entidades.es_recurrente === true ? `
+        ## 🌟 CLIENTE RECURRENTE (Mejora #7)
+        Este cliente YA ha comprado ${sessionContext.entidades.total_compras || 0} vez(ces) antes.
+        ${Array.isArray(sessionContext.entidades.vehiculos_historicos) && sessionContext.entidades.vehiculos_historicos.length > 0 ? `
+        Vehículos ya registrados en su historial:
+${sessionContext.entidades.vehiculos_historicos.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.patente ? ' (patente ' + v.patente + ')' : ''}${v.motor ? ' motor ' + v.motor : ''}`).join('\n')}
+        ` : ''}
+        REGLAS para cliente recurrente:
+        - Saluda personalizado usando su nombre: "Hola ${sessionContext.entidades.nombre_cliente || ''}, qué bueno verte de nuevo 🙌".
+        - Si menciona una pieza y NO indica vehículo, PREGUNTA si es para uno de los vehículos ya registrados (ej: "¿Es para tu Hilux 2015 de siempre o es otro auto?"). NO cotices asumiendo.
+        - NO le vuelvas a pedir datos que ya tienes (nombre, email, rut, patente previa del mismo vehículo).
+        - NO preguntes marca/modelo/año si claramente se refiere a un vehículo del historial — úsalos directamente.
+        ` : ''}
 
         Si en algún momento el cliente menciona su email o RUT, recógelo silenciosamente en 'email_cliente' y 'rut_cliente'.
         ${!isConfirming ? `
         ## ROL: ASESOR TÉCNICO EXPERTO EN REPUESTOS (PERFILANDO)
         Tu misión es ser extremadamente EFICIENTE y TÉCNICO. Para buscar las piezas exactas y evitar errores de compatibilidad, necesitas consolidar la información en el menor número de mensajes posible.
 
-        OBLIGATORIEDAD DE DATOS (REGLA CRÍTICA):
-        - NO puedes avanzar en el flujo si no tienes la PATENTE o el VIN del vehículo. Debes exigirlo antes de finalizar el perfilamiento. Con uno de los dos datos (Patente o VIN) ya es suficiente.
+        ### 🚗 LÓGICA CONDICIONAL DE PATENTE/VIN (MEJORA #2 — DUAL MODE):
 
-        Si faltan datos, solicítalos de forma agrupada y profesional en tu primera respuesta. Los datos requeridos son:
+        ${sessionContext.entidades.solicitud_manual_patente === true ? `
+        ⛔ MODO BLOQUEANTE PATENTE ACTIVADO (el vendedor requiere este dato):
+        - DEBES exigir la PATENTE al cliente en CADA turno hasta recibirla.
+        - NO cotices, NO avances al estado ESPERANDO_VENDEDOR, NO aceptes seguir sin la patente.
+        - Ejemplo de respuesta válida: "Para continuar con tu cotización necesito la patente del vehículo, por favor."
+        ` : sessionContext.entidades.solicitud_manual_vin === true ? `
+        ⛔ MODO BLOQUEANTE VIN ACTIVADO (el vendedor requiere este dato):
+        - DEBES exigir el VIN (número de chasis) al cliente en CADA turno hasta recibirlo.
+        - NO cotices sin el VIN.
+        - Ejemplo: "Para identificar con exactitud tu repuesto necesito el VIN (número de chasis) de tu vehículo, por favor."
+        ` : `
+        ✅ MODO SUAVE (default):
+        - Puedes pedir la patente UNA SOLA VEZ si la pieza parece crítica de compatibilidad (bandejas, soportes, cremalleras, embragues complejos, bombas, distribución, inyectores, alternadores).
+        - Si el cliente no da la patente en el siguiente turno, AVANZA NORMALMENTE con los datos que tengas (marca/modelo/año/motor). NO vuelvas a preguntarla.
+        - Para piezas no-críticas (filtros, bujías, frenos básicos, aceite, correas accesorios) NI SIQUIERA pidas la patente — avanza directo.
+        - NO menciones "VIN" al cliente en modo suave, intimida. Solo "patente" si es estrictamente necesario.
+        - Con los datos disponibles, puedes avanzar a ESPERANDO_VENDEDOR aunque NO tengas patente ni VIN.
+        `}
+
+        Si faltan datos del vehículo, solicítalos de forma agrupada y profesional:
         1. Marca y Modelo (si no los conoces).
         2. Año exacto del vehículo.
-        3. Patente o número de chasis (VIN) — OBLIGATORIO para precisión.
-        4. Especificaciones del Motor (cilindrada, ej: 1.6, 2.0) y tipo de Combustible (Bencina o Diesel).
-        5. Listado claro de los repuestos que busca.
-        
-        EJEMPLO DE RESPUESTA EXPERTA: "Para asegurar la compatibilidad exacta, ¿podría indicarme el año, la cilindrada del motor y si es bencinero o diesel? Además, si tiene la patente o el VIN, nos ayudaría a ser 100% precisos con los repuestos que necesita."
+        3. Especificaciones del Motor — SOLO para piezas críticas de compatibilidad. Ver lista abajo.
+        4. Listado claro de los repuestos que busca.
+
+        ### PIEZAS NO-CRÍTICAS-MOTOR (Mejora #10):
+        Para estas piezas, NO preguntes cilindrada ni combustible (solo marca/modelo/año):
+        - Filtros (aire, aceite, combustible, polen)
+        - Bujías estándar / Cables de bujía
+        - Escobillas / Limpiaparabrisas
+        - Aceite de motor (genérico)
+        - Bombillas / Ampolletas
+        - Pastillas de freno (genéricas) / Discos de freno comunes
+        - Correas de accesorios (auxiliares)
+        - Pastillas de embrague (básicas)
+
+        Para piezas críticas (bandejas, soportes, cremalleras, embragues complejos, bombas, distribución, inyectores, alternadores), SÍ solicita motor/cilindrada.
+
+        EJEMPLO DE RESPUESTA EXPERTA: "Para asegurar la compatibilidad exacta, ¿podría indicarme el año? Si es repuesto crítico como bandeja o soporte, también necesitaría la cilindrada y si es bencinero o diesel."
         
         Si el cliente describe una falla, actúa como mecánico experto: explica brevemente la causa probable y sugiere la pieza.
         Si el repuesto suele requerir múltiples unidades (ej: bujías, bobinas, litros de aceite), sugiere o pregunta por la cantidad correcta según el motor (ej: "Para un motor de 4 cilindros, ¿le cotizo las 4 bujías orignales?").
-        Si el cliente menciona su nombre (ej: "soy Juan", "me llamo Pedro"), cáptalo silenciosamente en 'nombre_cliente'.
+
+        ### 🎯 CAPTURA DE NOMBRE DEL CLIENTE (MEJORA #3):
+        Si el cliente menciona su nombre de CUALQUIER forma, cáptalo en 'nombre_cliente':
+        - Autoidentificaciones explícitas: "soy Juan", "me llamo Pedro", "habla Carlos", "mi nombre es María"
+        - Despedidas firmadas: "gracias, Juan", "abrazos, Laura"
+        - Saludos del cliente: "Habla kike", "soy el Miguel"
+        EXCEPCIÓN: Palabras como "master", "don", "rey", "jefe", "señor" son formas de dirigirse al vendedor, NO son el nombre del cliente — ignóralas.
+
         Si ya tienes los datos en el contexto, NO los pidas de nuevo. Úsalos para demostrar que estás atento.
 
         ## 🚗 REGLAS MULTI-VEHÍCULO (CRÍTICO):
@@ -94,7 +176,8 @@ const generateResponse = async (userText, sessionContext, imageData = null, audi
         - NUNCA concatenes datos de dos vehículos en un campo con "/" (❌ "Toyota Hilux / Nissan V16"). Sepáralos en objetos dentro de vehiculos[].
         - NUNCA uses paréntesis para anotar el vehículo en el nombre del repuesto (❌ "pastillas de freno (Nissan V16)"). El repuesto va dentro del objeto del vehículo correspondiente en vehiculos[].
         - Si el cliente menciona un repuesto sin especificar a qué vehículo corresponde, pregunta brevemente: "¿Ese repuesto es para la Hilux o el V16?"
-        - Si hay repuestos para vehículo desconocido, agrégalos temporalmente en repuestos_solicitados[] raíz.
+        - SOLO usa repuestos_solicitados[] raíz si NO hay NINGÚN vehículo en foco en los últimos 3 turnos Y no puedes inferirlo por contexto. Si hay un ÚNICO vehículo en la sesión, asigna el repuesto a ese vehículo directamente. Si hay múltiples vehículos, pregunta "¿Para cuál de los autos es este repuesto?" en vez de dejar huérfanos.
+        - REGLA DE PATENTE SUELTA (CRÍTICA — Mejora #4): Si el cliente envía solo una patente sin mencionar vehículo específico (ej. "YZ1914"), SOLO asígnala al vehículo cuyo nombre apareció en el último mensaje del cliente. Si hay ambigüedad, pregunta: "¿Esa patente es del [vehículo A] o [vehículo B]?" NUNCA asignes la misma patente a múltiples vehículos.
         ${(sessionContext.entidades.vehiculos || []).length > 0 ? `⚠️ MULTI-VEHÍCULO ACTIVO: Ya hay ${sessionContext.entidades.vehiculos.length} vehículo(s) registrado(s). USA el array "vehiculos" obligatoriamente en tu respuesta.` : ''}
         ` : `
         ## ROL: GESTOR DE VENTAS (CIERRE)
@@ -130,6 +213,9 @@ const generateResponse = async (userText, sessionContext, imageData = null, audi
 
         ## INSTRUCCIONES MULTIMODALES (VISIÓN Y AUDIO):
         - Si el cliente envía una FOTO DE UN REPUESTO: NO le digas al cliente el nombre de la pieza. Responde brevemente que recibiste su foto y que un asesor la revisará pronto. Pide los datos del auto si te faltan (Año, Patente o VIN).
+          ### MEJORA #9 (Eliminar placeholders inútiles):
+          - PROHIBIDO crear entries de repuestos con nombres como "repuesto según fotografía", "repuesto según imagen", "pieza de la foto".
+          - Si la imagen no se identificó claramente (confianza baja o no se reconoce), NO crees entry falso. Deja el flag 'pendiente_identificacion_foto: true' para que el asesor lo resuelva manualmente.
         - Si el cliente envía una FOTO DE UN COMPROBANTE DE PAGO: Agradécele formalmente y dile que un asesor validará la transferencia en unos minutos para agendar el despacho.
         - Si el cliente envía una NOTA DE VOZ: Transcríbela internamente y trátala exactamente como si fuera texto escrito. Extrae patente, año, marca, modelo, repuestos y cualquier dato del vehículo que mencione. NO menciones que recibiste un audio en tu respuesta, responde directamente al contenido.
 
@@ -223,9 +309,52 @@ const generateResponse = async (userText, sessionContext, imageData = null, audi
 
         const response = await result.response;
         const text = response.text();
-        return JSON.parse(text);
+
+        // MEJORA #1: Extractor robusto con reintento
+        let parsed = extractValidJSON(text);
+
+        if (!parsed) {
+            jsonParseFailures++;
+            console.warn(`[Gemini] ⚠️ JSON parse falló (intento 1). Reintentando con prompt adicional (fallo #${jsonParseFailures})...`);
+
+            // Reintento silencioso: llamar a Gemini nuevamente con instrucción explícita
+            try {
+                const retryResult = await model.generateContent({
+                    contents: [{
+                        role: "user",
+                        parts: [{
+                            text: "Responde ÚNICAMENTE con JSON válido, sin comentarios, sin explicación, sin texto adicional. JSON:\n\n" + text
+                        }]
+                    }],
+                    generationConfig: {
+                        response_mime_type: "application/json",
+                    }
+                });
+
+                const retryText = (await retryResult.response).text();
+                parsed = extractValidJSON(retryText);
+
+                if (parsed) {
+                    jsonRetrySuccesses++;
+                    console.log(`[Gemini] ✅ Reintento exitoso (éxito #${jsonRetrySuccesses})`);
+                }
+            } catch (retryErr) {
+                console.error(`[Gemini] ❌ Reintento también falló:`, retryErr.message);
+            }
+        }
+
+        // Si aún no hay JSON válido, fallback genérico
+        if (!parsed) {
+            console.error(`[Gemini] ❌ JSON parse falló después del reintento. Usando fallback genérico.`);
+            return {
+                mensaje_cliente: "Disculpe, tuvimos un inconveniente técnico momentáneo. ¿Podría repetirme lo último, por favor?",
+                entidades: {}
+            };
+        }
+
+        return parsed;
     } catch (error) {
-        console.error("Error en Gemini Service:", error);
+        console.error("Error en Gemini Service:", error.message);
         return {
             mensaje_cliente: "Disculpe, tuvimos un inconveniente técnico momentáneo. ¿Podría repetirme lo último, por favor?",
             entidades: {}

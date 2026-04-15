@@ -110,8 +110,12 @@ const getClientProfile = async (phone) => {
 
 const updateClientProfile = async (phone, data) => {
     try {
-        const { nombre, email, rut, quote_id_to_archive } = data;
-        
+        const {
+            nombre, email, rut, quote_id_to_archive,
+            // Mejora #7: datos de venta para stats
+            monto_venta, vehiculo_comprado
+        } = data;
+
         const query = `
             INSERT INTO clientes (phone, nombre, email, rut)
             VALUES ($1, $2, $3, $4)
@@ -122,15 +126,51 @@ const updateClientProfile = async (phone, data) => {
                 updated_at = NOW()
             RETURNING *;
         `;
-        
+
         await db.query(query, [phone, nombre, email, rut]);
 
         if (quote_id_to_archive) {
              await db.query(`
-                UPDATE clientes 
+                UPDATE clientes
                 SET historial_cotizaciones_ids = array_append(historial_cotizaciones_ids, $1)
                 WHERE phone = $2
              `, [quote_id_to_archive, phone]);
+        }
+
+        // Mejora #7: incrementar stats de compras (solo si hay venta real archivada)
+        if (quote_id_to_archive) {
+            const montoNum = parseInt(monto_venta) || 0;
+            const { rows } = await db.query(`
+                UPDATE clientes
+                SET total_compras = COALESCE(total_compras, 0) + 1,
+                    total_gastado = COALESCE(total_gastado, 0) + $1,
+                    ultima_compra = NOW(),
+                    es_recurrente = (COALESCE(total_compras, 0) + 1) >= 2,
+                    updated_at = NOW()
+                WHERE phone = $2
+                RETURNING total_compras, vehiculos_historicos
+            `, [montoNum, phone]);
+
+            // Acumular vehículo en el historial si es nuevo (dedup por marca_modelo+ano)
+            if (vehiculo_comprado && (vehiculo_comprado.marca_modelo || vehiculo_comprado.ano)) {
+                const historicos = Array.isArray(rows[0]?.vehiculos_historicos) ? rows[0].vehiculos_historicos : [];
+                const yaExiste = historicos.some(v =>
+                    (v.marca_modelo || '').toLowerCase() === (vehiculo_comprado.marca_modelo || '').toLowerCase() &&
+                    String(v.ano || '') === String(vehiculo_comprado.ano || '')
+                );
+                if (!yaExiste) {
+                    historicos.push({
+                        marca_modelo: vehiculo_comprado.marca_modelo || null,
+                        ano: vehiculo_comprado.ano || null,
+                        patente: vehiculo_comprado.patente || null,
+                        motor: vehiculo_comprado.motor || null,
+                        ultima_compra: new Date().toISOString()
+                    });
+                    await db.query(`
+                        UPDATE clientes SET vehiculos_historicos = $1 WHERE phone = $2
+                    `, [JSON.stringify(historicos), phone]);
+                }
+            }
         }
     } catch (err) {
         console.error('[Sessions] ❌ Error en updateClientProfile:', err.message);
@@ -160,6 +200,14 @@ const getSession = async (phone) => {
                 entidadesIniciales.nombre_cliente = cliente.nombre || null;
                 entidadesIniciales.email_cliente = cliente.email || null;
                 entidadesIniciales.rut_cliente = cliente.rut || null;
+                // Mejora #7: cargar historial para que Gemini personalice trato
+                entidadesIniciales.es_recurrente = cliente.es_recurrente || false;
+                entidadesIniciales.total_compras = cliente.total_compras || 0;
+                entidadesIniciales.vehiculos_historicos = Array.isArray(cliente.vehiculos_historicos)
+                    ? cliente.vehiculos_historicos
+                    : (typeof cliente.vehiculos_historicos === 'string'
+                        ? JSON.parse(cliente.vehiculos_historicos || '[]')
+                        : []);
             }
 
             // Crear sesión nueva
@@ -172,6 +220,19 @@ const getSession = async (phone) => {
             result = rowToSession(newRows[0]);
         } else {
             result = rowToSession(rows[0]);
+            // Mejora #7: hidratar historial de cliente si aún no está en entidades
+            if (result.entidades && result.entidades.es_recurrente === undefined) {
+                const cliente = await getClientProfile(phone);
+                if (cliente) {
+                    result.entidades.es_recurrente = cliente.es_recurrente || false;
+                    result.entidades.total_compras = cliente.total_compras || 0;
+                    result.entidades.vehiculos_historicos = Array.isArray(cliente.vehiculos_historicos)
+                        ? cliente.vehiculos_historicos
+                        : (typeof cliente.vehiculos_historicos === 'string'
+                            ? JSON.parse(cliente.vehiculos_historicos || '[]')
+                            : []);
+                }
+            }
         }
 
         sessionCache.set(phone, { data: result, timestamp: Date.now() });
@@ -202,7 +263,16 @@ const updateEntidades = async (phone, nuevasEntidades) => {
                     entities.vehiculos.push(nuevoVehiculo);
                     targetAuto = entities.vehiculos[entities.vehiculos.length - 1];
                 } else {
-                    targetAuto.patente = nuevoVehiculo.patente || targetAuto.patente;
+                    // MEJORA #4: Patente solo se asigna si el vehículo aún no la tiene + validación formato chileno
+                    if (nuevoVehiculo.patente && !targetAuto.patente) {
+                        const patenteNorm = nuevoVehiculo.patente.trim().toUpperCase().replace(/[-\s]/g, '');
+                        const patenteValida = /^[A-Z]{2,4}\d{2,4}$/.test(patenteNorm);
+                        if (patenteValida) {
+                            targetAuto.patente = patenteNorm;
+                        } else {
+                            console.warn(`[Merge] ⚠️ Patente rechazada por formato inválido (vehículo ${targetAuto.marca_modelo}): "${nuevoVehiculo.patente}"`);
+                        }
+                    }
                     targetAuto.vin = nuevoVehiculo.vin || targetAuto.vin;
                     targetAuto.motor = nuevoVehiculo.motor || targetAuto.motor;
                     targetAuto.combustible = nuevoVehiculo.combustible || targetAuto.combustible;
@@ -255,7 +325,63 @@ const updateEntidades = async (phone, nuevasEntidades) => {
                     }
                 }
             });
+
+            // MEJORA #4: Detectar y limpiar patentes duplicadas entre vehículos
+            const patentesVistas = new Set();
+            for (const v of entities.vehiculos) {
+                if (v.patente) {
+                    if (patentesVistas.has(v.patente)) {
+                        console.warn(`[Merge] ⚠️ Patente duplicada en múltiples vehículos: "${v.patente}" → limpiando del segundo.`);
+                        v.patente = null;
+                    } else {
+                        patentesVistas.add(v.patente);
+                    }
+                }
+            }
+
             delete nuevasEntidades.vehiculos;
+        }
+
+        // MEJORA #5: Auto-asignar repuestos huérfanos cuando hay exactamente 1 vehículo en la sesión
+        if (Array.isArray(entities.vehiculos) && entities.vehiculos.length === 1 &&
+            Array.isArray(nuevasEntidades.repuestos_solicitados) && nuevasEntidades.repuestos_solicitados.length > 0) {
+
+            const unicoVehiculo = entities.vehiculos[0];
+            if (!unicoVehiculo.repuestos_solicitados) unicoVehiculo.repuestos_solicitados = [];
+
+            console.log(`[Merge] 🔀 Auto-asignando ${nuevasEntidades.repuestos_solicitados.length} repuesto(s) huérfano(s) al único vehículo: ${unicoVehiculo.marca_modelo || 'sin nombre'}`);
+
+            // Procesar cada repuesto huérfano directamente en el vehículo (mismo merge que el existente)
+            nuevasEntidades.repuestos_solicitados.forEach(huerfano => {
+                const refinedIdx = unicoVehiculo.repuestos_solicitados.findIndex(ext => {
+                    const match = isSameRepuesto(huerfano.nombre, ext.nombre);
+                    return match === 'refined' || match === 'similar';
+                });
+                if (refinedIdx !== -1) {
+                    const viejo = unicoVehiculo.repuestos_solicitados[refinedIdx];
+                    const nombreFinal = stripVehicleAnnotation(huerfano.nombre).length >= stripVehicleAnnotation(viejo.nombre).length ? huerfano.nombre : viejo.nombre;
+                    unicoVehiculo.repuestos_solicitados[refinedIdx] = {
+                        ...viejo, ...huerfano, nombre: nombreFinal,
+                        cantidad: huerfano.cantidad != null ? huerfano.cantidad : (viejo.cantidad || 1),
+                        precio: viejo.precio != null ? viejo.precio : (huerfano.precio !== undefined ? huerfano.precio : null)
+                    };
+                } else {
+                    const exactIdx = unicoVehiculo.repuestos_solicitados.findIndex(e => isSameRepuesto(huerfano.nombre, e.nombre) === 'exact');
+                    if (exactIdx !== -1) {
+                        const viejoExact = unicoVehiculo.repuestos_solicitados[exactIdx];
+                        unicoVehiculo.repuestos_solicitados[exactIdx] = {
+                            ...viejoExact, ...huerfano,
+                            cantidad: huerfano.cantidad != null ? huerfano.cantidad : (viejoExact.cantidad || 1),
+                            precio: viejoExact.precio != null ? viejoExact.precio : (huerfano.precio !== undefined ? huerfano.precio : null)
+                        };
+                    } else {
+                        unicoVehiculo.repuestos_solicitados.push(huerfano);
+                    }
+                }
+            });
+
+            // Limpiar el array raíz — los repuestos ya están en el vehículo
+            delete nuevasEntidades.repuestos_solicitados;
         }
 
         // MERGE inteligente de repuestos (Backward Compatibility)
@@ -319,6 +445,21 @@ const updateEntidades = async (phone, nuevasEntidades) => {
                     entities[key] = value;
                 }
             }
+        }
+
+        // MEJORA #2: Auto-limpieza de flags bloqueantes cuando llega el dato solicitado
+        const tienePatenteEnRaiz = !!entities.patente;
+        const tienePatenteEnVehiculos = Array.isArray(entities.vehiculos) && entities.vehiculos.some(v => v.patente);
+        if ((tienePatenteEnRaiz || tienePatenteEnVehiculos) && entities.solicitud_manual_patente) {
+            entities.solicitud_manual_patente = false;
+            console.log(`[Merge] 🔓 Flag solicitud_manual_patente limpiado: patente recibida para ${phone}.`);
+        }
+
+        const tieneVinEnRaiz = !!entities.vin;
+        const tieneVinEnVehiculos = Array.isArray(entities.vehiculos) && entities.vehiculos.some(v => v.vin);
+        if ((tieneVinEnRaiz || tieneVinEnVehiculos) && entities.solicitud_manual_vin) {
+            entities.solicitud_manual_vin = false;
+            console.log(`[Merge] 🔓 Flag solicitud_manual_vin limpiado: VIN recibido para ${phone}.`);
         }
 
         const { rows } = await db.query(
@@ -442,15 +583,22 @@ const archiveSession = async (phone) => {
         const session = await getSession(phone);
         const e = session.entidades || {};
 
-        // Actualizar perfil del cliente en la base de datos (MEJORA-3)
+        const totalCotizacion = (e.repuestos_solicitados || []).reduce((acc, r) => acc + (parseInt(r.precio) || 0), 0);
+
+        // Mejora #7: capturar vehículo principal para historial
+        const vehiculoPrincipal = Array.isArray(e.vehiculos) && e.vehiculos.length > 0
+            ? e.vehiculos[0]
+            : (e.marca_modelo || e.ano ? { marca_modelo: e.marca_modelo, ano: e.ano, patente: e.patente, motor: e.motor } : null);
+
+        // Actualizar perfil del cliente en la base de datos (MEJORA-3 + Mejora #7)
         await updateClientProfile(phone, {
             nombre: e.nombre_cliente || null,
             email: e.email_cliente || null,
             rut: e.rut_cliente || e.datos_factura?.rut || null,
-            quote_id_to_archive: e.quote_id || null
+            quote_id_to_archive: e.quote_id || null,
+            monto_venta: totalCotizacion,
+            vehiculo_comprado: vehiculoPrincipal
         });
-
-        const totalCotizacion = (e.repuestos_solicitados || []).reduce((acc, r) => acc + (parseInt(r.precio) || 0), 0);
 
         // Truncar campos para respetar límites de columnas VARCHAR
         const anoTruncado = (e.ano || '').substring(0, 10) || null;

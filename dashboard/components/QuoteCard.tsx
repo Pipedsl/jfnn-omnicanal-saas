@@ -51,6 +51,8 @@ interface Entidades {
     agente_pausado?: boolean;
     nombre_cliente?: string | null;
     vehiculos?: Vehiculo[];
+    solicitud_manual_patente?: boolean;
+    solicitud_manual_vin?: boolean;
 }
 
 interface QuoteCardProps {
@@ -98,6 +100,7 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
     const [numeroSeguimiento, setNumeroSeguimiento] = useState("");
 
     const [solicitandoVinId, setSolicitandoVinId] = useState<string | null>(null);
+    const [solicitandoPatenteId, setSolicitandoPatenteId] = useState<string | null>(null);
     const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
     const [confirmandoImagen, setConfirmandoImagen] = useState<string | null>(null); // imagen_url en proceso
     const [nombreConfirmInput, setNombreConfirmInput] = useState<Record<string, string>>({});
@@ -128,12 +131,30 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                 phone,
                 itemName
             });
-            alert(`Se ha solicitado VIN al cliente para: ${itemName}`);
+            alert(`Se ha solicitado VIN al cliente para: ${itemName}. El agente insistirá hasta recibirlo.`);
+            onResponded();
         } catch (error) {
             console.error("Error solicitando VIN:", error);
             alert("No se pudo enviar la solicitud de VIN.");
         } finally {
             setSolicitandoVinId(null);
+        }
+    };
+
+    const handleSolicitarPatente = async (itemName: string) => {
+        setSolicitandoPatenteId(itemName);
+        try {
+            await axios.post(`${BACKEND_URL}/api/dashboard/solicitar-patente`, {
+                phone,
+                itemName
+            });
+            alert(`Se ha solicitado la patente al cliente para: ${itemName}. El agente insistirá hasta recibirla.`);
+            onResponded();
+        } catch (error) {
+            console.error("Error solicitando patente:", error);
+            alert("No se pudo enviar la solicitud de patente.");
+        } finally {
+            setSolicitandoPatenteId(null);
         }
     };
 
@@ -383,6 +404,16 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                                 🔇 PAUSADO
                                             </span>
                                         )}
+                                        {entidades.solicitud_manual_patente && (
+                                            <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded border border-yellow-500/30 font-bold animate-pulse">
+                                                ⚠️ ESPERANDO PATENTE
+                                            </span>
+                                        )}
+                                        {entidades.solicitud_manual_vin && (
+                                            <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded border border-yellow-500/30 font-bold animate-pulse">
+                                                ⚠️ ESPERANDO VIN
+                                            </span>
+                                        )}
                                     </div>
                                     {entidades.nombre_cliente && (
                                         <p className="text-[10px] text-neutral-500 font-medium">{phone}</p>
@@ -469,15 +500,29 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                                                 <div className="flex flex-col">
                                                                     <span className="text-neutral-300 font-bold">• {r.cantidad && r.cantidad > 1 ? `${r.cantidad}x ` : ''}{r.nombre}</span>
                                                                     {r.codigo && <span className="text-[10px] text-neutral-500 font-mono">Código: {r.codigo}</span>}
-                                                                    {estado === 'ESPERANDO_VENDEDOR' && !v.vin && (
-                                                                        <button
-                                                                            onClick={(e) => { e.stopPropagation(); handleSolicitarVin(r.nombre); }}
-                                                                            disabled={solicitandoVinId === r.nombre || !v.patente}
-                                                                            className="mt-2 w-max text-xs px-3 py-1.5 rounded-lg border border-green-500/50 bg-green-500/20 text-green-400 font-bold hover:bg-green-500/30 disabled:opacity-30 disabled:border-neutral-700 disabled:text-neutral-500 transition-colors cursor-pointer"
-                                                                            title={!v.patente ? "Se requiere patente para solicitar VIN" : ""}
-                                                                        >
-                                                                            {solicitandoVinId === r.nombre ? 'Enviando...' : 'Solicitar VIN'}
-                                                                        </button>
+                                                                    {estado === 'ESPERANDO_VENDEDOR' && (
+                                                                        <div className="mt-2 flex gap-2 flex-wrap">
+                                                                            {!v.patente && (
+                                                                                <button
+                                                                                    onClick={(e) => { e.stopPropagation(); handleSolicitarPatente(r.nombre); }}
+                                                                                    disabled={solicitandoPatenteId === r.nombre}
+                                                                                    className="w-max text-xs px-3 py-1.5 rounded-lg border border-yellow-500/50 bg-yellow-500/20 text-yellow-400 font-bold hover:bg-yellow-500/30 disabled:opacity-30 transition-colors cursor-pointer"
+                                                                                    title="Activa modo bloqueante — el agente exigirá la patente en cada turno"
+                                                                                >
+                                                                                    {solicitandoPatenteId === r.nombre ? 'Enviando...' : 'Solicitar Patente'}
+                                                                                </button>
+                                                                            )}
+                                                                            {!v.vin && (
+                                                                                <button
+                                                                                    onClick={(e) => { e.stopPropagation(); handleSolicitarVin(r.nombre); }}
+                                                                                    disabled={solicitandoVinId === r.nombre}
+                                                                                    className="w-max text-xs px-3 py-1.5 rounded-lg border border-green-500/50 bg-green-500/20 text-green-400 font-bold hover:bg-green-500/30 disabled:opacity-30 transition-colors cursor-pointer"
+                                                                                    title="Activa modo bloqueante — el agente exigirá el VIN en cada turno"
+                                                                                >
+                                                                                    {solicitandoVinId === r.nombre ? 'Enviando...' : 'Solicitar VIN'}
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
                                                                     )}
                                                                 </div>
                                                                 <div className="text-right">
@@ -604,15 +649,29 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                                                 <div className="flex flex-col">
                                                                     <span className="text-neutral-300 font-bold">• {r.cantidad && r.cantidad > 1 ? `${r.cantidad}x ` : ''}{r.nombre}</span>
                                                                     {r.codigo && <span className="text-[10px] text-neutral-500 font-mono">Código: {r.codigo}</span>}
-                                                                    {estado === 'ESPERANDO_VENDEDOR' && !entidades.vin && (
-                                                                        <button
-                                                                            onClick={(e) => { e.stopPropagation(); handleSolicitarVin(r.nombre); }}
-                                                                            disabled={solicitandoVinId === r.nombre || !entidades.patente}
-                                                                            className="mt-2 w-max text-xs px-3 py-1.5 rounded-lg border border-green-500/50 bg-green-500/20 text-green-400 font-bold hover:bg-green-500/30 disabled:opacity-30 disabled:border-neutral-700 disabled:text-neutral-500 transition-colors cursor-pointer"
-                                                                            title={!entidades.patente ? "Se requiere patente para solicitar VIN" : ""}
-                                                                        >
-                                                                            {solicitandoVinId === r.nombre ? 'Enviando...' : 'Solicitar VIN'}
-                                                                        </button>
+                                                                    {estado === 'ESPERANDO_VENDEDOR' && (
+                                                                        <div className="mt-2 flex gap-2 flex-wrap">
+                                                                            {!entidades.patente && (
+                                                                                <button
+                                                                                    onClick={(e) => { e.stopPropagation(); handleSolicitarPatente(r.nombre); }}
+                                                                                    disabled={solicitandoPatenteId === r.nombre}
+                                                                                    className="w-max text-xs px-3 py-1.5 rounded-lg border border-yellow-500/50 bg-yellow-500/20 text-yellow-400 font-bold hover:bg-yellow-500/30 disabled:opacity-30 transition-colors cursor-pointer"
+                                                                                    title="Activa modo bloqueante — el agente exigirá la patente en cada turno"
+                                                                                >
+                                                                                    {solicitandoPatenteId === r.nombre ? 'Enviando...' : 'Solicitar Patente'}
+                                                                                </button>
+                                                                            )}
+                                                                            {!entidades.vin && (
+                                                                                <button
+                                                                                    onClick={(e) => { e.stopPropagation(); handleSolicitarVin(r.nombre); }}
+                                                                                    disabled={solicitandoVinId === r.nombre}
+                                                                                    className="w-max text-xs px-3 py-1.5 rounded-lg border border-green-500/50 bg-green-500/20 text-green-400 font-bold hover:bg-green-500/30 disabled:opacity-30 transition-colors cursor-pointer"
+                                                                                    title="Activa modo bloqueante — el agente exigirá el VIN en cada turno"
+                                                                                >
+                                                                                    {solicitandoVinId === r.nombre ? 'Enviando...' : 'Solicitar VIN'}
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
                                                                     )}
                                                                 </div>
                                                             </div>

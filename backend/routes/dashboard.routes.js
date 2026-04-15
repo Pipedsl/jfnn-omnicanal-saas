@@ -862,8 +862,9 @@ router.delete('/settings/knowledge/:id', async (req, res) => {
 });
 
 /**
- * [HU-8] Solicitar VIN manualmente desde el dashboard
+ * [HU-8 + MEJORA #2] Solicitar VIN manualmente desde el dashboard
  * POST /api/dashboard/solicitar-vin
+ * Ahora ACTIVA el flag bloqueante en la sesión para que el AI insista automáticamente.
  */
 router.post('/solicitar-vin', async (req, res) => {
     try {
@@ -872,16 +873,47 @@ router.post('/solicitar-vin', async (req, res) => {
             return res.status(400).json({ error: 'El campo "phone" es obligatorio.' });
         }
 
+        // MEJORA #2: Activar modo bloqueante ANTES de enviar el mensaje
+        await sessionsService.updateEntidades(phone, { solicitud_manual_vin: true });
+
         const mensaje = itemName
             ? `Hola, para identificar con exactitud el repuesto "${itemName}", ¿podría enviarnos el VIN (número de chasis) de su vehículo, por favor?`
             : `Hola, para verificar la compatibilidad exacta de los repuestos, ¿podría enviarnos el VIN (número de chasis) de su vehículo, por favor?`;
 
         await whatsappService.sendTextMessage(phone, mensaje);
 
-        res.status(200).json({ success: true, mensaje: 'Solicitud de VIN enviada exitosamente.' });
+        res.status(200).json({ success: true, mensaje: 'Solicitud de VIN enviada. Flag bloqueante activado.' });
     } catch (error) {
         console.error('Error enviando solicitud de VIN:', error);
         res.status(500).json({ error: 'Error interno al enviar solicitud de VIN.' });
+    }
+});
+
+/**
+ * [MEJORA #2] Solicitar PATENTE manualmente desde el dashboard
+ * POST /api/dashboard/solicitar-patente
+ * Activa el flag bloqueante solicitud_manual_patente en la sesión.
+ */
+router.post('/solicitar-patente', async (req, res) => {
+    try {
+        const { phone, itemName } = req.body;
+        if (!phone) {
+            return res.status(400).json({ error: 'El campo "phone" es obligatorio.' });
+        }
+
+        // MEJORA #2: Activar modo bloqueante ANTES de enviar el mensaje
+        await sessionsService.updateEntidades(phone, { solicitud_manual_patente: true });
+
+        const mensaje = itemName
+            ? `Hola, para verificar la compatibilidad exacta del repuesto "${itemName}", ¿podría enviarnos la patente de su vehículo, por favor?`
+            : `Hola, para verificar la compatibilidad exacta de los repuestos, ¿podría enviarnos la patente de su vehículo, por favor?`;
+
+        await whatsappService.sendTextMessage(phone, mensaje);
+
+        res.status(200).json({ success: true, mensaje: 'Solicitud de patente enviada. Flag bloqueante activado.' });
+    } catch (error) {
+        console.error('Error enviando solicitud de patente:', error);
+        res.status(500).json({ error: 'Error interno al enviar solicitud de patente.' });
     }
 });
 

@@ -15,16 +15,29 @@ CREATE TABLE IF NOT EXISTS user_sessions (
 CREATE INDEX IF NOT EXISTS idx_user_sessions_phone  ON user_sessions(phone);
 CREATE INDEX IF NOT EXISTS idx_user_sessions_estado ON user_sessions(estado);
 
--- Tabla principal de clientes recurrentes (MEJORA-3)
+-- Tabla principal de clientes recurrentes (MEJORA-3 + Mejora #7)
 CREATE TABLE IF NOT EXISTS clientes (
     phone       VARCHAR(30) PRIMARY KEY,
     nombre      VARCHAR(100),
     email       VARCHAR(100),
     rut         VARCHAR(20),
     historial_cotizaciones_ids TEXT[] DEFAULT '{}',
+    -- Mejora #7: Cliente recurrente
+    total_compras        INTEGER     DEFAULT 0,
+    total_gastado        NUMERIC(12,0) DEFAULT 0,
+    ultima_compra        TIMESTAMPTZ,
+    vehiculos_historicos JSONB       DEFAULT '[]',
+    es_recurrente        BOOLEAN     DEFAULT FALSE,
     created_at  TIMESTAMPTZ DEFAULT NOW(),
     updated_at  TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Mejora #7: ALTER TABLE idempotente para instalaciones existentes
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS total_compras INTEGER DEFAULT 0;
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS total_gastado NUMERIC(12,0) DEFAULT 0;
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS ultima_compra TIMESTAMPTZ;
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS vehiculos_historicos JSONB DEFAULT '[]';
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS es_recurrente BOOLEAN DEFAULT FALSE;
 
 -- Tabla de historial/pedidos archivados
 CREATE TABLE IF NOT EXISTS pedidos (
