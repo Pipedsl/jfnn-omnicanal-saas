@@ -63,7 +63,7 @@ const processBufferedMessages = async (customerPhone) => {
         if (!session.entidades?.nombre_cliente) {
             try {
                 const clienteResult = await db.query(
-                    'SELECT nombre FROM clientes WHERE telefono = $1 LIMIT 1',
+                    'SELECT nombre FROM clientes WHERE phone = $1 LIMIT 1',
                     [customerPhone]
                 );
                 if (clienteResult.rows.length > 0) {
