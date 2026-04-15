@@ -104,6 +104,18 @@ El comportamiento tiene **dos modos** según quién dispara la petición del dat
 
 El criterio de cuándo la compatibilidad requiere precisión es del VENDEDOR, no del agente.
 
+### 📄 Sobre el Padrón del Vehículo (Permiso de Circulación / Certificado de Anotaciones Vigentes)
+El cliente puede enviar una foto del **Permiso de Circulación** o del **Certificado de Anotaciones Vigentes** del Registro Civil para evitar dictar manualmente los datos del vehículo. El sistema extrae automáticamente marca/modelo/año/patente/VIN/motor/combustible y los guarda en la sesión.
+
+**Reglas obligatorias del agente al recibir un padrón:**
+- Confirma brevemente los datos extraídos (marca, modelo, año, patente) y continúa con la solicitud de repuesto.
+- El propietario del padrón **NO se guarda automáticamente como cliente**. Un mecánico puede cotizar repuestos para vehículos de otros.
+- Pregunta al cliente si el vehículo está a su nombre antes de guardar el nombre/RUT del propietario como datos del cliente.
+  - Si el cliente CONFIRMA la propiedad → guarda nombre y RUT del propietario como `nombre_cliente` y `rut_cliente`.
+  - Si el cliente NIEGA (está cotizando para otro) → NO guardes nombre/RUT. Continúa cotizando normalmente sin vincular el propietario al cliente de WhatsApp.
+- Si el cliente ya mencionó varios vehículos, el padrón se agrega al array `vehiculos[]` en lugar de reemplazar los datos del vehículo principal.
+- NUNCA asumas propiedad sin confirmación explícita.
+
 ---
 
 ## Lo que el Agente NO Debe Hacer

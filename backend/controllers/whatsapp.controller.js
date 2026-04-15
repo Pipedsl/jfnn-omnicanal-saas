@@ -78,6 +78,41 @@ const processBufferedMessages = async (customerPhone) => {
         }
 
         // ═══════════════════════════════════════════════════════
+        // PADRÓN: Confirmación de propiedad del vehículo
+        // Si el cliente recién envió un padrón y hay propietario pendiente,
+        // detectamos sí/no por regex antes de seguir al flujo normal.
+        // ═══════════════════════════════════════════════════════
+        if (session.entidades?.propietario_padron_pendiente?.nombre && userText && !hasImage) {
+            const lowerConf = userText.toLowerCase().trim();
+            const afirmativo = /(^|\s)(s[ií]|sí|si)(\s|[.,!?]|$)|\bes m[ií]o\b|\bsoy yo\b|\ba mi nombre\b|\bes mi auto\b|\bmi veh[íi]culo\b|\bcorrecto\b|\bafirmativo\b|\bexacto\b|\bas[ií] es\b|\bas[ií] mismo\b|\best[aá] a mi nombre\b/i.test(lowerConf);
+            const negativo = /^no(\b|,|\.|$)|\bno es m[ií]o\b|\bno soy yo\b|\bcotizo para\b|\bpara otra persona\b|\bpara un cliente\b|\bsoy mec[áa]nico\b|\bno me pertenece\b|\bes de un cliente\b|\bes del jefe\b|\bes de mi\s/i.test(lowerConf);
+
+            if (negativo) {
+                session = await sessionsService.updateEntidades(customerPhone, { propietario_padron_pendiente: false });
+                console.log(`[Padrón] ❌ Cliente cotiza para otro (no auto-vinculamos propietario): ${customerPhone}`);
+                const ack = 'Entendido, cotizamos sin vincular esos datos a tu nombre. ¿Qué repuesto necesitas para ese vehículo?';
+                await new Promise(r => setTimeout(r, 1200));
+                await whatsappService.sendTextMessage(customerPhone, ack);
+                return;
+            }
+
+            if (afirmativo) {
+                const p = session.entidades.propietario_padron_pendiente;
+                const updates = { propietario_padron_pendiente: false };
+                if (p.nombre && !session.entidades.nombre_cliente) updates.nombre_cliente = p.nombre;
+                if (p.rut && !session.entidades.rut_cliente) updates.rut_cliente = p.rut;
+                session = await sessionsService.updateEntidades(customerPhone, updates);
+                console.log(`[Padrón] ✅ Propietario confirmado: ${p.nombre} (${customerPhone})`);
+                const nombreCorto = (p.nombre || '').split(/\s+/)[0] || '';
+                const ack = `¡Perfecto${nombreCorto ? ' ' + nombreCorto : ''}! Ya registré tus datos. ¿Qué repuesto necesitas?`;
+                await new Promise(r => setTimeout(r, 1200));
+                await whatsappService.sendTextMessage(customerPhone, ack);
+                return;
+            }
+            // Si no matchea claramente, dejamos el flag y seguimos al flujo normal.
+        }
+
+        // ═══════════════════════════════════════════════════════
         // MEJORA #3: Pre-filtro de saludos puros (sin interrogatorio)
         // ═══════════════════════════════════════════════════════
         const textoTrimmed = userText.trim().toLowerCase();
@@ -160,91 +195,175 @@ const processBufferedMessages = async (customerPhone) => {
         }
 
         // ═══════════════════════════════════════════════════════
-        // FLUJO ESPECIAL: Identificación de piezas por foto
-        // Solo en PERFILANDO o ESPERANDO_VENDEDOR
+        // FLUJO ESPECIAL: Imagen en PERFILANDO / ESPERANDO_VENDEDOR
+        // Clasifica primero (padrón vs parte vs otro) y despacha.
         // ═══════════════════════════════════════════════════════
         if (hasImage && (
             session.estado === sessionsService.STATES.PERFILANDO ||
             session.estado === sessionsService.STATES.ESPERANDO_VENDEDOR
         )) {
-            console.log(`[ImageID] 📸 ${images.length} imagen(s) recibida(s) de ${customerPhone} para identificación de piezas...`);
+            console.log(`[ImageID] 📸 ${images.length} imagen(s) recibida(s) de ${customerPhone}. Clasificando...`);
 
-            const contextoVehiculo = session.entidades?.marca_modelo
-                ? `${session.entidades.marca_modelo}${session.entidades.ano ? ' ' + session.entidades.ano : ''}`
-                : '';
-
-            // Procesar TODAS las imágenes en paralelo: descargar + identificar + guardar
-            const imageResults = await Promise.all(images.map(async (imgMsg) => {
+            // Fase 1: descargar y clasificar cada imagen en paralelo
+            const classified = await Promise.all(images.map(async (imgMsg) => {
                 const mediaId = imgMsg.message.image?.id;
                 if (!mediaId) return null;
-
                 const imageData = await whatsappService.downloadMedia(mediaId);
                 if (!imageData) {
                     console.error(`[ImageID] ❌ No se pudo descargar imagen ${mediaId}`);
                     return null;
                 }
-
-                const [imagePath, identificacion] = await Promise.all([
-                    storageService.uploadPartImage(customerPhone, imageData.buffer, imageData.mimeType),
-                    geminiService.identifyPartFromImage(imageData, contextoVehiculo)
-                ]);
-
-                return { imagePath, identificacion };
+                const analysis = await geminiService.analyzeImage(imageData);
+                return { imageData, analysis };
             }));
+            const validImages = classified.filter(Boolean);
+            const padrones = validImages.filter(x => x.analysis.tipo === 'padron' && x.analysis.padron);
+            const partes = validImages.filter(x => x.analysis.tipo !== 'padron');
 
-            const validResults = imageResults.filter(Boolean);
+            // ── FASE 2A: PROCESAR PADRONES ──
+            let padronDatos = null; // para el mensaje final
+            let propietarioPendiente = null;
+            for (const { analysis } of padrones) {
+                const p = analysis.padron || {};
+                const vehiculoData = {
+                    marca_modelo: p.marca_modelo || null,
+                    ano: p.ano || null,
+                    patente: p.patente || null,
+                    vin: p.vin || null,
+                    motor: p.motor || null,
+                    combustible: p.combustible || null
+                };
 
-            // Agregar cada pieza identificada como repuesto pendiente en la sesión
-            for (const { imagePath, identificacion } of validResults) {
-                await sessionsService.updateEntidades(customerPhone, {
-                    repuestos_solicitados: [{
-                        nombre: identificacion.nombre_sugerido || 'Pieza sin identificar',
-                        cantidad: 1,
-                        precio: null,
-                        estado: 'pendiente',
-                        pendiente_identificacion: true,
-                        imagen_url: imagePath,
-                        identificacion_ia: identificacion.descripcion,
-                        confianza_ia: identificacion.confianza,
-                        notas_ia: null
-                    }]
-                });
+                const currentVehiculos = Array.isArray(session.entidades?.vehiculos) ? session.entidades.vehiculos : [];
+                const rootHasVehiculo = !!(session.entidades?.marca_modelo || session.entidades?.patente || session.entidades?.vin);
+
+                if (currentVehiculos.length > 0 || rootHasVehiculo) {
+                    // Ya hay contexto de vehículo: usar el array vehiculos[] (caso mecánico multi-auto)
+                    const nuevosVehiculos = [...currentVehiculos];
+                    if (rootHasVehiculo && currentVehiculos.length === 0) {
+                        nuevosVehiculos.push({
+                            marca_modelo: session.entidades.marca_modelo || null,
+                            ano: session.entidades.ano || null,
+                            patente: session.entidades.patente || null,
+                            vin: session.entidades.vin || null,
+                            motor: session.entidades.motor || null,
+                            combustible: session.entidades.combustible || null,
+                            repuestos_solicitados: session.entidades.repuestos_solicitados || []
+                        });
+                    }
+                    const yaExiste = nuevosVehiculos.some(v =>
+                        (vehiculoData.patente && v.patente === vehiculoData.patente) ||
+                        (vehiculoData.vin && v.vin === vehiculoData.vin)
+                    );
+                    if (!yaExiste) {
+                        nuevosVehiculos.push({ ...vehiculoData, repuestos_solicitados: [] });
+                    }
+                    await sessionsService.updateEntidades(customerPhone, { vehiculos: nuevosVehiculos });
+                } else {
+                    // Sin vehículo previo: merge al root directamente
+                    await sessionsService.updateEntidades(customerPhone, vehiculoData);
+                }
+
+                // Propietario NO se guarda automáticamente — queda pendiente de confirmación
+                if (p.nombre_propietario || p.rut_propietario) {
+                    propietarioPendiente = {
+                        nombre: p.nombre_propietario || null,
+                        rut: p.rut_propietario || null,
+                        marca_modelo: p.marca_modelo || null,
+                        patente: p.patente || null
+                    };
+                }
+                padronDatos = p;
+            }
+
+            if (propietarioPendiente) {
+                await sessionsService.updateEntidades(customerPhone, { propietario_padron_pendiente: propietarioPendiente });
+            }
+
+            // ── FASE 2B: PROCESAR PARTES (flujo existente) ──
+            const partesResults = [];
+            if (partes.length > 0) {
+                session = await sessionsService.getSession(customerPhone);
+                const contextoVehiculo = session.entidades?.marca_modelo
+                    ? `${session.entidades.marca_modelo}${session.entidades.ano ? ' ' + session.entidades.ano : ''}`
+                    : '';
+
+                const resultados = await Promise.all(partes.map(async ({ imageData }) => {
+                    const [imagePath, identificacion] = await Promise.all([
+                        storageService.uploadPartImage(customerPhone, imageData.buffer, imageData.mimeType),
+                        geminiService.identifyPartFromImage(imageData, contextoVehiculo)
+                    ]);
+                    return { imagePath, identificacion };
+                }));
+
+                for (const r of resultados.filter(Boolean)) {
+                    partesResults.push(r);
+                    await sessionsService.updateEntidades(customerPhone, {
+                        repuestos_solicitados: [{
+                            nombre: r.identificacion.nombre_sugerido || 'Pieza sin identificar',
+                            cantidad: 1,
+                            precio: null,
+                            estado: 'pendiente',
+                            pendiente_identificacion: true,
+                            imagen_url: r.imagePath,
+                            identificacion_ia: r.identificacion.descripcion,
+                            confianza_ia: r.identificacion.confianza,
+                            notas_ia: null
+                        }]
+                    });
+                }
             }
 
             session = await sessionsService.getSession(customerPhone);
 
-            // Si hay también texto en el lote, procesarlo con Gemini para extraer datos del vehículo
+            // Si hay también texto en el lote, procesarlo con Gemini para extraer datos adicionales
             if (userText.trim()) {
                 const aiJson = await geminiService.generateResponse(userText, session, null, []);
-                if (Array.isArray(aiJson)) {
-                    // ignore malformed
-                } else if (aiJson?.entidades) {
+                if (!Array.isArray(aiJson) && aiJson?.entidades) {
                     await sessionsService.updateEntidades(customerPhone, aiJson.entidades);
                     session = await sessionsService.getSession(customerPhone);
                 }
             }
 
-            // Verificar si ya tenemos datos mínimos del vehículo para pasar a ESPERANDO_VENDEDOR
+            // ── FASE 3: CONSTRUIR RESPUESTA ──
+            // Caso padrón con propietario pendiente → pedir confirmación de propiedad
+            if (padronDatos && propietarioPendiente) {
+                const veh = `${padronDatos.marca_modelo || 'tu vehículo'}${padronDatos.ano ? ' ' + padronDatos.ano : ''}`;
+                const patenteStr = padronDatos.patente ? ` (patente ${padronDatos.patente})` : '';
+                const msg = `📄 Recibí tu padrón del ${veh}${patenteStr}. Ya anoté los datos del vehículo. ¿Está a tu nombre (${propietarioPendiente.nombre || 'el propietario del padrón'}) o cotizas para otra persona?`;
+                await new Promise(r => setTimeout(r, 1500));
+                await whatsappService.sendTextMessage(customerPhone, msg);
+                return;
+            }
+
+            // Caso padrón sin propietario → confirmación simple del vehículo
+            if (padronDatos && !propietarioPendiente) {
+                const veh = `${padronDatos.marca_modelo || 'tu vehículo'}${padronDatos.ano ? ' ' + padronDatos.ano : ''}`;
+                const patenteStr = padronDatos.patente ? ` (patente ${padronDatos.patente})` : '';
+                const msg = `📄 Recibí tu padrón del ${veh}${patenteStr}. Ya anoté los datos del vehículo. ¿Qué repuesto necesitas?`;
+                await new Promise(r => setTimeout(r, 1500));
+                await whatsappService.sendTextMessage(customerPhone, msg);
+                return;
+            }
+
+            // Caso solo partes → mensaje original según estado
             const e = session.entidades;
             const tieneVehiculo = (e.ano && (e.patente || e.vin)) ||
                 (Array.isArray(e.vehiculos) && e.vehiculos.some(v => v.ano && (v.patente || v.vin)));
+            const nFotos = partesResults.length;
 
             if (session.estado === sessionsService.STATES.PERFILANDO) {
                 if (tieneVehiculo) {
                     await sessionsService.setEstado(customerPhone, sessionsService.STATES.ESPERANDO_VENDEDOR);
-                    const nFotos = validResults.length;
                     const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''}. Un asesor las revisará y te cotizará en breve. 🔧`;
                     await new Promise(r => setTimeout(r, 1500));
                     await whatsappService.sendTextMessage(customerPhone, msg);
                 } else {
-                    const nFotos = validResults.length;
                     const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''}. Para cotizar necesito también los datos del auto: marca, año y patente. ¿Me los puedes enviar?`;
                     await new Promise(r => setTimeout(r, 1500));
                     await whatsappService.sendTextMessage(customerPhone, msg);
                 }
             } else {
-                // ESPERANDO_VENDEDOR: nueva imagen llegó, notificar que se agregó
-                const nFotos = validResults.length;
                 const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''} adicional${nFotos > 1 ? 'es' : ''}. El asesor las revisará junto a la cotización. 🔧`;
                 await new Promise(r => setTimeout(r, 1500));
                 await whatsappService.sendTextMessage(customerPhone, msg);
@@ -353,15 +472,25 @@ const processBufferedMessages = async (customerPhone) => {
 
         // Guard: ESPERANDO_VENDEDOR — HU-2: clasificación semántica (reemplaza keywords estáticas)
         if (session.estado === sessionsService.STATES.ESPERANDO_VENDEDOR) {
-            const intentResult = await geminiService.classifyIntent(userText);
-            if (!intentResult.es_compra) {
-                console.log(`[Hand-off] Ignorando mensaje de ${customerPhone} (ESPERANDO_VENDEDOR, no es compra)`);
-                await whatsappService.sendTextMessage(customerPhone,
-                    '¡Hola! Estamos buscando los precios para ti, en unos minutos te enviamos la cotización completa. 🔍');
-                return;
+            // Bug #2: Si hay modo bloqueante de VIN/Patente activo, saltar el classifyIntent:
+            // el cliente probablemente está entregando el dato solicitado por el vendedor.
+            // Hay que forzar PERFILANDO para que Gemini lo procese en modo bloqueante.
+            const needsManualVin = session.entidades?.solicitud_manual_vin === true;
+            const needsManualPatente = session.entidades?.solicitud_manual_patente === true;
+            if (needsManualVin || needsManualPatente) {
+                session = await sessionsService.setEstado(customerPhone, sessionsService.STATES.PERFILANDO);
+                console.log(`[Session] 🔓 Modo bloqueante ${needsManualVin ? 'VIN' : 'patente'} activo para ${customerPhone}. Forzando PERFILANDO sin classifyIntent.`);
+            } else {
+                const intentResult = await geminiService.classifyIntent(userText);
+                if (!intentResult.es_compra) {
+                    console.log(`[Hand-off] Ignorando mensaje de ${customerPhone} (ESPERANDO_VENDEDOR, no es compra)`);
+                    await whatsappService.sendTextMessage(customerPhone,
+                        '¡Hola! Estamos buscando los precios para ti, en unos minutos te enviamos la cotización completa. 🔍');
+                    return;
+                }
+                session = await sessionsService.setEstado(customerPhone, sessionsService.STATES.PERFILANDO);
+                console.log(`[Session] ➕ Intención de compra detectada para ${customerPhone}. Volviendo a PERFILANDO.`);
             }
-            session = await sessionsService.setEstado(customerPhone, sessionsService.STATES.PERFILANDO);
-            console.log(`[Session] ➕ Intención de compra detectada para ${customerPhone}. Volviendo a PERFILANDO.`);
         }
 
         console.log(`[Webhook] Enviando a Gemini mensaje final de ${customerPhone}: "${userText.replace(/\n/g, ' ')}"`);

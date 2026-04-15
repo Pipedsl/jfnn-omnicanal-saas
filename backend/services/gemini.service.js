@@ -412,8 +412,65 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura:
     }
 };
 
-module.exports = {
-    generateResponse
+/**
+ * Clasifica una imagen enviada por el cliente y extrae datos según su tipo.
+ * Tipos: "padron" (Permiso de Circulación o Certificado de Anotaciones Vigentes del Registro Civil),
+ *        "parte" (pieza automotriz), "otro".
+ * Para "padron" extrae datos del vehículo + propietario. Para los otros casos deja
+ * que el caller invoque identifyPartFromImage si corresponde.
+ * @param {Object} imageData - { buffer: Buffer, mimeType: string }
+ * @returns {Promise<{tipo: string, padron: object|null}>}
+ */
+const analyzeImage = async (imageData) => {
+    try {
+        const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+        const prompt = `Eres un sistema de clasificación y extracción de imágenes para una tienda chilena de repuestos automotrices.
+
+Analiza la imagen y clasifícala en UNO de estos tipos:
+1. "padron" — Documento oficial del Registro Civil chileno: "Permiso de Circulación" (municipal) o "Certificado de Anotaciones Vigentes" (Registro de Vehículos Motorizados). Contiene datos del vehículo y propietario. La palabra "PADRÓN" NO siempre aparece literalmente.
+2. "parte" — Una pieza o repuesto automotriz (filtro, pastilla, correa, bomba, disco, bujía, etc.).
+3. "otro" — Cualquier otra imagen (persona, captura de chat, paisaje, etc.).
+
+Responde SOLO con JSON válido:
+{
+    "tipo": "padron" | "parte" | "otro",
+    "padron": {
+        "marca_modelo": "Marca + Modelo del vehículo (ej: 'Toyota Hilux') o null",
+        "ano": "año del vehículo como string o null",
+        "patente": "patente chilena en MAYÚSCULAS sin guiones ni espacios (ej: 'BRXS20') o null",
+        "vin": "VIN / número de chasis o null",
+        "motor": "número de motor o cilindrada si aparece, o null",
+        "combustible": "bencina | diesel | hibrido | electrico | null",
+        "nombre_propietario": "nombre completo del propietario tal como aparece en el documento, o null",
+        "rut_propietario": "RUT en formato XX.XXX.XXX-X o null"
+    }
+}
+
+Reglas DURAS:
+- Si tipo != "padron", devuelve "padron": null.
+- NO inventes datos. Si un campo no está visible con claridad, devuélvelo null.
+- Si solo ves una parte del documento y no distingues patente ni VIN, igual puedes clasificar como "padron" y devolver lo que sí veas.`;
+
+        const parts = [
+            { text: prompt },
+            { inlineData: { data: imageData.buffer.toString("base64"), mimeType: imageData.mimeType } }
+        ];
+
+        const result = await model.generateContent({
+            contents: [{ role: "user", parts }],
+            generationConfig: { response_mime_type: "application/json" }
+        });
+
+        const parsed = JSON.parse(result.response.text());
+        const resumen = parsed.tipo === 'padron'
+            ? ` ${parsed.padron?.marca_modelo || '?'} ${parsed.padron?.ano || ''} ${parsed.padron?.patente || ''}`.trim()
+            : '';
+        console.log(`[Gemini] 🖼️ analyzeImage: tipo=${parsed.tipo}${resumen ? ' | ' + resumen : ''}`);
+        return parsed;
+    } catch (err) {
+        console.error('[Gemini] ❌ Error en analyzeImage:', err.message);
+        return { tipo: 'otro', padron: null };
+    }
 };
 
 /**
@@ -513,5 +570,6 @@ module.exports = {
     generateResponse,
     extractVoucherData,
     classifyIntent,
-    identifyPartFromImage
+    identifyPartFromImage,
+    analyzeImage
 };
