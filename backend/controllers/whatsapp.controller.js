@@ -638,18 +638,25 @@ const processBufferedMessages = async (customerPhone) => {
             const hasRepuestosVehiculos = Array.isArray(e.vehiculos) && e.vehiculos.some(v => Array.isArray(v.repuestos_solicitados) && v.repuestos_solicitados.length > 0);
             const hasRepuestos = hasRepuestosRoot || hasRepuestosVehiculos;
 
-            // Validar metadata mínima del auto (Año + Patente o VIN) en la raíz o en al menos UN carrito manual
-            const rootHasMinData = e.ano && (e.patente || e.vin);
-            const vehiculosHasMinData = Array.isArray(e.vehiculos) && e.vehiculos.some(v => v.ano && (v.patente || v.vin));
+            // Validar metadata mínima del auto: marca + año es suficiente para piezas no-críticas.
+            // La decisión de pedir patente/VIN ya la toma Gemini según el tipo de pieza (modo suave/bloqueante).
+            const rootHasMinData = e.ano && e.marca_modelo;
+            const vehiculosHasMinData = Array.isArray(e.vehiculos) && e.vehiculos.some(v => v.ano && v.marca_modelo);
 
             const hasMinData = (rootHasMinData || vehiculosHasMinData) && hasRepuestos;
             // finalMessage puede ser string o array — convertir a string para revisar
             const finalMessageStr = Array.isArray(finalMessage) ? finalMessage.join(" ") : finalMessage;
             const isAsking = finalMessageStr.includes("?") || finalMessageStr.toLowerCase().includes("qué tipo");
+            // Si Gemini explícitamente sugiere ESPERANDO_VENDEDOR, confiar en esa decisión
+            // aunque haya un "?" de cortesía ("¿algo más?") al final del mensaje.
+            const geminiSugiereTraspasar = aiJson.estado === 'ESPERANDO_VENDEDOR';
 
-            if (hasMinData && !isAsking) {
+            if (hasMinData && (!isAsking || geminiSugiereTraspasar)) {
                 await sessionsService.setEstado(customerPhone, 'ESPERANDO_VENDEDOR');
-                finalMessage = "Perfecto, recibí toda la información. Un asesor revisará el stock ahora mismo y le enviará los precios por este chat en unos minutos. ¡Muchas gracias!";
+                // Usar el mensaje de Gemini si ya lo formuló correctamente, si no el genérico
+                if (!geminiSugiereTraspasar) {
+                    finalMessage = "Perfecto, recibí toda la información. Un asesor revisará el stock ahora mismo y le enviará los precios por este chat en unos minutos. ¡Muchas gracias!";
+                }
                 printShadowQuote(customerPhone, session.entidades);
             }
         } else if (session.estado === sessionsService.STATES.CONFIRMANDO_COMPRA || session.estado === sessionsService.STATES.ESPERANDO_COMPROBANTE) {
