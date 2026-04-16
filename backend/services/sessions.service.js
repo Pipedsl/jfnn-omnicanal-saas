@@ -253,6 +253,13 @@ const updateEntidades = async (phone, nuevasEntidades) => {
         // MERGE inteligente de vehículos múltiples (HU-5)
         if (nuevasEntidades.vehiculos && Array.isArray(nuevasEntidades.vehiculos)) {
             if (!entities.vehiculos) entities.vehiculos = [];
+            // MEJORA #4 fix: guardar las marcas que reciben patente en ESTE merge para saber cuál es la asignación reciente
+            const marcasConPatenteNueva = new Set();
+            nuevasEntidades.vehiculos.forEach(nv => {
+                if (nv.patente && nv.marca_modelo) {
+                    marcasConPatenteNueva.add(nv.marca_modelo);
+                }
+            });
             
             nuevasEntidades.vehiculos.forEach(nuevoVehiculo => {
                 let targetAuto = entities.vehiculos.find(v => 
@@ -327,15 +334,29 @@ const updateEntidades = async (phone, nuevasEntidades) => {
             });
 
             // MEJORA #4: Detectar y limpiar patentes duplicadas entre vehículos
-            const patentesVistas = new Set();
-            for (const v of entities.vehiculos) {
-                if (v.patente) {
-                    if (patentesVistas.has(v.patente)) {
-                        console.warn(`[Merge] ⚠️ Patente duplicada en múltiples vehículos: "${v.patente}" → limpiando del segundo.`);
-                        v.patente = null;
+            // "Última asignación gana": si la patente fue recién asignada a un vehículo en este merge,
+            // ese vehículo la conserva y se limpia del que la tenía antes (que probablemente la heredó por migración root).
+            const patentesVistas = new Map(); // patente → índice del vehículo que la tiene
+            for (let i = 0; i < entities.vehiculos.length; i++) {
+                const v = entities.vehiculos[i];
+                if (!v.patente) continue;
+                const prevIdx = patentesVistas.get(v.patente);
+                if (prevIdx !== undefined) {
+                    const prevMarca = entities.vehiculos[prevIdx].marca_modelo;
+                    const actualEsReciente = marcasConPatenteNueva.has(v.marca_modelo);
+                    const prevEsReciente = marcasConPatenteNueva.has(prevMarca);
+                    if (actualEsReciente && !prevEsReciente) {
+                        // El vehículo actual recibió la patente en este merge → limpiar el anterior
+                        console.warn(`[Merge] ⚠️ Patente "${v.patente}" reasignada: ${prevMarca} → ${v.marca_modelo}. Limpiando del anterior.`);
+                        entities.vehiculos[prevIdx].patente = null;
+                        patentesVistas.set(v.patente, i);
                     } else {
-                        patentesVistas.add(v.patente);
+                        // El anterior tenía la patente antes (o ambiguo) → limpiar el actual
+                        console.warn(`[Merge] ⚠️ Patente duplicada "${v.patente}" limpiada de ${v.marca_modelo}.`);
+                        v.patente = null;
                     }
+                } else {
+                    patentesVistas.set(v.patente, i);
                 }
             }
 
