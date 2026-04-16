@@ -2,6 +2,7 @@ const geminiService = require('../services/gemini.service');
 const whatsappService = require('../services/whatsapp.service');
 const sessionsService = require('../services/sessions.service');
 const storageService = require('../services/storage.service');
+const scheduleService = require('../services/schedule.service');
 const db = require('../config/db');
 const { printShadowQuote } = require('../utils/shadowQuote');
 
@@ -653,9 +654,12 @@ const processBufferedMessages = async (customerPhone) => {
 
             if (hasMinData && (!isAsking || geminiSugiereTraspasar)) {
                 await sessionsService.setEstado(customerPhone, 'ESPERANDO_VENDEDOR');
-                // Usar el mensaje de Gemini si ya lo formuló correctamente, si no el genérico
+                // Usar el mensaje de Gemini si ya lo formuló correctamente, si no el genérico adaptado al horario
                 if (!geminiSugiereTraspasar) {
-                    finalMessage = "Perfecto, recibí toda la información. Un asesor revisará el stock ahora mismo y le enviará los precios por este chat en unos minutos. ¡Muchas gracias!";
+                    const estadoAtencion = await scheduleService.getEstadoAtencion();
+                    finalMessage = estadoAtencion.abierto
+                        ? "Perfecto, recibí toda la información. Un asesor revisará el stock y le enviará los precios por este chat en breve. ¡Muchas gracias!"
+                        : "Perfecto, quedó registrada su solicitud. En cuanto abramos, el asesor le enviará la cotización por este chat. ¡Muchas gracias!";
                 }
                 printShadowQuote(customerPhone, session.entidades);
             }
