@@ -918,6 +918,52 @@ router.post('/solicitar-patente', async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// FERIADOS — CRUD para gestión de feriados (Fix #5)
+// ═══════════════════════════════════════════════════════════════
+const scheduleService = require('../services/schedule.service');
+
+router.get('/feriados', async (_req, res) => {
+    try {
+        const { rows } = await db.query('SELECT id, fecha, nombre, created_at FROM feriados ORDER BY fecha ASC');
+        res.status(200).json({ total: rows.length, feriados: rows });
+    } catch (err) {
+        console.error('[Feriados] Error GET:', err);
+        res.status(500).json({ error: 'Error al obtener feriados.' });
+    }
+});
+
+router.post('/feriados', async (req, res) => {
+    try {
+        const { fecha, nombre } = req.body;
+        if (!fecha || !nombre) return res.status(400).json({ error: 'fecha y nombre son requeridos.' });
+        const { rows } = await db.query(
+            'INSERT INTO feriados (fecha, nombre) VALUES ($1, $2) ON CONFLICT (fecha) DO UPDATE SET nombre = EXCLUDED.nombre RETURNING *',
+            [fecha, nombre.trim()]
+        );
+        scheduleService.invalidateCache();
+        console.log(`[Feriados] ✅ Agregado: ${fecha} — ${nombre}`);
+        res.status(201).json({ success: true, feriado: rows[0] });
+    } catch (err) {
+        console.error('[Feriados] Error POST:', err);
+        res.status(500).json({ error: 'Error al guardar feriado.' });
+    }
+});
+
+router.delete('/feriados/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { rowCount } = await db.query('DELETE FROM feriados WHERE id = $1', [id]);
+        if (!rowCount) return res.status(404).json({ error: 'Feriado no encontrado.' });
+        scheduleService.invalidateCache();
+        console.log(`[Feriados] 🗑 Eliminado id=${id}`);
+        res.status(200).json({ success: true });
+    } catch (err) {
+        console.error('[Feriados] Error DELETE:', err);
+        res.status(500).json({ error: 'Error al eliminar feriado.' });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════
 // POST /auto-archive — Archivado manual de sesiones abandonadas
 // ═══════════════════════════════════════════════════════════════
 router.post('/auto-archive', async (req, res) => {

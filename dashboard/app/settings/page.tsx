@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Settings, Brain, Sparkles, ChevronLeft, Save, Loader2, X, Zap, BookOpen } from "lucide-react";
+import { Settings, Brain, Sparkles, ChevronLeft, Save, Loader2, X, Zap, BookOpen, CalendarDays, Trash2, Plus } from "lucide-react";
 import Link from "next/link";
 import axios from "axios";
 
@@ -18,7 +18,15 @@ interface Regla {
 
 export default function SettingsPage() {
     const [rubro, setRubro] = useState("repuestos");
-    const [seccion, setSeccion] = useState<"personalidad" | "entrenamiento">("personalidad");
+    const [seccion, setSeccion] = useState<"personalidad" | "entrenamiento" | "feriados">("personalidad");
+
+    // Feriados
+    interface Feriado { id: number; fecha: string; nombre: string; }
+    const [feriados, setFeriados] = useState<Feriado[]>([]);
+    const [cargandoFeriados, setCargandoFeriados] = useState(false);
+    const [nuevaFecha, setNuevaFecha] = useState("");
+    const [nuevoNombre, setNuevoNombre] = useState("");
+    const [guardandoFeriado, setGuardandoFeriado] = useState(false);
 
     // HU-7: Entrenamiento
     const [historialTexto, setHistorialTexto] = useState("");
@@ -66,6 +74,37 @@ export default function SettingsPage() {
         } finally {
             setEntrenando(false);
         }
+    };
+
+    const fetchFeriados = useCallback(async () => {
+        setCargandoFeriados(true);
+        try {
+            const res = await axios.get(`${API}/feriados`);
+            setFeriados(res.data.feriados || []);
+        } catch { /* silencioso */ }
+        finally { setCargandoFeriados(false); }
+    }, []);
+
+    useEffect(() => {
+        if (seccion === "feriados") fetchFeriados();
+    }, [seccion, fetchFeriados]);
+
+    const handleAgregarFeriado = async () => {
+        if (!nuevaFecha || !nuevoNombre.trim()) return;
+        setGuardandoFeriado(true);
+        try {
+            await axios.post(`${API}/feriados`, { fecha: nuevaFecha, nombre: nuevoNombre.trim() });
+            setNuevaFecha(""); setNuevoNombre("");
+            await fetchFeriados();
+        } catch (err) { console.error("Error agregando feriado:", err); }
+        finally { setGuardandoFeriado(false); }
+    };
+
+    const handleEliminarFeriado = async (id: number) => {
+        try {
+            await axios.delete(`${API}/feriados/${id}`);
+            setFeriados(prev => prev.filter(f => f.id !== id));
+        } catch (err) { console.error("Error eliminando feriado:", err); }
     };
 
     const handleEliminarRegla = async (id: number) => {
@@ -133,6 +172,16 @@ export default function SettingsPage() {
                             <Sparkles size={18} />
                             Entrenamiento IA
                             <span className="ml-auto text-[9px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded-full font-bold">BETA</span>
+                        </button>
+                        <button
+                            onClick={() => setSeccion("feriados")}
+                            className={`w-full text-left px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-3 transition-colors ${seccion === "feriados"
+                                ? "bg-orange-500/10 border border-orange-500/20 text-orange-400"
+                                : "hover:bg-white/5 text-neutral-500 border border-transparent"
+                                }`}
+                        >
+                            <CalendarDays size={18} />
+                            Feriados
                         </button>
                     </div>
 
@@ -283,6 +332,79 @@ export default function SettingsPage() {
                                                         title="Eliminar regla"
                                                     >
                                                         <X size={11} />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </section>
+                            </div>
+                        )}
+                        {/* ── SECCIÓN FERIADOS ── */}
+                        {seccion === "feriados" && (
+                            <div className="space-y-6">
+                                <section className="glass p-8 rounded-3xl space-y-6">
+                                    <div className="flex items-start gap-3">
+                                        <div className="w-10 h-10 bg-orange-500/10 rounded-xl flex items-center justify-center flex-shrink-0">
+                                            <CalendarDays size={20} className="text-orange-400" />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-lg font-bold mb-1">Feriados Irrenunciables</h3>
+                                            <p className="text-sm text-neutral-500">
+                                                El agente avisará que estamos cerrados estos días. Actualiza la lista cada año.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {/* Formulario agregar */}
+                                    <div className="flex gap-3">
+                                        <input
+                                            type="date"
+                                            value={nuevaFecha}
+                                            onChange={e => setNuevaFecha(e.target.value)}
+                                            className="bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-sm text-neutral-300 focus:outline-none focus:border-orange-500/50 transition-colors"
+                                        />
+                                        <input
+                                            type="text"
+                                            value={nuevoNombre}
+                                            onChange={e => setNuevoNombre(e.target.value)}
+                                            placeholder="Ej: Año Nuevo"
+                                            className="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-2 text-sm text-neutral-300 placeholder-neutral-700 focus:outline-none focus:border-orange-500/50 transition-colors"
+                                        />
+                                        <button
+                                            onClick={handleAgregarFeriado}
+                                            disabled={guardandoFeriado || !nuevaFecha || !nuevoNombre.trim()}
+                                            className="flex items-center gap-2 bg-orange-500 hover:bg-orange-400 disabled:bg-neutral-800 disabled:text-neutral-600 text-white font-bold px-4 py-2 rounded-xl text-sm transition-all active:scale-[0.98]"
+                                        >
+                                            {guardandoFeriado ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+                                            Agregar
+                                        </button>
+                                    </div>
+
+                                    {/* Lista feriados */}
+                                    {cargandoFeriados ? (
+                                        <div className="flex items-center gap-2 text-neutral-500 text-sm py-4">
+                                            <Loader2 size={16} className="animate-spin" />
+                                            Cargando feriados...
+                                        </div>
+                                    ) : feriados.length === 0 ? (
+                                        <p className="text-sm text-neutral-600 py-4 text-center">No hay feriados registrados.</p>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            {feriados.map(f => (
+                                                <div key={f.id} className="flex items-center justify-between bg-neutral-900 border border-neutral-800 rounded-xl px-4 py-3">
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="text-xs font-mono text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded-lg">
+                                                            {new Date(f.fecha + 'T12:00:00').toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                                        </span>
+                                                        <span className="text-sm text-neutral-300">{f.nombre}</span>
+                                                    </div>
+                                                    <button
+                                                        onClick={() => handleEliminarFeriado(f.id)}
+                                                        className="text-neutral-600 hover:text-red-400 transition-colors p-1"
+                                                        title="Eliminar feriado"
+                                                    >
+                                                        <Trash2 size={15} />
                                                     </button>
                                                 </div>
                                             ))}

@@ -80,3 +80,33 @@ CREATE TABLE IF NOT EXISTS training_examples (
 );
 
 CREATE INDEX IF NOT EXISTS idx_training_activo ON training_examples(activo);
+
+-- Tabla de feriados chilenos (Fix #5 — Horario inteligente)
+CREATE TABLE IF NOT EXISTS feriados (
+    id          SERIAL PRIMARY KEY,
+    fecha       DATE NOT NULL UNIQUE,
+    nombre      VARCHAR(200) NOT NULL,
+    created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_feriados_fecha ON feriados(fecha);
+
+-- Seed inicial feriados Chile 2026 (idempotente)
+INSERT INTO feriados (fecha, nombre) VALUES
+('2026-01-01', 'Año Nuevo'),
+('2026-04-03', 'Viernes Santo'),
+('2026-04-04', 'Sábado Santo'),
+('2026-05-01', 'Día del Trabajo'),
+('2026-05-21', 'Día de las Glorias Navales'),
+('2026-06-20', 'Día Nacional de los Pueblos Indígenas'),
+('2026-06-29', 'San Pedro y San Pablo'),
+('2026-07-16', 'Día de la Virgen del Carmen'),
+('2026-08-15', 'Asunción de la Virgen'),
+('2026-09-18', 'Fiestas Patrias'),
+('2026-09-19', 'Día de las Glorias del Ejército'),
+('2026-10-12', 'Encuentro de Dos Mundos'),
+('2026-10-31', 'Día de las Iglesias Evangélicas'),
+('2026-11-01', 'Día de Todos los Santos'),
+('2026-12-08', 'Inmaculada Concepción'),
+('2026-12-25', 'Navidad')
+ON CONFLICT (fecha) DO NOTHING;

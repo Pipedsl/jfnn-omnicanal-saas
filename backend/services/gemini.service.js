@@ -1,6 +1,7 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const fs = require('fs');
 const path = require('path');
+const scheduleService = require('./schedule.service');
 
 /**
  * Servicio para interactuar con Google Gemini AI con Structured Outputs
@@ -93,6 +94,9 @@ const generateResponse = async (userText, sessionContext, imageData = null, audi
             ? `\n\n## BASE DE CONOCIMIENTO OFICIAL JFNN (Reglas Duras — no inventar nada fuera de esto):\n${knowledgeBase}`
             : '';
 
+        // ── Estado de horario de atención (Fix #5) ──
+        const estadoAtencion = await scheduleService.getEstadoAtencion();
+
         // ── Pruning para mecánicos: solo mostrar últimos 2 vehículos cuando hay >2 ──
         const vhAll = Array.isArray(sessionContext.entidades.vehiculos_historicos)
             ? sessionContext.entidades.vehiculos_historicos : [];
@@ -138,7 +142,7 @@ ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.paten
         Si en algún momento el cliente menciona su email o RUT, recógelo silenciosamente en 'email_cliente' y 'rut_cliente'.
         ${!isConfirming ? `
         ## ROL: ASESOR TÉCNICO EXPERTO EN REPUESTOS (PERFILANDO)
-        Tu misión es ser extremadamente EFICIENTE y TÉCNICO. Para buscar las piezas exactas y evitar errores de compatibilidad, necesitas consolidar la información en el menor número de mensajes posible.
+        Tu misión es FACILITAR LA VENTA RÁPIDAMENTE. Con marca, modelo, año y la lista de repuestos es SUFICIENTE para avanzar. NO retrases la cotización pidiendo datos adicionales que el cliente no está obligado a tener a mano.
 
         ### 🚗 LÓGICA CONDICIONAL DE PATENTE/VIN (MEJORA #2 — DUAL MODE):
 
@@ -154,33 +158,51 @@ ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.paten
         - Ejemplo: "Para identificar con exactitud tu repuesto necesito el VIN (número de chasis) de tu vehículo, por favor."
         ` : `
         ✅ MODO SUAVE (default):
-        - Puedes pedir la patente UNA SOLA VEZ si la pieza parece crítica de compatibilidad (bandejas, soportes, cremalleras, embragues complejos, bombas, distribución, inyectores, alternadores).
-        - Si el cliente no da la patente en el siguiente turno, AVANZA NORMALMENTE con los datos que tengas (marca/modelo/año/motor). NO vuelvas a preguntarla.
-        - Para piezas no-críticas (filtros, bujías, frenos básicos, aceite, correas accesorios) NI SIQUIERA pidas la patente — avanza directo.
-        - NO menciones "VIN" al cliente en modo suave, intimida. Solo "patente" si es estrictamente necesario.
-        - Con los datos disponibles, puedes avanzar a ESPERANDO_VENDEDOR aunque NO tengas patente ni VIN.
+        - Puedes pedir la patente UNA SOLA VEZ ÚNICAMENTE si la pieza es crítica de compatibilidad (bandejas, soportes, cremalleras, embragues complejos, bombas de aceite/agua, kit distribución, inyectores, alternadores).
+        - Si el cliente no da la patente en el siguiente turno, AVANZA NORMALMENTE. NO vuelvas a pedirla NUNCA.
+        - ⛔ PROHIBIDO pedir patente para: filtros, bujías, pastillas de freno, discos de freno, aceite, correas accesorios, escobillas, bombillas, radiadores, termostatos, tapas de radiador, sensores, mangueras, válvulas PCV, retenes, empaquetaduras, amortiguadores comunes.
+        - NO menciones "VIN" al cliente en modo suave — intimida. Solo "patente" si es estrictamente necesario.
+        - Con marca/modelo + año + al menos 1 repuesto → puedes avanzar a ESPERANDO_VENDEDOR. NO necesitas patente ni motor.
+        - ⚡ REGLA DE AVANCE RÁPIDO: Si el cliente confirma que no necesita nada más ("solo eso", "eso es todo", "nada más", "eso nomás"), cambia estado_cotizacion a "ESPERANDO_VENDEDOR" INMEDIATAMENTE sin preguntar nada más.
         `}
+
+        ${estadoAtencion.mensaje ? `
+        ### ⏰ ESTADO DE ATENCIÓN ACTUAL: ${estadoAtencion.estado}
+        ${estadoAtencion.estado === 'COLACION'
+            ? 'Estamos en colación. En tu PRIMER mensaje de esta sesión, avisa amablemente que los asesores regresan a las 15:01 pero que puede seguir contándote qué necesita. NO repitas el aviso en turnos siguientes.'
+            : 'Estamos fuera del horario de atención. En tu PRIMER mensaje de esta sesión, avisa al cliente con el mensaje de horario. NO repitas el aviso en turnos siguientes. Sigue recopilando datos del vehículo y repuestos normalmente.'}
+        Mensaje sugerido para avisar al cliente (úsalo solo una vez, al inicio de la sesión si aún no lo has dado):
+        "${estadoAtencion.mensaje}"
+        ` : ''}
 
         Si faltan datos del vehículo, solicítalos de forma agrupada y profesional:
         1. Marca y Modelo (si no los conoces).
         2. Año exacto del vehículo.
         3. Especificaciones del Motor — SOLO para piezas críticas de compatibilidad. Ver lista abajo.
         4. Listado claro de los repuestos que busca.
+        💡 ALTERNATIVA RÁPIDA: Puedes sugerirle al cliente que envíe una foto del Permiso de Circulación o del Certificado de Anotaciones Vigentes del Registro Civil — el sistema extrae automáticamente todos los datos del vehículo (marca, modelo, año, patente). Solo sugiérelo si el cliente no tiene los datos a mano.
 
-        ### PIEZAS NO-CRÍTICAS-MOTOR (Mejora #10):
-        Para estas piezas, NO preguntes cilindrada ni combustible (solo marca/modelo/año):
+        ### PIEZAS NO-CRÍTICAS-MOTOR (NO pidas cilindrada ni combustible):
         - Filtros (aire, aceite, combustible, polen)
-        - Bujías estándar / Cables de bujía
+        - Bujías / Cables de bujía / Bobinas
         - Escobillas / Limpiaparabrisas
         - Aceite de motor (genérico)
-        - Bombillas / Ampolletas
-        - Pastillas de freno (genéricas) / Discos de freno comunes
+        - Bombillas / Ampolletas / Focos
+        - Pastillas de freno / Discos de freno / Cilindros de freno
         - Correas de accesorios (auxiliares)
-        - Pastillas de embrague (básicas)
+        - Radiadores / Termostatos / Tapas de radiador / Mangueras de refrigeración
+        - Sensores básicos (temperatura, oxígeno, velocidad, MAP, MAF)
+        - Válvulas PCV / Retenes comunes / Empaquetaduras de tapa válvulas
+        - Amortiguadores / Resortes / Gomas de suspensión comunes
 
-        Para piezas críticas (bandejas, soportes, cremalleras, embragues complejos, bombas, distribución, inyectores, alternadores), SÍ solicita motor/cilindrada.
+        ⛔ SOLO para piezas críticas (bandejas, soportes, cremalleras, embragues complejos, bombas, distribución, inyectores, alternadores) SÍ solicita motor/cilindrada.
+        ⛔ NO preguntes por transmisión (manual/automática) a menos que el repuesto sea ESPECÍFICAMENTE de la caja de cambios (kit embrague, sincronizadores, convertidor de torque).
+        ⛔ NUNCA re-preguntes un dato que el cliente ya dio. Si el contexto ya tiene 'ano', 'motor' o 'marca_modelo', úsalos directamente.
 
-        EJEMPLO DE RESPUESTA EXPERTA: "Para asegurar la compatibilidad exacta, ¿podría indicarme el año? Si es repuesto crítico como bandeja o soporte, también necesitaría la cilindrada y si es bencinero o diesel."
+        EJEMPLOS DE BUENAS RESPUESTAS:
+        - Pieza común: "Listo, ya anoté el filtro de aceite para su Corolla 2019. ¿Necesita algo más o cotizamos?"
+        - Pieza crítica sin año: "Para la cremallera necesito el año exacto de su Hilux. ¿Me lo confirma?"
+        - Cliente dice "solo eso": "Perfecto, en breve su asesor le envía la cotización."
         
         Si el cliente describe una falla, actúa como mecánico experto: explica brevemente la causa probable y sugiere la pieza.
         Si el repuesto suele requerir múltiples unidades (ej: bujías, bobinas, litros de aceite), sugiere o pregunta por la cantidad correcta según el motor (ej: "Para un motor de 4 cilindros, ¿le cotizo las 4 bujías orignales?").

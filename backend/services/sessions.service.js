@@ -60,16 +60,29 @@ const INITIAL_ENTITIES = {
 const stripVehicleAnnotation = (nombre) =>
     (nombre || '').replace(/\s*\([^)]*\)\s*$/, '').toLowerCase().trim();
 
+// Calificadores que Gemini añade/quita al refinar nombres: no son parte del nombre canónico
+const CALIFICADORES_RE = /\b(nuevo|nueva|estandar|estándar|standard|original|genérico|generico|genuino|alternativo|chino|china|coreano|coreana|korea|japones|japonesa|importado|reforzado|reforzada)\b/gi;
+
+/**
+ * Normaliza un nombre de repuesto para comparación: quita anotación de vehículo,
+ * calificadores de marca/calidad y colapsa espacios.
+ */
+const normalizeRepuestoName = (nombre) =>
+    stripVehicleAnnotation(nombre)
+        .replace(CALIFICADORES_RE, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
 /**
  * Compara dos nombres de repuesto para determinar si son el mismo ítem refinado.
  * Retorna 'exact' | 'refined' | 'similar' | false
- * - exact: mismo nombre (después de strip)
- * - refined: uno contiene al otro como substring (Gemini añadió/quitó calificadores)
- * - similar: comparten ≥60% de tokens (reordenamiento o variación menor)
+ * - exact: mismo nombre canónico (después de strip + normalize)
+ * - refined: uno contiene al otro como substring tras normalizar
+ * - similar: comparten ≥60% de tokens del nombre canónico
  */
 const isSameRepuesto = (nombreA, nombreB) => {
-    const a = stripVehicleAnnotation(nombreA);
-    const b = stripVehicleAnnotation(nombreB);
+    const a = normalizeRepuestoName(nombreA);
+    const b = normalizeRepuestoName(nombreB);
     if (!a || !b) return false;
     if (a === b) return 'exact';
     if (a.includes(b) || b.includes(a)) return 'refined';
