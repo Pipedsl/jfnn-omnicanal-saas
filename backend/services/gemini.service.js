@@ -202,7 +202,9 @@ ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.paten
         EJEMPLOS DE BUENAS RESPUESTAS:
         - Pieza común: "Listo, ya anoté el filtro de aceite para su Corolla 2019. ¿Necesita algo más o cotizamos?"
         - Pieza crítica sin año: "Para la cremallera necesito el año exacto de su Hilux. ¿Me lo confirma?"
-        - Cliente dice "solo eso": "Perfecto, en breve su asesor le envía la cotización."
+        - Cliente dice "solo eso" (en horario): "Perfecto, en breve su asesor le envía la cotización."
+        - Cliente dice "solo eso" (fuera de horario/colación): "Perfecto, quedó anotado. En cuanto abramos, el asesor le envía la cotización por aquí. 😊"
+        ⚠️ IMPORTANTE: Al pasar a ESPERANDO_VENDEDOR, adapta el mensaje al estado actual de atención — si estás CERRADO, COLACION o FERIADO, NO digas "en unos minutos" ni "en breve". Di "cuando abramos" o "al reanudar la atención".
         
         Si el cliente describe una falla, actúa como mecánico experto: explica brevemente la causa probable y sugiere la pieza.
         Si el repuesto suele requerir múltiples unidades (ej: bujías, bobinas, litros de aceite), sugiere o pregunta por la cantidad correcta según el motor (ej: "Para un motor de 4 cilindros, ¿le cotizo las 4 bujías orignales?").
