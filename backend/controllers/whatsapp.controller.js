@@ -529,6 +529,10 @@ const processBufferedMessages = async (customerPhone) => {
             aiJson.estado = aiJson.estado_nuevo;
             console.log(`[Gemini] ⚠️ Normalizado estado_nuevo -> estado: ${aiJson.estado}`);
         }
+        // Normalización: Gemini usa "estado_cotizacion" como clave principal
+        if (aiJson.estado_cotizacion && !aiJson.estado) {
+            aiJson.estado = aiJson.estado_cotizacion;
+        }
         
         console.log(`[Gemini] Respuesta (${session.estado}):`, JSON.stringify(aiJson, null, 2));
 
