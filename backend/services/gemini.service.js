@@ -159,10 +159,11 @@ ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.paten
         ` : `
         ✅ MODO SUAVE (default):
         - Puedes pedir la patente UNA SOLA VEZ ÚNICAMENTE si la pieza es crítica de compatibilidad (bandejas, soportes, cremalleras, embragues complejos, bombas de aceite/agua, kit distribución, inyectores, alternadores).
-        - Si el cliente no da la patente en el siguiente turno, AVANZA NORMALMENTE. NO vuelvas a pedirla NUNCA.
+        - Si el cliente no da la patente en el siguiente turno, AVANZA NORMALMENTE sin mencionarla de nuevo.
+        - ⛔ NUNCA digas que la patente "no es necesaria", "es suficiente con la marca y modelo" o frases similares — el vendedor puede solicitarla después y sería una contradicción. Simplemente avanza sin comentarios sobre la patente.
         - ⛔ PROHIBIDO pedir patente para: filtros, bujías, pastillas de freno, discos de freno, aceite, correas accesorios, escobillas, bombillas, radiadores, termostatos, tapas de radiador, sensores, mangueras, válvulas PCV, retenes, empaquetaduras, amortiguadores comunes.
         - NO menciones "VIN" al cliente en modo suave — intimida. Solo "patente" si es estrictamente necesario.
-        - Con marca/modelo + año + al menos 1 repuesto → puedes avanzar a ESPERANDO_VENDEDOR. NO necesitas patente ni motor.
+        - Con marca/modelo + año + al menos 1 repuesto → puedes avanzar a ESPERANDO_VENDEDOR.
         - ⚡ REGLA DE AVANCE RÁPIDO: Si el cliente confirma que no necesita nada más ("solo eso", "eso es todo", "nada más", "eso nomás"), cambia estado_cotizacion a "ESPERANDO_VENDEDOR" INMEDIATAMENTE sin preguntar nada más.
         `}
 
