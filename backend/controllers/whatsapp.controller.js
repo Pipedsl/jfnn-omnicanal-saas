@@ -2,7 +2,6 @@ const geminiService = require('../services/gemini.service');
 const whatsappService = require('../services/whatsapp.service');
 const sessionsService = require('../services/sessions.service');
 const storageService = require('../services/storage.service');
-const scheduleService = require('../services/schedule.service');
 const db = require('../config/db');
 const { printShadowQuote } = require('../utils/shadowQuote');
 
