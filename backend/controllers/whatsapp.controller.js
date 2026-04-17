@@ -31,7 +31,8 @@ const verifyWebhook = (req, res) => {
 // SISTEMA DE DEBOUNCE (COLA DE MENSAJES)
 // -------------------------------------------------------------
 const messageBuffer = new Map();
-const DEBOUNCE_TIME_MS = 5000; // 15 segundos de buffer
+// Debounce ajustable por env. Dev/test: 5s. Producción recomendado: 20s (ahorra tokens).
+const DEBOUNCE_TIME_MS = parseInt(process.env.WHATSAPP_DEBOUNCE_MS || '5000', 10);
 
 const processBufferedMessages = async (customerPhone) => {
     try {
