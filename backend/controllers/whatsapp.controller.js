@@ -658,13 +658,7 @@ const processBufferedMessages = async (customerPhone) => {
 
             if (hasMinData && (!isAsking || geminiSugiereTraspasar)) {
                 await sessionsService.setEstado(customerPhone, 'ESPERANDO_VENDEDOR');
-                // Usar el mensaje de Gemini si ya lo formuló correctamente, si no el genérico adaptado al horario
-                if (!geminiSugiereTraspasar) {
-                    const estadoAtencion = await scheduleService.getEstadoAtencion();
-                    finalMessage = estadoAtencion.abierto
-                        ? "Perfecto, recibí toda la información. Un asesor revisará el stock y le enviará los precios por este chat en breve. ¡Muchas gracias!"
-                        : "Perfecto, quedó registrada su solicitud. En cuanto abramos, el asesor le enviará la cotización por este chat. ¡Muchas gracias!";
-                }
+                // Siempre usar el mensaje de Gemini — ya está contextualizado con el horario
                 printShadowQuote(customerPhone, session.entidades);
             }
         } else if (session.estado === sessionsService.STATES.CONFIRMANDO_COMPRA || session.estado === sessionsService.STATES.ESPERANDO_COMPROBANTE) {
