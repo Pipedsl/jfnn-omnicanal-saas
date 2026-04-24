@@ -973,33 +973,55 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                     </button>
                                 )}
 
-                                {estado === 'CICLO_COMPLETO' && (
-                                    <button
-                                        onClick={async () => {
-                                            if (!confirm(`¿Confirmas que se recibió el pago presencial en caja${entidades.nombre_cliente ? ` de ${entidades.nombre_cliente}` : ''}? El sistema avanzará al flujo de logística.`)) return;
-                                            try {
-                                                await axios.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, {
-                                                    phone, estado: 'PAGO_VERIFICADO', notify: false
-                                                });
-                                                closeModal();
-                                                onResponded();
-                                            } catch (error) {
-                                                console.error("Error confirmando pago presencial:", error);
-                                                alert("No se pudo confirmar el pago.");
-                                            }
-                                        }}
-                                        className="flex-1 py-2 rounded-xl bg-pink-500 text-white text-xs font-bold hover:bg-pink-600 transition-colors flex items-center justify-center gap-2 animate-pulse"
-                                    >
-                                        <CheckCircle size={14} /> ✅ Confirmar Pago Recibido en Caja
-                                    </button>
-                                )}
+                                {estado === 'CICLO_COMPLETO' && (() => {
+                                    const esCashRetiro = entidades.metodo_pago === 'local' && esRetiro;
+                                    return (
+                                        <button
+                                            disabled={loadingPago}
+                                            onClick={async () => {
+                                                const confirmMsg = esCashRetiro
+                                                    ? `¿Confirmas que ${entidades.nombre_cliente || 'el cliente'} pagó en caja y retiró los productos? La venta se cerrará y se enviará la solicitud de reseña.`
+                                                    : `¿Confirmas que se recibió el pago presencial en caja${entidades.nombre_cliente ? ` de ${entidades.nombre_cliente}` : ''}? El sistema avanzará al flujo de logística.`;
+                                                if (!confirm(confirmMsg)) return;
+                                                setLoadingPago(true);
+                                                try {
+                                                    // Cash+retiro: el cliente está físicamente en el local al pagar,
+                                                    // paga y retira en el mismo momento → cerramos la venta en un click.
+                                                    // Otros casos (ej. cash+domicilio): avanzar a PAGO_VERIFICADO para que el vendedor abra el modal de logística.
+                                                    const payload = esCashRetiro
+                                                        ? { phone, estado: 'ENTREGADO', notify: true }
+                                                        : { phone, estado: 'PAGO_VERIFICADO', notify: false };
+                                                    await axios.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, payload);
+                                                    closeModal();
+                                                    onResponded();
+                                                } catch (error) {
+                                                    console.error("Error confirmando pago presencial:", error);
+                                                    alert("No se pudo confirmar el pago.");
+                                                } finally {
+                                                    setLoadingPago(false);
+                                                }
+                                            }}
+                                            className="flex-1 py-2 rounded-xl bg-pink-500 text-white text-xs font-bold hover:bg-pink-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 animate-pulse"
+                                        >
+                                            <CheckCircle size={14} /> {loadingPago ? 'Procesando...' : (esCashRetiro ? '✅ Confirmar Pago y Cerrar Venta' : '✅ Confirmar Pago Recibido en Caja')}
+                                        </button>
+                                    );
+                                })()}
 
                                 {estado === 'ESPERANDO_RETIRO' && (
                                     <button
-                                        onClick={() => handleStatusUpdate('ENTREGADO', true)}
-                                        className="flex-1 py-2 rounded-xl bg-blue-500 text-white text-xs font-bold hover:bg-blue-600 transition-colors flex items-center justify-center gap-2"
+                                        disabled={loadingPago}
+                                        onClick={async () => {
+                                            setLoadingPago(true);
+                                            try {
+                                                await handleStatusUpdate('ENTREGADO', true);
+                                            } finally {
+                                                setLoadingPago(false);
+                                            }
+                                        }}
+                                        className="flex-1 py-2 rounded-xl bg-blue-500 text-white text-xs font-bold hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
                                     >
-                                        <CheckCircle size={14} /> ✅ Productos Retirados
+                                        <CheckCircle size={14} /> {loadingPago ? 'Procesando...' : '✅ Productos Retirados'}
                                     </button>
                                 )}
 

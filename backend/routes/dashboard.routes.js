@@ -236,10 +236,17 @@ router.patch('/cotizaciones/estado', async (req, res) => {
             return res.status(400).json({ error: 'Faltan campos obligatorios' });
         }
 
+        // Idempotencia: si el estado ya es el solicitado, no hacemos nada.
+        // Why: un doble-click del vendedor o un retry de red estaba disparando notificaciones duplicadas
+        // al cliente (2x "pago verificado" + 2x reseña Google observados en producción 2026-04-24).
+        const sessionBefore = await sessionsService.getSession(phone);
+        if (sessionBefore?.estado === estado) {
+            return res.status(200).json({ success: true, estado, idempotent: true });
+        }
+
         // Si viene numero_seguimiento, actualizar entidades
         if (numero_seguimiento) {
-            const session = await sessionsService.getSession(phone);
-            const entidades = session.entidades || {};
+            const entidades = sessionBefore?.entidades || {};
             entidades.numero_seguimiento = numero_seguimiento;
             await sessionsService.updateEntidades(phone, entidades);
         }
@@ -249,10 +256,8 @@ router.patch('/cotizaciones/estado', async (req, res) => {
         if (notify) {
             let message = "";
 
-            if (estado === 'ESPERANDO_RETIRO' || estado === 'ENTREGADO') {
-                // El vendedor confirma la logística desde su panel.
-                // Si escribió un mensaje personalizado, se lo enviamos al cliente.
-                // Si no, usamos el mensaje genérico de entrega.
+            if (estado === 'ESPERANDO_RETIRO') {
+                // Vendedor confirma logística de retiro (online + retiro). Mensaje para que vaya a buscar.
                 if (mensaje_logistica && mensaje_logistica.trim()) {
                     const seguimientoLinea = numero_seguimiento && numero_seguimiento.trim()
                         ? `📮 *Número de seguimiento:* ${numero_seguimiento.trim()}\n\n`
@@ -268,22 +273,31 @@ router.patch('/cotizaciones/estado', async (req, res) => {
                         `📦 En breve le informaremos sobre el despacho o puede pasar a retirarlo a nuestro local.\n\n` +
                         `¡Muchas gracias por preferir *Repuestos JFNN*! 🙌`;
                 }
+            } else if (estado === 'ENTREGADO' && mensaje_logistica && mensaje_logistica.trim()) {
+                // Envío a domicilio: vendedor confirma despacho con mensaje + tracking.
+                const seguimientoLinea = numero_seguimiento && numero_seguimiento.trim()
+                    ? `📮 *Número de seguimiento:* ${numero_seguimiento.trim()}\n\n`
+                    : '';
+                message =
+                    `✅ *¡Su pago fue confirmado!* Gracias por su preferencia.\n\n` +
+                    `📦 *Información de despacho/retiro:*\n${mensaje_logistica.trim()}\n\n` +
+                    seguimientoLinea +
+                    `¡Muchas gracias por preferir *Repuestos JFNN*! 🙌`;
             }
-            // NOTA: El estado PAGO_VERIFICADO NO notifica al cliente.
-            // La notificación la gestiona el vendedor al confirmar la logística (ESPERANDO_RETIRO o ENTREGADO).
+            // ENTREGADO sin mensaje_logistica: el cliente ya fue notificado (venía de ESPERANDO_RETIRO)
+            // o está físicamente en el local (cash+retiro). No enviamos mensaje — solo reseña.
+
             if (message) {
                 await whatsappService.sendTextMessage(phone, message);
+            }
 
-                // HU-6: Solicitud de reseña en Google Maps
-                // Se envía cuando el cliente retira el producto o recibe el envío (estado ENTREGADO)
-                if (estado === 'ENTREGADO') {
-                    // Pequeño delay de 5s para que no se envíe al mismo momento exacto
-                    setTimeout(() => {
-                        whatsappService.sendGoogleReviewRequest(phone).catch(err => {
-                            console.error('Error enviando solicitud de reseña Google:', err);
-                        });
-                    }, 5000);
-                }
+            // HU-6: Solicitud de reseña en Google Maps al cierre.
+            if (estado === 'ENTREGADO') {
+                setTimeout(() => {
+                    whatsappService.sendGoogleReviewRequest(phone).catch(err => {
+                        console.error('Error enviando solicitud de reseña Google:', err);
+                    });
+                }, 5000);
             }
         }
 
