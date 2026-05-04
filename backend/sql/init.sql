@@ -91,6 +91,13 @@ CREATE TABLE IF NOT EXISTS feriados (
 
 CREATE INDEX IF NOT EXISTS idx_feriados_fecha ON feriados(fecha);
 
+-- Métricas reales de atribución agente IA vs vendedor
+-- ALTER TABLE idempotentes para instalaciones existentes
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS mensajes_ia INTEGER DEFAULT 0;
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS mensajes_vendedor INTEGER DEFAULT 0;
+ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS mensajes_ia_total INTEGER DEFAULT 0;
+ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS mensajes_vendedor_total INTEGER DEFAULT 0;
+
 -- Seed inicial feriados Chile 2026 (idempotente)
 INSERT INTO feriados (fecha, nombre) VALUES
 ('2026-01-01', 'Año Nuevo'),

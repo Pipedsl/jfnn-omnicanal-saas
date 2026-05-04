@@ -12,6 +12,8 @@ interface MetricsData {
     sesionesActivas: number;
     tiempoPromedioEsperaVendedorMins: number;
     tasaConversionHoy: number;
+    mensajesIa?: number;
+    tiempoAhorradoMin?: number;
 }
 
 export default function DashboardMetrics() {
@@ -22,9 +24,17 @@ export default function DashboardMetrics() {
         sesionesActivas: 0,
         tiempoPromedioEsperaVendedorMins: 0,
         tasaConversionHoy: 0,
+        mensajesIa: 0,
+        tiempoAhorradoMin: 0,
     });
 
     const formatMoney = (val: number) => new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP" }).format(val);
+
+    const formatTiempoAhorrado = (mins: number) => {
+        if (mins < 60) return `${mins} min`;
+        const horas = mins / 60;
+        return `${horas.toFixed(1)} hrs`;
+    };
 
     const fetchMetrics = async () => {
         try {
@@ -49,7 +59,7 @@ export default function DashboardMetrics() {
         { label: "Tiempo Esp. Prom.", value: `${metrics.tiempoPromedioEsperaVendedorMins} min`, icon: <Clock className="text-yellow-500" size={16} />, trend: "Bandeja espera" },
         { label: "Ticket Promedio", value: formatMoney(metrics.ticketPromedioHoy), icon: <ShoppingCart className="text-purple-500" size={16} />, trend: "Por venta hoy" },
         { label: "Sesiones Live", value: metrics.sesionesActivas.toString(), icon: <Target className="text-red-500" size={16} />, trend: "Conversando" },
-        { label: "Ahorro IA", value: `${(metrics.sesionesActivas * 15 / 60).toFixed(1)} hrs`, icon: <Zap className="text-orange-500" size={16} />, trend: "Filtro automatizado" },
+        { label: "Ahorro IA Hoy", value: formatTiempoAhorrado(metrics.tiempoAhorradoMin || 0), icon: <Zap className="text-orange-500" size={16} />, trend: `${metrics.mensajesIa || 0} msgs respondidos` },
     ];
 
     return (

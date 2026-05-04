@@ -1,9 +1,53 @@
+const crypto = require('crypto');
 const geminiService = require('../services/gemini.service');
 const whatsappService = require('../services/whatsapp.service');
 const sessionsService = require('../services/sessions.service');
 const storageService = require('../services/storage.service');
 const db = require('../config/db');
 const { printShadowQuote } = require('../utils/shadowQuote');
+
+/**
+ * Valida la firma X-Hub-Signature-256 del webhook de Meta usando META_APP_SECRET.
+ * Si la variable no está definida (entorno dev sin secret), permite pasar con un warning.
+ * Devuelve `true` si el request es válido y debe procesarse.
+ */
+const verifySignature = (req) => {
+    const appSecret = process.env.META_APP_SECRET;
+    if (!appSecret) {
+        if (process.env.NODE_ENV === 'production') {
+            console.error('[Webhook] ❌ META_APP_SECRET no configurado en producción. Rechazando request.');
+            return false;
+        }
+        console.warn('[Webhook] ⚠️ META_APP_SECRET no configurado (modo dev). Saltando validación de firma.');
+        return true;
+    }
+
+    const signatureHeader = req.headers['x-hub-signature-256'];
+    if (!signatureHeader || !signatureHeader.startsWith('sha256=')) {
+        console.warn('[Webhook] ⚠️ Falta header x-hub-signature-256.');
+        return false;
+    }
+
+    const expected = signatureHeader.slice('sha256='.length);
+    if (!req.rawBody) {
+        console.warn('[Webhook] ⚠️ rawBody no disponible — no se puede validar firma.');
+        return false;
+    }
+
+    const computed = crypto.createHmac('sha256', appSecret).update(req.rawBody).digest('hex');
+
+    let valid = false;
+    try {
+        valid = crypto.timingSafeEqual(Buffer.from(computed, 'hex'), Buffer.from(expected, 'hex'));
+    } catch {
+        valid = false;
+    }
+
+    if (!valid) {
+        console.warn('[Webhook] ⚠️ Firma X-Hub-Signature-256 inválida.');
+    }
+    return valid;
+};
 
 /**
  * Controlador para gestionar las comunicaciones con WhatsApp Cloud API
@@ -93,7 +137,7 @@ const processBufferedMessages = async (customerPhone) => {
                 console.log(`[Padrón] ❌ Cliente cotiza para otro (no auto-vinculamos propietario): ${customerPhone}`);
                 const ack = 'Entendido, cotizamos sin vincular esos datos a tu nombre. ¿Qué repuesto necesitas para ese vehículo?';
                 await new Promise(r => setTimeout(r, 1200));
-                await whatsappService.sendTextMessage(customerPhone, ack);
+                await whatsappService.sendAgentMessage(customerPhone, ack);
                 return;
             }
 
@@ -107,7 +151,7 @@ const processBufferedMessages = async (customerPhone) => {
                 const nombreCorto = (p.nombre || '').split(/\s+/)[0] || '';
                 const ack = `¡Perfecto${nombreCorto ? ' ' + nombreCorto : ''}! Ya registré tus datos. ¿Qué repuesto necesitas?`;
                 await new Promise(r => setTimeout(r, 1200));
-                await whatsappService.sendTextMessage(customerPhone, ack);
+                await whatsappService.sendAgentMessage(customerPhone, ack);
                 return;
             }
             // Si no matchea claramente, dejamos el flag y seguimos al flujo normal.
@@ -126,7 +170,7 @@ const processBufferedMessages = async (customerPhone) => {
             const saludoRespuesta = '¡Hola! 👋 ¿En qué puedo ayudarte hoy?';
             const delayMs = Math.min(saludoRespuesta.length * 25, 1500);
             await new Promise(resolve => setTimeout(resolve, delayMs));
-            await whatsappService.sendTextMessage(customerPhone, saludoRespuesta);
+            await whatsappService.sendAgentMessage(customerPhone, saludoRespuesta);
             return;
         }
 
@@ -151,7 +195,7 @@ const processBufferedMessages = async (customerPhone) => {
                     const msg = `¡Perfecto! Retomamos tu cotización de ${archived.summary}. ¿Hay algo que quieras modificar?`;
                     const delayMs = Math.min(msg.length * 25, 3500);
                     await new Promise(resolve => setTimeout(resolve, delayMs));
-                    await whatsappService.sendTextMessage(customerPhone, msg);
+                    await whatsappService.sendAgentMessage(customerPhone, msg);
                     return;
                 } else if (quiereNueva || !esSaludoCorto) {
                     // Resetear completamente si dice que NO explícitamente, o si ya nos mandó un texto largo (empezando a pedir repuestos)
@@ -163,7 +207,7 @@ const processBufferedMessages = async (customerPhone) => {
                     const msg = `¡Hola de nuevo! 👋 Veo que tenías pendiente una cotización de ${archived.summary}. ¿Te gustaría continuarla o prefieres empezar una nueva?`;
                     const delayMs = Math.min(msg.length * 25, 3500);
                     await new Promise(resolve => setTimeout(resolve, delayMs));
-                    await whatsappService.sendTextMessage(customerPhone, msg);
+                    await whatsappService.sendAgentMessage(customerPhone, msg);
                     return;
                 }
             } else {
@@ -188,7 +232,7 @@ const processBufferedMessages = async (customerPhone) => {
                 const mensajeEspera = '¡Hola! Tu comprobante de pago ya fue recibido y está siendo revisado por nuestro equipo. Te confirmaremos el pago en unos minutos. ¿Hay algo más en lo que pueda ayudarte mientras tanto?';
                 const delayMs = Math.min(mensajeEspera.length * 25, 3500);
                 await new Promise(resolve => setTimeout(resolve, delayMs));
-                await whatsappService.sendTextMessage(customerPhone, mensajeEspera);
+                await whatsappService.sendAgentMessage(customerPhone, mensajeEspera);
             } else {
                 console.log(`[Webhook] Ignorando imagen adicional de ${customerPhone} (ya en ESPERANDO_APROBACION_ADMIN).`);
             }
@@ -333,7 +377,7 @@ const processBufferedMessages = async (customerPhone) => {
                 const patenteStr = padronDatos.patente ? ` (patente ${padronDatos.patente})` : '';
                 const msg = `📄 Recibí tu padrón del ${veh}${patenteStr}. Ya anoté los datos del vehículo. ¿Está a tu nombre (${propietarioPendiente.nombre || 'el propietario del padrón'}) o cotizas para otra persona?`;
                 await new Promise(r => setTimeout(r, 1500));
-                await whatsappService.sendTextMessage(customerPhone, msg);
+                await whatsappService.sendAgentMessage(customerPhone, msg);
                 return;
             }
 
@@ -343,7 +387,7 @@ const processBufferedMessages = async (customerPhone) => {
                 const patenteStr = padronDatos.patente ? ` (patente ${padronDatos.patente})` : '';
                 const msg = `📄 Recibí tu padrón del ${veh}${patenteStr}. Ya anoté los datos del vehículo. ¿Qué repuesto necesitas?`;
                 await new Promise(r => setTimeout(r, 1500));
-                await whatsappService.sendTextMessage(customerPhone, msg);
+                await whatsappService.sendAgentMessage(customerPhone, msg);
                 return;
             }
 
@@ -358,16 +402,16 @@ const processBufferedMessages = async (customerPhone) => {
                     await sessionsService.setEstado(customerPhone, sessionsService.STATES.ESPERANDO_VENDEDOR);
                     const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''}. Un asesor las revisará y te cotizará en breve. 🔧`;
                     await new Promise(r => setTimeout(r, 1500));
-                    await whatsappService.sendTextMessage(customerPhone, msg);
+                    await whatsappService.sendAgentMessage(customerPhone, msg);
                 } else {
                     const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''}. Para cotizar necesito también los datos del auto: marca, año y patente. ¿Me los puedes enviar?`;
                     await new Promise(r => setTimeout(r, 1500));
-                    await whatsappService.sendTextMessage(customerPhone, msg);
+                    await whatsappService.sendAgentMessage(customerPhone, msg);
                 }
             } else {
                 const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''} adicional${nFotos > 1 ? 'es' : ''}. El asesor las revisará junto a la cotización. 🔧`;
                 await new Promise(r => setTimeout(r, 1500));
-                await whatsappService.sendTextMessage(customerPhone, msg);
+                await whatsappService.sendAgentMessage(customerPhone, msg);
             }
 
             return;
@@ -400,7 +444,7 @@ const processBufferedMessages = async (customerPhone) => {
 
             if (!imageData) {
                 console.error(`[P1] ❌ No se pudo descargar la imagen de ${customerPhone}.`);
-                await whatsappService.sendTextMessage(customerPhone, 'Tuvimos un problema al recibir su comprobante. ¿Podía enviarlo nuevamente, por favor?');
+                await whatsappService.sendAgentMessage(customerPhone, 'Tuvimos un problema al recibir su comprobante. ¿Podía enviarlo nuevamente, por favor?');
                 return;
             }
 
@@ -409,7 +453,7 @@ const processBufferedMessages = async (customerPhone) => {
 
             if (!comprobanteUrl) {
                 console.error(`[P1] ❌ No se pudo subir el voucher de ${customerPhone} al storage.`);
-                await whatsappService.sendTextMessage(customerPhone, 'Tuvimos un inconveniente técnico guardando su comprobante. Por favor, inténtelo en un momento.');
+                await whatsappService.sendAgentMessage(customerPhone, 'Tuvimos un inconveniente técnico guardando su comprobante. Por favor, inténtelo en un momento.');
                 return;
             }
 
@@ -418,7 +462,7 @@ const processBufferedMessages = async (customerPhone) => {
             const respuestaConfirmacion = `¡Perfecto! 📸 Recibí su comprobante de pago. Nuestro equipo lo está verificando ahora y le confirmaremos en unos minutos. Si tiene alguna consulta, no dude en escribirnos. 👌`;
             const delayMs = Math.min(respuestaConfirmacion.length * 25, 3500);
             await new Promise(resolve => setTimeout(resolve, delayMs));
-            await whatsappService.sendTextMessage(customerPhone, respuestaConfirmacion);
+            await whatsappService.sendAgentMessage(customerPhone, respuestaConfirmacion);
 
             console.log(`[P1] ✅ Flujo de comprobante completado para ${customerPhone}. Esperando aprobación del admin.`);
             return;
@@ -433,7 +477,7 @@ const processBufferedMessages = async (customerPhone) => {
         )) {
             const msg = 'Recibí tu audio, pero en este momento estamos esperando la imagen del comprobante de pago. ¿Lo tienes listo? 📸';
             await new Promise(resolve => setTimeout(resolve, 1500));
-            await whatsappService.sendTextMessage(customerPhone, msg);
+            await whatsappService.sendAgentMessage(customerPhone, msg);
             return;
         }
 
@@ -485,7 +529,7 @@ const processBufferedMessages = async (customerPhone) => {
                 const intentResult = await geminiService.classifyIntent(userText);
                 if (!intentResult.es_compra) {
                     console.log(`[Hand-off] Ignorando mensaje de ${customerPhone} (ESPERANDO_VENDEDOR, no es compra)`);
-                    await whatsappService.sendTextMessage(customerPhone,
+                    await whatsappService.sendAgentMessage(customerPhone,
                         '¡Hola! Estamos buscando los precios para ti, en unos minutos te enviamos la cotización completa. 🔍');
                     return;
                 }
@@ -509,7 +553,7 @@ const processBufferedMessages = async (customerPhone) => {
             audioDataList = downloadResults.filter(Boolean);
             if (audioDataList.length === 0) {
                 console.error(`[Audio] ❌ No se pudo descargar ningún audio de ${customerPhone}.`);
-                await whatsappService.sendTextMessage(customerPhone, 'Tuve un problema al escuchar tu audio. ¿Lo puedes reenviar o escribir tu consulta?');
+                await whatsappService.sendAgentMessage(customerPhone, 'Tuve un problema al escuchar tu audio. ¿Lo puedes reenviar o escribir tu consulta?');
                 return;
             }
             console.log(`[Audio] ✅ ${audioDataList.length} audio(s) descargados`);
@@ -701,7 +745,7 @@ const processBufferedMessages = async (customerPhone) => {
             const delayMs = Math.min(msg.length * 25, 3500);
             await new Promise(resolve => setTimeout(resolve, delayMs));
             // 7. Enviar respuesta vía WhatsApp
-            await whatsappService.sendTextMessage(customerPhone, msg);
+            await whatsappService.sendAgentMessage(customerPhone, msg);
         }
 
     } catch (error) {
@@ -711,6 +755,10 @@ const processBufferedMessages = async (customerPhone) => {
 
 const receiveMessage = async (req, res) => {
     try {
+        if (!verifySignature(req)) {
+            return res.status(401).send('INVALID_SIGNATURE');
+        }
+
         const entry = req.body.entry?.[0];
         const changes = entry?.changes?.[0];
         const value = changes?.value;

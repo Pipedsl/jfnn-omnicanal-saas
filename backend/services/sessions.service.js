@@ -637,11 +637,20 @@ const archiveSession = async (phone) => {
         // Truncar campos para respetar límites de columnas VARCHAR
         const anoTruncado = (e.ano || '').substring(0, 10) || null;
 
+        // Leer contadores de mensajes para snapshot atribuido al pedido
+        const { rows: counterRows } = await db.query(
+            `SELECT mensajes_ia, mensajes_vendedor FROM user_sessions WHERE phone = $1`,
+            [phone]
+        );
+        const mensajesIa = counterRows[0]?.mensajes_ia || 0;
+        const mensajesVendedor = counterRows[0]?.mensajes_vendedor || 0;
+
         const { rows: pedidoRows } = await db.query(
             `INSERT INTO pedidos (phone, quote_id, estado_final, marca_modelo, ano, patente, vin,
              repuestos, total_cotizacion, metodo_pago, metodo_entrega, direccion_envio,
-             tipo_documento, datos_factura, comprobante_url, datos_comprobante, entidades_completas)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+             tipo_documento, datos_factura, comprobante_url, datos_comprobante, entidades_completas,
+             mensajes_ia_total, mensajes_vendedor_total)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
              RETURNING *`,
             [
                 phone, e.quote_id || null, session.estado,
@@ -650,7 +659,7 @@ const archiveSession = async (phone) => {
                 e.metodo_pago || null, e.metodo_entrega || null, e.direccion_envio || null,
                 e.tipo_documento || null, JSON.stringify(e.datos_factura || {}),
                 e.comprobante_url || null, JSON.stringify(e.pago_pendiente || {}),
-                JSON.stringify(e)
+                JSON.stringify(e), mensajesIa, mensajesVendedor
             ]
         );
 
@@ -809,63 +818,121 @@ const removeRepuesto = async (phone, nombreRepuesto) => {
     }
 };
 
-// ─── getDashboardMetrics (Analytics) ──────────────────────────────
-const getDashboardMetrics = async () => {
+// ─── incrementMessageCounter ──────────────────────────────────────
+// Incrementa contador de mensajes enviados por agente IA o vendedor.
+// Se usa para calcular tiempo ahorrado y atribución de venta.
+const incrementMessageCounter = async (phone, who) => {
+    if (who !== 'ia' && who !== 'vendedor') return;
+    const column = who === 'ia' ? 'mensajes_ia' : 'mensajes_vendedor';
     try {
-        // 1. Métricas de Ventas Hoy (de la tabla pedidos que han sido cerrados hoy)
+        await db.query(
+            `UPDATE user_sessions SET ${column} = COALESCE(${column}, 0) + 1 WHERE phone = $1`,
+            [phone]
+        );
+    } catch (err) {
+        console.warn(`[Sessions] ⚠️ No se pudo incrementar ${column} para ${phone}:`, err.message);
+    }
+};
+
+// ─── getDashboardMetrics (Analytics) ──────────────────────────────
+// Mapea un rango lógico ('hoy'|'7d'|'30d'|'total') a un fragmento SQL para
+// filtrar por columna timestamp en zona Santiago.
+const rangeToSql = (range, column) => {
+    switch (range) {
+        case '7d':
+            return `${column} AT TIME ZONE 'America/Santiago' >= (NOW() AT TIME ZONE 'America/Santiago') - INTERVAL '7 days'`;
+        case '30d':
+            return `${column} AT TIME ZONE 'America/Santiago' >= (NOW() AT TIME ZONE 'America/Santiago') - INTERVAL '30 days'`;
+        case 'total':
+            return 'TRUE';
+        case 'hoy':
+        default:
+            return `DATE(${column} AT TIME ZONE 'America/Santiago') = DATE(NOW() AT TIME ZONE 'America/Santiago')`;
+    }
+};
+
+const getDashboardMetrics = async (range = 'hoy') => {
+    try {
+        const tiempoRespuestaSeg = parseInt(process.env.IA_TIEMPO_RESPUESTA_SEG || '30', 10);
+
+        const filtroPedidos = rangeToSql(range, 'archivado_en');
+        const filtroSesionesCreadas = rangeToSql(range, 'created_at');
+
+        // 1. Ventas en el rango (cerradas)
         const ventasResult = await db.query(`
-            SELECT 
-                COUNT(*) as cantidad_ventas,
-                COALESCE(SUM(total_cotizacion), 0) as total_vendido
+            SELECT
+                COUNT(*) AS cantidad_ventas,
+                COALESCE(SUM(total_cotizacion), 0) AS total_vendido,
+                COALESCE(SUM(mensajes_ia_total), 0) AS mensajes_ia_pedidos,
+                COALESCE(SUM(mensajes_vendedor_total), 0) AS mensajes_vendedor_pedidos,
+                COALESCE(AVG(EXTRACT(EPOCH FROM (archivado_en - created_at))) / 60, 0) AS mins_promedio_cierre
             FROM pedidos
-            WHERE DATE(archivado_en AT TIME ZONE 'America/Santiago') = DATE(NOW() AT TIME ZONE 'America/Santiago')
-            AND estado_final IN ('ENTREGADO', 'PAGO_VERIFICADO')
+            WHERE ${filtroPedidos}
+              AND estado_final IN ('ENTREGADO', 'PAGO_VERIFICADO')
         `);
 
-        // 2. Sesiones activas (total de conversaciones en curso)
-        const activasResult = await db.query(`
-            SELECT COUNT(*) as sesiones_activas 
-            FROM user_sessions
-        `);
+        // 2. Sesiones activas (snapshot actual)
+        const activasResult = await db.query(`SELECT COUNT(*) AS sesiones_activas FROM user_sessions`);
 
-        // 3. Tiempo promedio de espera del vendedor (minutos)
+        // 3. Tiempo promedio de espera del vendedor (snapshot actual)
         const tiempoEsperaResult = await db.query(`
-            SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (NOW() - ultimo_mensaje))) / 60, 0) as mins_espera
+            SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (NOW() - ultimo_mensaje))) / 60, 0) AS mins_espera
             FROM user_sessions
             WHERE estado = 'ESPERANDO_VENDEDOR'
         `);
 
-        // 4. Conversión (Aproximada): Pagados Hoy / Total Iniciados Hoy
-        // Calculamos los iniciados hoy en user_sessions + los ya archivados hoy
+        // 4. Conversaciones iniciadas en el rango (sesiones + pedidos creados)
         const iniciadasResult = await db.query(`
-            SELECT 
-                (SELECT COUNT(*) FROM user_sessions WHERE DATE(created_at AT TIME ZONE 'America/Santiago') = DATE(NOW() AT TIME ZONE 'America/Santiago')) +
-                (SELECT COUNT(*) FROM pedidos WHERE DATE(created_at AT TIME ZONE 'America/Santiago') = DATE(NOW() AT TIME ZONE 'America/Santiago')) as total_iniciadas
+            SELECT
+                (SELECT COUNT(*) FROM user_sessions WHERE ${rangeToSql(range, 'created_at')}) +
+                (SELECT COUNT(*) FROM pedidos WHERE ${filtroSesionesCreadas}) AS total_iniciadas
+        `);
+
+        // 5. Mensajes IA en sesiones activas creadas en el rango
+        const sesionesIaResult = await db.query(`
+            SELECT COALESCE(SUM(mensajes_ia), 0) AS mensajes_ia_sesiones
+            FROM user_sessions
+            WHERE ${rangeToSql(range, 'created_at')}
         `);
 
         const cantidadVentas = parseInt(ventasResult.rows[0].cantidad_ventas, 10);
         const totalVendido = parseInt(ventasResult.rows[0].total_vendido, 10);
+        const mensajesIaPedidos = parseInt(ventasResult.rows[0].mensajes_ia_pedidos, 10);
+        const mensajesVendedorPedidos = parseInt(ventasResult.rows[0].mensajes_vendedor_pedidos, 10);
+        const minsPromedioCierre = parseFloat(ventasResult.rows[0].mins_promedio_cierre);
         const sesionesActivas = parseInt(activasResult.rows[0].sesiones_activas, 10);
         const minsEspera = parseFloat(tiempoEsperaResult.rows[0].mins_espera);
         const totalIniciadas = parseInt(iniciadasResult.rows[0].total_iniciadas, 10);
+        const mensajesIaSesiones = parseInt(sesionesIaResult.rows[0].mensajes_ia_sesiones, 10);
 
-        let tasaConversion = 0;
-        if (totalIniciadas > 0) {
-            tasaConversion = (cantidadVentas / totalIniciadas) * 100;
-        }
+        const mensajesIaTotal = mensajesIaPedidos + mensajesIaSesiones;
+        const tiempoAhorradoMin = Math.round((mensajesIaTotal * tiempoRespuestaSeg) / 60);
 
-        let ticketPromedio = 0;
-        if (cantidadVentas > 0) {
-            ticketPromedio = totalVendido / cantidadVentas;
-        }
+        const tasaConversion = totalIniciadas > 0
+            ? Math.round(((cantidadVentas / totalIniciadas) * 100) * 10) / 10
+            : 0;
+        const ticketPromedio = cantidadVentas > 0 ? Math.round(totalVendido / cantidadVentas) : 0;
 
         return {
+            // Compatibilidad con dashboard principal (rango = hoy)
             totalVendidoHoy: totalVendido,
             cantidadVentasHoy: cantidadVentas,
-            ticketPromedioHoy: Math.round(ticketPromedio),
-            sesionesActivas: sesionesActivas,
+            ticketPromedioHoy: ticketPromedio,
+            sesionesActivas,
             tiempoPromedioEsperaVendedorMins: Math.round(minsEspera),
-            tasaConversionHoy: Math.round(tasaConversion * 10) / 10 // un decimal
+            tasaConversionHoy: tasaConversion,
+            // Métricas reales del agente IA
+            range,
+            mensajesIa: mensajesIaTotal,
+            mensajesVendedor: mensajesVendedorPedidos,
+            tiempoAhorradoMin,
+            tiempoRespuestaSegConfig: tiempoRespuestaSeg,
+            tiempoPromedioCierreMin: Math.round(minsPromedioCierre),
+            // Aliases de rango (para frontend de estadísticas)
+            dineroRecaudado: totalVendido,
+            cantidadVentas,
+            ticketPromedio,
+            tasaConversion
         };
     } catch (err) {
         console.error('[Sessions Analytics] ❌ Error en getDashboardMetrics:', err.message);
@@ -875,7 +942,17 @@ const getDashboardMetrics = async () => {
             ticketPromedioHoy: 0,
             sesionesActivas: 0,
             tiempoPromedioEsperaVendedorMins: 0,
-            tasaConversionHoy: 0
+            tasaConversionHoy: 0,
+            range,
+            mensajesIa: 0,
+            mensajesVendedor: 0,
+            tiempoAhorradoMin: 0,
+            tiempoRespuestaSegConfig: parseInt(process.env.IA_TIEMPO_RESPUESTA_SEG || '30', 10),
+            tiempoPromedioCierreMin: 0,
+            dineroRecaudado: 0,
+            cantidadVentas: 0,
+            ticketPromedio: 0,
+            tasaConversion: 0
         };
     }
 };
@@ -979,8 +1056,9 @@ const autoArchiveStaleSessions = async (hoursThreshold = 48) => {
             await db.query(
                 `INSERT INTO pedidos (phone, quote_id, estado_final, marca_modelo, ano, patente, vin,
                  repuestos, total_cotizacion, metodo_pago, metodo_entrega, direccion_envio,
-                 tipo_documento, datos_factura, comprobante_url, datos_comprobante, entidades_completas)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+                 tipo_documento, datos_factura, comprobante_url, datos_comprobante, entidades_completas,
+                 mensajes_ia_total, mensajes_vendedor_total)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
                 [
                     session.phone, e.quote_id || null, 'ABANDONADO',
                     e.marca_modelo || null, e.ano || null, e.patente || null, e.vin || null,
@@ -988,7 +1066,8 @@ const autoArchiveStaleSessions = async (hoursThreshold = 48) => {
                     e.metodo_pago || null, e.metodo_entrega || null, e.direccion_envio || null,
                     e.tipo_documento || null, JSON.stringify(e.datos_factura || {}),
                     null, JSON.stringify({}),
-                    JSON.stringify(e)
+                    JSON.stringify(e),
+                    row.mensajes_ia || 0, row.mensajes_vendedor || 0
                 ]
             );
 
@@ -1158,5 +1237,6 @@ module.exports = {
     autoArchiveStaleSessions,
     getArchivedSessionForResume,
     reassignOrphanRepuestos,
+    incrementMessageCounter,
     STATES
 };

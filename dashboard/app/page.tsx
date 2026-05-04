@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import axios from "axios";
-import { LayoutDashboard, RefreshCcw, Bell, Settings, ShieldCheck, Search, LogOut } from "lucide-react";
+import { LayoutDashboard, RefreshCcw, Bell, Settings, ShieldCheck, Search, LogOut, BarChart3 } from "lucide-react";
 import QuoteCard from "@/components/QuoteCard";
 import BandejaTable from "@/components/BandejaTable";
 import HistorialTable from "@/components/HistorialTable";
@@ -148,6 +148,11 @@ export default function Home() {
             <Link href="/verificacion" className="p-2 hover:bg-yellow-500/20 rounded-lg text-yellow-500 transition-colors" title="Verificación de Pagos">
               <ShieldCheck size={18} />
             </Link>
+            {userRole === 'admin' && (
+              <Link href="/admin/estadisticas" className="p-2 hover:bg-cyan-500/20 rounded-lg text-cyan-400 transition-colors" title="Estadísticas Admin">
+                <BarChart3 size={18} />
+              </Link>
+            )}
             <Link href="/settings" className="p-2 hover:bg-neutral-800 rounded-lg text-neutral-400 transition-colors" title="Ajustes">
               <Settings size={18} />
             </Link>

@@ -21,7 +21,10 @@ app.use(cors({
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true
 }));
-app.use(express.json());
+// Capturar rawBody para que el webhook de Meta pueda validar X-Hub-Signature-256.
+app.use(express.json({
+    verify: (req, _res, buf) => { req.rawBody = buf; }
+}));
 
 // Servir archivos estáticos (comprobantes de pago locales HUs)
 const path = require('path');

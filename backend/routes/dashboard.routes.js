@@ -14,9 +14,69 @@ const KNOWLEDGE_JSON_PATH = path.join(__dirname, '../data/knowledge.json');
  * [P0] Calcular métricas del negocio
  * GET /api/dashboard/metrics
  */
+/**
+ * Listado de ventas con desglose de mensajes IA vs vendedor.
+ * GET /api/dashboard/ventas?range=hoy|7d|30d|total&limit=20
+ * Usado por la página /admin/estadisticas para la tabla de atribución.
+ */
+router.get('/ventas', async (req, res) => {
+    try {
+        const allowedRanges = ['hoy', '7d', '30d', 'total'];
+        const range = allowedRanges.includes(req.query.range) ? req.query.range : '30d';
+        const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
+
+        const filtroSql = (() => {
+            switch (range) {
+                case 'hoy': return `DATE(archivado_en AT TIME ZONE 'America/Santiago') = DATE(NOW() AT TIME ZONE 'America/Santiago')`;
+                case '7d': return `archivado_en AT TIME ZONE 'America/Santiago' >= (NOW() AT TIME ZONE 'America/Santiago') - INTERVAL '7 days'`;
+                case 'total': return 'TRUE';
+                case '30d':
+                default: return `archivado_en AT TIME ZONE 'America/Santiago' >= (NOW() AT TIME ZONE 'America/Santiago') - INTERVAL '30 days'`;
+            }
+        })();
+
+        const { rows } = await db.query(
+            `SELECT id, phone, quote_id, estado_final, marca_modelo, ano, total_cotizacion,
+                    mensajes_ia_total, mensajes_vendedor_total,
+                    archivado_en, created_at,
+                    EXTRACT(EPOCH FROM (archivado_en - created_at))/60 AS duracion_min
+             FROM pedidos
+             WHERE ${filtroSql}
+               AND estado_final IN ('ENTREGADO', 'PAGO_VERIFICADO')
+             ORDER BY archivado_en DESC
+             LIMIT $1`,
+            [limit]
+        );
+
+        res.status(200).json({
+            range,
+            total: rows.length,
+            ventas: rows.map(r => ({
+                id: r.id,
+                phone: r.phone,
+                quote_id: r.quote_id,
+                estado_final: r.estado_final,
+                marca_modelo: r.marca_modelo,
+                ano: r.ano,
+                total_cotizacion: r.total_cotizacion,
+                mensajes_ia: r.mensajes_ia_total || 0,
+                mensajes_vendedor: r.mensajes_vendedor_total || 0,
+                duracion_min: Math.round(parseFloat(r.duracion_min) || 0),
+                archivado_en: r.archivado_en,
+                created_at: r.created_at
+            }))
+        });
+    } catch (error) {
+        console.error('Error obteniendo ventas:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
 router.get('/metrics', async (req, res) => {
     try {
-        const metrics = await sessionsService.getDashboardMetrics();
+        const allowedRanges = ['hoy', '7d', '30d', 'total'];
+        const range = allowedRanges.includes(req.query.range) ? req.query.range : 'hoy';
+        const metrics = await sessionsService.getDashboardMetrics(range);
         res.status(200).json(metrics);
     } catch (error) {
         console.error('Error obteniendo métricas:', error);
@@ -142,7 +202,7 @@ router.post('/cotizaciones/responder', async (req, res) => {
             `👤 Atentamente: Asesor JFNN\n\n` +
             `¿Deseas confirmar la compra o el encargo de los productos disponibles?`;
 
-        await whatsappService.sendTextMessage(phone, message);
+        await whatsappService.sendSellerMessage(phone, message);
 
         // Actualizar sesión: Guardar ID de cotización, total, horario, precios y pasar al flujo de cierre
         const sessionUpdateParams = {
@@ -288,7 +348,7 @@ router.patch('/cotizaciones/estado', async (req, res) => {
             // o está físicamente en el local (cash+retiro). No enviamos mensaje — solo reseña.
 
             if (message) {
-                await whatsappService.sendTextMessage(phone, message);
+                await whatsappService.sendSellerMessage(phone, message);
             }
 
             // HU-6: Solicitud de reseña en Google Maps al cierre.
@@ -396,7 +456,7 @@ router.patch('/repuestos/confirmar-imagen', async (req, res) => {
 
         // Notificar al cliente por WhatsApp
         const msg = `✅ ¡Identificamos la pieza de tu foto! Es: *${nombre_confirmado}*.\n\n¿Necesitas cotizar algún otro repuesto o producto? Estoy acá para ayudarte. 🔧`;
-        await whatsappService.sendTextMessage(phone, msg);
+        await whatsappService.sendSellerMessage(phone, msg);
 
         console.log(`[Dashboard] ✅ Pieza confirmada: "${nombre_confirmado}" para ${phone} (imagen: ${imagen_url})`);
         res.status(200).json({ success: true, nombre_confirmado });
@@ -569,7 +629,7 @@ router.post('/verify-payment', async (req, res) => {
                 `Le pedimos que envíe nuevamente una fotografía clara del comprobante de transferencia. ` +
                 `Si tiene dudas, puede escribirnos y con gusto le ayudamos. 🙏`;
 
-            await whatsappService.sendTextMessage(phone, mensajeRechazo);
+            await whatsappService.sendSellerMessage(phone, mensajeRechazo);
 
             console.log(`[Dashboard] ❌ Pago RECHAZADO para ${phone}${nota_admin ? ` | Motivo: ${nota_admin}` : ''} | Volviendo a: ${nuevoEstado}`);
             res.status(200).json({
@@ -647,7 +707,7 @@ router.post('/encargos/solicitar', async (req, res) => {
                         `El tiempo estimado de llegada a nuestro local es de *${dias_eta} día(s)* hábiles aproximados.\n\n` +
                         `Le notificaremos inmediatamente por este medio cuando los repuestos estén listos para entrega/despacho. ¡Gracias por confiar en *Repuestos JFNN*! 🙌`;
                         
-        await whatsappService.sendTextMessage(phone, mensaje);
+        await whatsappService.sendSellerMessage(phone, mensaje);
         
         res.status(200).json({ success: true, estado: 'ENCARGO_SOLICITADO' });
     } catch (error) {
@@ -700,7 +760,7 @@ router.post('/encargos/recibido', async (req, res) => {
         }
         
         await sessionsService.setEstado(phone, nuevoEstado);
-        await whatsappService.sendTextMessage(phone, mensaje);
+        await whatsappService.sendSellerMessage(phone, mensaje);
         
         res.status(200).json({ success: true, estado: nuevoEstado, saldo: saldoPendiente });
     } catch (error) {
@@ -894,7 +954,7 @@ router.post('/solicitar-vin', async (req, res) => {
             ? `Hola, para identificar con exactitud el repuesto "${itemName}", ¿podría enviarnos el VIN (número de chasis) de su vehículo, por favor?`
             : `Hola, para verificar la compatibilidad exacta de los repuestos, ¿podría enviarnos el VIN (número de chasis) de su vehículo, por favor?`;
 
-        await whatsappService.sendTextMessage(phone, mensaje);
+        await whatsappService.sendSellerMessage(phone, mensaje);
 
         res.status(200).json({ success: true, mensaje: 'Solicitud de VIN enviada. Flag bloqueante activado.' });
     } catch (error) {
@@ -922,7 +982,7 @@ router.post('/solicitar-patente', async (req, res) => {
             ? `Hola, para verificar la compatibilidad exacta del repuesto "${itemName}", ¿podría enviarnos la patente de su vehículo, por favor?`
             : `Hola, para verificar la compatibilidad exacta de los repuestos, ¿podría enviarnos la patente de su vehículo, por favor?`;
 
-        await whatsappService.sendTextMessage(phone, mensaje);
+        await whatsappService.sendSellerMessage(phone, mensaje);
 
         res.status(200).json({ success: true, mensaje: 'Solicitud de patente enviada. Flag bloqueante activado.' });
     } catch (error) {

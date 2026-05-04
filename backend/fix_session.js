@@ -1,17 +1,23 @@
 require('dotenv').config();
 const supabase = require('./config/supabase');
 
+const phone = process.argv[2];
+if (!phone || !/^\d{8,15}$/.test(phone)) {
+    console.error('Uso: node fix_session.js <phone>  (ej: 56912345678)');
+    process.exit(1);
+}
+
 async function fixSession() {
     const { data, error } = await supabase
         .from('user_sessions')
         .update({ estado: 'PAGO_VERIFICADO' })
-        .eq('phone', '56974792499')
+        .eq('phone', phone)
         .select();
 
     if (error) {
         console.error('Error fixing session:', error);
     } else {
-        console.log('✅ Sesión devuelta a PAGO_VERIFICADO para mostrar botones.');
+        console.log(`✅ Sesión ${phone} devuelta a PAGO_VERIFICADO para mostrar botones.`);
         console.table(data);
     }
     process.exit();

@@ -51,7 +51,7 @@ describe('receiveMessage — Guard de payloads inválidos', () => {
         expect(res.send).toHaveBeenCalledWith('EVENT_RECEIVED');
         // Confirma que NO se llamó a Gemini ni a WhatsApp
         expect(geminiService.generateResponse).not.toHaveBeenCalled();
-        expect(whatsappService.sendTextMessage).not.toHaveBeenCalled();
+        expect(whatsappService.sendAgentMessage).not.toHaveBeenCalled();
     });
 
     test('T02: Read Receipt (messages = undefined) → responde 200 sin procesar', async () => {
@@ -131,7 +131,7 @@ describe('receiveMessage — Procesamiento de mensajes de texto', () => {
             mensaje_cliente: 'Hola, ¿en qué le puedo ayudar?',
             entidades: {}
         });
-        whatsappService.sendTextMessage.mockResolvedValue({ success: true });
+        whatsappService.sendAgentMessage.mockResolvedValue({ success: true });
     });
 
     test('T04: Mensaje de texto válido → llama a Gemini y envía respuesta por WhatsApp', async () => {
@@ -155,7 +155,7 @@ describe('receiveMessage — Procesamiento de mensajes de texto', () => {
         // Verificar que se procesó correctamente
         expect(sessionsService.getSession).toHaveBeenCalledWith(MOCK_PHONE);
         expect(geminiService.generateResponse).toHaveBeenCalledTimes(1);
-        expect(whatsappService.sendTextMessage).toHaveBeenCalledWith(
+        expect(whatsappService.sendAgentMessage).toHaveBeenCalledWith(
             MOCK_PHONE,
             'Hola, ¿en qué le puedo ayudar?'
         );
