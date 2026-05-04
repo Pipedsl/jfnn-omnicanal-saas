@@ -747,6 +747,7 @@ const processBufferedMessages = async (customerPhone) => {
             // 7. Enviar respuesta vía WhatsApp
             await whatsappService.sendAgentMessage(customerPhone, msg);
         }
+        await sessionsService.incrementMessageCounter(customerPhone, 'ia');
 
     } catch (error) {
         console.error(`[Debounce] Error procesando lote para ${customerPhone}:`, error);

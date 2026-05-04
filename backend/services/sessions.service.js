@@ -73,12 +73,15 @@ const normalizeRepuestoName = (nombre) =>
         .replace(/\s+/g, ' ')
         .trim();
 
+// Stopwords en español para excluir de la comparación de repuestos
+const STOPWORDS = new Set(['de', 'la', 'el', 'los', 'las', 'y', 'con', 'para', 'sin', 'a']);
+
 /**
  * Compara dos nombres de repuesto para determinar si son el mismo ítem refinado.
  * Retorna 'exact' | 'refined' | 'similar' | false
  * - exact: mismo nombre canónico (después de strip + normalize)
  * - refined: uno contiene al otro como substring tras normalizar
- * - similar: comparten ≥60% de tokens del nombre canónico
+ * - similar: comparten ≥75% de tokens significativos (sin stopwords)
  */
 const isSameRepuesto = (nombreA, nombreB) => {
     const a = normalizeRepuestoName(nombreA);
@@ -86,11 +89,11 @@ const isSameRepuesto = (nombreA, nombreB) => {
     if (!a || !b) return false;
     if (a === b) return 'exact';
     if (a.includes(b) || b.includes(a)) return 'refined';
-    const tokensA = new Set(a.split(/\s+/));
-    const tokensB = new Set(b.split(/\s+/));
+    const tokensA = new Set(a.split(/\s+/).filter(t => !STOPWORDS.has(t)));
+    const tokensB = new Set(b.split(/\s+/).filter(t => !STOPWORDS.has(t)));
     const intersection = [...tokensA].filter(t => tokensB.has(t)).length;
     const smaller = Math.min(tokensA.size, tokensB.size);
-    if (smaller > 0 && intersection / smaller >= 0.6) return 'similar';
+    if (smaller > 0 && intersection / smaller >= 0.75) return 'similar';
     return false;
 };
 
@@ -578,7 +581,7 @@ const getHistoricalSessions = async () => {
 
         const mapped = archivedRows.map(p => ({
             id: p.id, phone: p.phone,
-            estado: p.estado_final === 'ENTREGADO' ? 'ARCHIVADO' : p.estado_final,
+            estado: p.estado_final,
             entidades: typeof p.entidades_completas === 'string' ? JSON.parse(p.entidades_completas) : p.entidades_completas,
             ultimo_mensaje: p.archivado_en,
             updated_at: p.created_at || p.archivado_en
@@ -617,7 +620,15 @@ const archiveSession = async (phone) => {
         const session = await getSession(phone);
         const e = session.entidades || {};
 
-        const totalCotizacion = (e.repuestos_solicitados || []).reduce((acc, r) => acc + (parseInt(r.precio) || 0), 0);
+        const totalRoot = (e.repuestos_solicitados || []).reduce((acc, r) => {
+            const precio = parseInt(r.precio) || 0;
+            const cantidad = parseInt(r.cantidad) || 1;
+            return acc + (precio * cantidad);
+        }, 0);
+        const totalVehiculos = (e.vehiculos || []).reduce((sum, v) =>
+            sum + (v.repuestos_solicitados || []).reduce((a, r) =>
+                a + ((parseInt(r.precio) || 0) * (parseInt(r.cantidad) || 1)), 0), 0);
+        const totalCotizacion = totalRoot + totalVehiculos;
 
         // Mejora #7: capturar vehículo principal para historial
         const vehiculoPrincipal = Array.isArray(e.vehiculos) && e.vehiculos.length > 0
@@ -649,8 +660,8 @@ const archiveSession = async (phone) => {
             `INSERT INTO pedidos (phone, quote_id, estado_final, marca_modelo, ano, patente, vin,
              repuestos, total_cotizacion, metodo_pago, metodo_entrega, direccion_envio,
              tipo_documento, datos_factura, comprobante_url, datos_comprobante, entidades_completas,
-             mensajes_ia_total, mensajes_vendedor_total)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
+             mensajes_ia_total, mensajes_vendedor_total, created_at, archivado_en)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
              RETURNING *`,
             [
                 phone, e.quote_id || null, session.estado,
@@ -659,7 +670,8 @@ const archiveSession = async (phone) => {
                 e.metodo_pago || null, e.metodo_entrega || null, e.direccion_envio || null,
                 e.tipo_documento || null, JSON.stringify(e.datos_factura || {}),
                 e.comprobante_url || null, JSON.stringify(e.pago_pendiente || {}),
-                JSON.stringify(e), mensajesIa, mensajesVendedor
+                JSON.stringify(e), mensajesIa, mensajesVendedor,
+                session.created_at || null, session.ultimo_mensaje || null
             ]
         );
 
@@ -895,6 +907,11 @@ const getDashboardMetrics = async (range = 'hoy') => {
             WHERE ${rangeToSql(range, 'created_at')}
         `);
 
+        // 6. Sesiones en ESPERANDO_VENDEDOR (snapshot actual)
+        const esperandoVendedorResult = await db.query(`
+            SELECT COUNT(*)::int AS cantidad_esperando FROM user_sessions WHERE estado = 'ESPERANDO_VENDEDOR'
+        `);
+
         const cantidadVentas = parseInt(ventasResult.rows[0].cantidad_ventas, 10);
         const totalVendido = parseInt(ventasResult.rows[0].total_vendido, 10);
         const mensajesIaPedidos = parseInt(ventasResult.rows[0].mensajes_ia_pedidos, 10);
@@ -904,6 +921,8 @@ const getDashboardMetrics = async (range = 'hoy') => {
         const minsEspera = parseFloat(tiempoEsperaResult.rows[0].mins_espera);
         const totalIniciadas = parseInt(iniciadasResult.rows[0].total_iniciadas, 10);
         const mensajesIaSesiones = parseInt(sesionesIaResult.rows[0].mensajes_ia_sesiones, 10);
+
+        const cantidadEsperandoVendedor = parseInt(esperandoVendedorResult.rows[0].cantidad_esperando, 10);
 
         const mensajesIaTotal = mensajesIaPedidos + mensajesIaSesiones;
         const tiempoAhorradoMin = Math.round((mensajesIaTotal * tiempoRespuestaSeg) / 60);
@@ -932,7 +951,8 @@ const getDashboardMetrics = async (range = 'hoy') => {
             dineroRecaudado: totalVendido,
             cantidadVentas,
             ticketPromedio,
-            tasaConversion
+            tasaConversion,
+            cantidadEsperandoVendedor
         };
     } catch (err) {
         console.error('[Sessions Analytics] ❌ Error en getDashboardMetrics:', err.message);
@@ -952,7 +972,8 @@ const getDashboardMetrics = async (range = 'hoy') => {
             dineroRecaudado: 0,
             cantidadVentas: 0,
             ticketPromedio: 0,
-            tasaConversion: 0
+            tasaConversion: 0,
+            cantidadEsperandoVendedor: 0
         };
     }
 };
@@ -1057,8 +1078,8 @@ const autoArchiveStaleSessions = async (hoursThreshold = 48) => {
                 `INSERT INTO pedidos (phone, quote_id, estado_final, marca_modelo, ano, patente, vin,
                  repuestos, total_cotizacion, metodo_pago, metodo_entrega, direccion_envio,
                  tipo_documento, datos_factura, comprobante_url, datos_comprobante, entidades_completas,
-                 mensajes_ia_total, mensajes_vendedor_total)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+                 mensajes_ia_total, mensajes_vendedor_total, created_at, archivado_en)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
                 [
                     session.phone, e.quote_id || null, 'ABANDONADO',
                     e.marca_modelo || null, e.ano || null, e.patente || null, e.vin || null,
@@ -1067,7 +1088,8 @@ const autoArchiveStaleSessions = async (hoursThreshold = 48) => {
                     e.tipo_documento || null, JSON.stringify(e.datos_factura || {}),
                     null, JSON.stringify({}),
                     JSON.stringify(e),
-                    row.mensajes_ia || 0, row.mensajes_vendedor || 0
+                    row.mensajes_ia || 0, row.mensajes_vendedor || 0,
+                    session.created_at || null, row.ultimo_mensaje || null
                 ]
             );
 

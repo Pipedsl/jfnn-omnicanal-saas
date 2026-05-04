@@ -249,7 +249,10 @@ ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.paten
         6. **AGREGAR REPUESTO (BUG-3)**: Si el cliente quiere añadir un producto nuevo AHORA MISMO, confirma amablemente que verificarás el stock de ese nuevo ítem y devuelve en el JSON: { accion: 'AGREGAR_REPUESTO' }.
         7. **OPCIONES MÚLTIPLES**: Si la cotización incluye varias alternativas para el mismo tipo de repuesto (ej: "Pastilla Bosch $15.990" y "Pastilla Brembo $22.990"), preséntale las opciones al cliente y pídele que elija. Cuando el cliente elige, devuelve: { accion: 'SELECCION_OPCION', opcion_elegida: '<nombre exacto>', opciones_descartadas: ['<nombre exacto>', ...] }.
         8. **Instrucciones finales**:
-           - Si es Transferencia: PRIMERO envía los datos para la transferencia (banco, número de cuenta, RUT, email y el MONTO TOTAL a pagar). Luego pídele que envíe el comprobante por este chat. Los datos están en la base de conocimiento del negocio.
+${sessionContext.entidades.metodo_pago ? `
+⚠️ MÉTODO DE PAGO YA CAPTURADO (${sessionContext.entidades.metodo_pago}). NO repitas los datos bancarios. Solo confirma la logística (retiro/envío) y pregunta por boleta/factura.
+` : '           - Si es Transferencia: PRIMERO envía los datos para la transferencia (banco, número de cuenta, RUT, email y el MONTO TOTAL a pagar). Luego pídele que envíe el comprobante por este chat. Los datos están en la base de conocimiento del negocio.'}
+           - Si el cliente elige RETIRO EN LOCAL: pregúntale '¿En qué sucursal prefiere retirar: Melipilla o San Felipe?' antes de enviar la dirección. Una vez te responda, envía SOLO la dirección de esa sucursal según la base de conocimiento. Captura la respuesta como \`sucursal_retiro\` en las entidades.
            - Si es pago en el local (Efectivo/Crédito/Débito): Indica que puede venir al local mencionando su número de cotización: ${sessionContext.entidades.quote_id || 'JFNN-TEMP'}.
         `}
         `}
@@ -316,6 +319,7 @@ ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.paten
                 "sintomas_reportados": "...",
                 "metodo_pago": "online | local | null",
                 "metodo_entrega": "retiro | domicilio | null",
+                "sucursal_retiro": "Melipilla | San Felipe | null",
                 "horario_entrega": "mañana | tarde | null",
                 "direccion_envio": "dirección o null",
                 "tipo_documento": "boleta | factura | null",

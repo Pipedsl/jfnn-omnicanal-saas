@@ -8,9 +8,13 @@ const printShadowQuote = (phone, entidades) => {
     console.log("🚀 SHADOW QUOTE - FICHA TÉCNICA GENERADA");
     console.log("=".repeat(50));
     console.log(`📱 Cliente: ${phone}`);
-    console.log(`🚗 Vehículo Principal: ${entidades.marca_modelo || 'No detectado'}`);
-    console.log(`📅 Año: ${entidades.ano || 'No detectado'}`);
-    console.log(`🛠️ Motor: ${entidades.motor || 'No detectado'} | Combustible: ${entidades.combustible || 'No detectado'}`);
+    if (entidades.vehiculos?.length > 0) {
+        console.log(`🚗 Vehículos Múltiples (${entidades.vehiculos.length}): ${entidades.vehiculos.map(v => v.marca_modelo || 'sin marca').join(', ')}`);
+    } else {
+        console.log(`🚗 Vehículo Principal: ${entidades.marca_modelo || 'No detectado'}`);
+        console.log(`📅 Año: ${entidades.ano || 'No detectado'}`);
+        console.log(`🛠️ Motor: ${entidades.motor || 'No detectado'} | Combustible: ${entidades.combustible || 'No detectado'}`);
+    }
     console.log(`🆔 Patente: ${entidades.patente || 'No detectada'}`);
     console.log(`🔢 VIN: ${entidades.vin || 'No detectado'}`);
     

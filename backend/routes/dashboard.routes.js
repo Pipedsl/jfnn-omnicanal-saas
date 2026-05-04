@@ -203,6 +203,7 @@ router.post('/cotizaciones/responder', async (req, res) => {
             `¿Deseas confirmar la compra o el encargo de los productos disponibles?`;
 
         await whatsappService.sendSellerMessage(phone, message);
+        await sessionsService.incrementMessageCounter(phone, 'vendedor');
 
         // Actualizar sesión: Guardar ID de cotización, total, horario, precios y pasar al flujo de cierre
         const sessionUpdateParams = {
@@ -349,6 +350,7 @@ router.patch('/cotizaciones/estado', async (req, res) => {
 
             if (message) {
                 await whatsappService.sendSellerMessage(phone, message);
+                await sessionsService.incrementMessageCounter(phone, 'vendedor');
             }
 
             // HU-6: Solicitud de reseña en Google Maps al cierre.
@@ -457,6 +459,7 @@ router.patch('/repuestos/confirmar-imagen', async (req, res) => {
         // Notificar al cliente por WhatsApp
         const msg = `✅ ¡Identificamos la pieza de tu foto! Es: *${nombre_confirmado}*.\n\n¿Necesitas cotizar algún otro repuesto o producto? Estoy acá para ayudarte. 🔧`;
         await whatsappService.sendSellerMessage(phone, msg);
+        await sessionsService.incrementMessageCounter(phone, 'vendedor');
 
         console.log(`[Dashboard] ✅ Pieza confirmada: "${nombre_confirmado}" para ${phone} (imagen: ${imagen_url})`);
         res.status(200).json({ success: true, nombre_confirmado });
@@ -630,6 +633,7 @@ router.post('/verify-payment', async (req, res) => {
                 `Si tiene dudas, puede escribirnos y con gusto le ayudamos. 🙏`;
 
             await whatsappService.sendSellerMessage(phone, mensajeRechazo);
+            await sessionsService.incrementMessageCounter(phone, 'vendedor');
 
             console.log(`[Dashboard] ❌ Pago RECHAZADO para ${phone}${nota_admin ? ` | Motivo: ${nota_admin}` : ''} | Volviendo a: ${nuevoEstado}`);
             res.status(200).json({
@@ -708,7 +712,8 @@ router.post('/encargos/solicitar', async (req, res) => {
                         `Le notificaremos inmediatamente por este medio cuando los repuestos estén listos para entrega/despacho. ¡Gracias por confiar en *Repuestos JFNN*! 🙌`;
                         
         await whatsappService.sendSellerMessage(phone, mensaje);
-        
+        await sessionsService.incrementMessageCounter(phone, 'vendedor');
+
         res.status(200).json({ success: true, estado: 'ENCARGO_SOLICITADO' });
     } catch (error) {
         console.error('Error en solicitar encargo:', error);
@@ -761,7 +766,8 @@ router.post('/encargos/recibido', async (req, res) => {
         
         await sessionsService.setEstado(phone, nuevoEstado);
         await whatsappService.sendSellerMessage(phone, mensaje);
-        
+        await sessionsService.incrementMessageCounter(phone, 'vendedor');
+
         res.status(200).json({ success: true, estado: nuevoEstado, saldo: saldoPendiente });
     } catch (error) {
         console.error('Error en recibir encargo:', error);
@@ -955,6 +961,7 @@ router.post('/solicitar-vin', async (req, res) => {
             : `Hola, para verificar la compatibilidad exacta de los repuestos, ¿podría enviarnos el VIN (número de chasis) de su vehículo, por favor?`;
 
         await whatsappService.sendSellerMessage(phone, mensaje);
+        await sessionsService.incrementMessageCounter(phone, 'vendedor');
 
         res.status(200).json({ success: true, mensaje: 'Solicitud de VIN enviada. Flag bloqueante activado.' });
     } catch (error) {
@@ -983,6 +990,7 @@ router.post('/solicitar-patente', async (req, res) => {
             : `Hola, para verificar la compatibilidad exacta de los repuestos, ¿podría enviarnos la patente de su vehículo, por favor?`;
 
         await whatsappService.sendSellerMessage(phone, mensaje);
+        await sessionsService.incrementMessageCounter(phone, 'vendedor');
 
         res.status(200).json({ success: true, mensaje: 'Solicitud de patente enviada. Flag bloqueante activado.' });
     } catch (error) {

@@ -53,6 +53,7 @@ interface Entidades {
     vehiculos?: Vehiculo[];
     solicitud_manual_patente?: boolean;
     solicitud_manual_vin?: boolean;
+    sucursal_retiro?: 'Melipilla' | 'San Felipe' | null;
 }
 
 interface QuoteCardProps {
@@ -168,9 +169,19 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
 
     const quoteId = entidades.quote_id || `ID-TEMP-${phone.slice(-4)}`;
 
-    const TEMPLATE_RETIRO = `Estimado cliente, puede pasar a retirar su pedido por nuestro local desde hoy.
+    const sucursalRetiro = entidades.sucursal_retiro || null;
+    const SUCURSAL_DIRECCIONES: Record<'Melipilla' | 'San Felipe', string> = {
+        'Melipilla': 'Serrano 98, Melipilla, Región Metropolitana',
+        'San Felipe': 'Maipú 381, San Felipe, Región de Valparaíso',
+    };
+    const TEMPLATE_RETIRO = sucursalRetiro
+        ? `Estimado cliente, puede pasar a retirar su pedido por nuestro local desde hoy.
 📋 Número de Cotización: ${quoteId}
-📍 Dirección: [Dirección Tienda]
+📍 Sucursal ${sucursalRetiro}: ${SUCURSAL_DIRECCIONES[sucursalRetiro]}
+🕐 Horario: Lunes a Viernes de 9:00 a 18:00 hrs.`
+        : `Estimado cliente, puede pasar a retirar su pedido por nuestro local desde hoy.
+📋 Número de Cotización: ${quoteId}
+📍 Sucursal: Por favor indique si retira en Melipilla o San Felipe.
 🕐 Horario: Lunes a Viernes de 9:00 a 18:00 hrs.`;
 
     const TEMPLATE_ENVIO = entidades.direccion_envio

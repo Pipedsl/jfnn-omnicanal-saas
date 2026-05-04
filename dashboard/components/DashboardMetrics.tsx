@@ -5,6 +5,10 @@ import axios from "axios";
 import { Target, Zap, DollarSign, Clock, TrendingUp, ShoppingCart } from "lucide-react";
 import { BACKEND_URL } from "@/lib/api";
 
+interface Props {
+    range?: 'hoy' | '7d' | '30d' | 'total';
+}
+
 interface MetricsData {
     totalVendidoHoy: number;
     cantidadVentasHoy: number;
@@ -14,9 +18,10 @@ interface MetricsData {
     tasaConversionHoy: number;
     mensajesIa?: number;
     tiempoAhorradoMin?: number;
+    cantidadEsperandoVendedor?: number;
 }
 
-export default function DashboardMetrics() {
+export default function DashboardMetrics({ range = '7d' }: Props) {
     const [metrics, setMetrics] = useState<MetricsData>({
         totalVendidoHoy: 0,
         cantidadVentasHoy: 0,
@@ -26,6 +31,7 @@ export default function DashboardMetrics() {
         tasaConversionHoy: 0,
         mensajesIa: 0,
         tiempoAhorradoMin: 0,
+        cantidadEsperandoVendedor: 0,
     });
 
     const formatMoney = (val: number) => new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP" }).format(val);
@@ -38,7 +44,7 @@ export default function DashboardMetrics() {
 
     const fetchMetrics = async () => {
         try {
-            const res = await axios.get(`${BACKEND_URL}/api/dashboard/metrics?t=${Date.now()}`);
+            const res = await axios.get(`${BACKEND_URL}/api/dashboard/metrics?range=${range}&t=${Date.now()}`);
             setMetrics(res.data);
         } catch (error) {
             console.error("Error fetching metrics:", error);
@@ -51,15 +57,15 @@ export default function DashboardMetrics() {
         fetchMetrics();
         const interval = setInterval(fetchMetrics, 15000); // 15s refresh
         return () => clearInterval(interval);
-    }, []);
+    }, [range]);
 
     const stats = [
-        { label: "Ventas Hoy", value: formatMoney(metrics.totalVendidoHoy), icon: <DollarSign className="text-green-500" size={16} />, trend: `${metrics.cantidadVentasHoy} confirmadas` },
-        { label: "Conversión", value: `${metrics.tasaConversionHoy}%`, icon: <TrendingUp className="text-blue-500" size={16} />, trend: "Entregados / Totales" },
+        { label: `Ventas ${range === 'hoy' ? 'Hoy' : range === '7d' ? '7d' : range === '30d' ? '30d' : 'Total'}`, value: formatMoney(metrics.totalVendidoHoy), icon: <DollarSign className="text-green-500" size={16} />, trend: `${metrics.cantidadVentasHoy} confirmadas` },
+        { label: `Conversión ${range === 'hoy' ? 'Hoy' : range === '7d' ? '7d' : range === '30d' ? '30d' : 'Total'}`, value: `${metrics.tasaConversionHoy}%`, icon: <TrendingUp className="text-blue-500" size={16} />, trend: "Entregados / Totales" },
         { label: "Tiempo Esp. Prom.", value: `${metrics.tiempoPromedioEsperaVendedorMins} min`, icon: <Clock className="text-yellow-500" size={16} />, trend: "Bandeja espera" },
         { label: "Ticket Promedio", value: formatMoney(metrics.ticketPromedioHoy), icon: <ShoppingCart className="text-purple-500" size={16} />, trend: "Por venta hoy" },
-        { label: "Sesiones Live", value: metrics.sesionesActivas.toString(), icon: <Target className="text-red-500" size={16} />, trend: "Conversando" },
-        { label: "Ahorro IA Hoy", value: formatTiempoAhorrado(metrics.tiempoAhorradoMin || 0), icon: <Zap className="text-orange-500" size={16} />, trend: `${metrics.mensajesIa || 0} msgs respondidos` },
+        { label: "Sesiones Live", value: metrics.sesionesActivas.toString(), icon: <Target className="text-red-500" size={16} />, trend: `${metrics.cantidadEsperandoVendedor || 0} esperan precio` },
+        { label: `Ahorro IA ${range === 'hoy' ? 'Hoy' : range === '7d' ? '7d' : range === '30d' ? '30d' : 'Total'}`, value: formatTiempoAhorrado(metrics.tiempoAhorradoMin || 0), icon: <Zap className="text-orange-500" size={16} />, trend: `${metrics.mensajesIa || 0} msgs respondidos` },
     ];
 
     return (
