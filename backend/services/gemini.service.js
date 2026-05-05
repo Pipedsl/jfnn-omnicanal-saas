@@ -127,7 +127,11 @@ ${sessionContext.entidades.es_recurrente === true ? `
 ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.patente ? ' (patente ' + v.patente + ')' : ''}${v.motor ? ' motor ' + v.motor : ''}`).join('\n')}
         ` : ''}
         REGLAS para cliente ${esMecanico ? 'mecánico' : 'recurrente'}:
-        - Saluda usando su nombre SOLO en el PRIMER mensaje de la sesión ("Hola ${sessionContext.entidades.nombre_cliente || ''}, qué bueno verte de nuevo 🙌"). En turnos siguientes, NO repitas el saludo — continúa directamente con la gestión del repuesto.
+        ${sessionContext.entidades.saludo_dado ? `
+        - ⚠️ YA SALUDASTE A ESTE CLIENTE EN ESTA SESIÓN. NO repitas el saludo en este turno. Continúa directo a la gestión del repuesto con conectores breves ("Listo", "Anotado", "Perfecto", "Ok").
+        ` : `
+        - Saluda al cliente UNA SOLA VEZ usando su nombre ("Hola ${sessionContext.entidades.nombre_cliente || ''}, qué bueno verte de nuevo 🙌"). Y en tu JSON output, retorna saludo_dado: true para no volver a saludar en los siguientes turnos.
+        `}
         ${esMecanico ? `
         - NUNCA asumas que cotiza para un vehículo conocido. SIEMPRE pregunta: "¿Para qué vehículo es la cotización hoy?"
         - NO digas "tu auto de siempre" ni refieras vehículos previos como si pertenecieran al cliente.
@@ -264,7 +268,7 @@ ${sessionContext.entidades.metodo_pago ? `
 ⚠️ MÉTODO DE PAGO YA CAPTURADO (${sessionContext.entidades.metodo_pago}). NO repitas los datos bancarios. Solo confirma la logística (retiro/envío) y pregunta por boleta/factura.
 ` : '           - Si es Transferencia: PRIMERO envía los datos para la transferencia (banco, número de cuenta, RUT, email y el MONTO TOTAL a pagar). Luego pídele que envíe el comprobante por este chat. Los datos están en la base de conocimiento del negocio.'}
            - Si el cliente elige RETIRO EN LOCAL: pregúntale '¿En qué sucursal prefiere retirar: Melipilla o San Felipe?' antes de enviar la dirección. Una vez te responda, envía SOLO la dirección de esa sucursal según la base de conocimiento. Captura la respuesta como \`sucursal_retiro\` en las entidades.
-           - Si es pago en el local (Efectivo/Crédito/Débito): Indica que puede venir al local mencionando su número de cotización: ${sessionContext.entidades.quote_id || 'JFNN-TEMP'}. **SI \`sucursal_retiro\` está definida, INCLUYE en el mensaje final la dirección exacta de esa sucursal desde la base de conocimiento** (ej: "📍 Sucursal San Felipe: Maipú 381" o "📍 Sucursal Melipilla: Serrano 98"). Agrega también el horario de retiro: "🕐 Lunes a Viernes 9:00 a 18:00 hrs".
+           - Si es pago en el local (Efectivo/Crédito/Débito): Indica que puede venir al local mencionando su número de cotización: ${sessionContext.entidades.quote_id || 'JFNN-TEMP'}. **NO incluyas la dirección ni el horario de la sucursal en tu mensaje**, ya que el sistema los agregará automáticamente al final.
         `}
         `}
         
@@ -334,7 +338,8 @@ ${sessionContext.entidades.metodo_pago ? `
                 "horario_entrega": "mañana | tarde | null",
                 "direccion_envio": "dirección o null",
                 "tipo_documento": "boleta | factura | null",
-                "datos_factura": { "rut": null, "razon_social": null, "giro": null }
+                "datos_factura": { "rut": null, "razon_social": null, "giro": null },
+                "saludo_dado": "boolean — true si en este turno saludaste con el nombre del cliente. Una vez true, queda persistido en la sesión. NO bajes a false."
             }
         }
 

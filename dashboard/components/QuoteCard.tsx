@@ -545,26 +545,38 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                 <Car size={14} className="text-accent" />
                                                 <span className="text-xs font-bold uppercase text-accent tracking-wider">Vehículo {idx + 1}</span>
                                             </div>
-                                            <div className="grid grid-cols-5 gap-2">
-                                                <div className="space-y-1">
+                                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+                                                <div className="space-y-1 min-w-0">
                                                     <p className="text-[9px] text-neutral-500 uppercase font-bold">Marca/Modelo</p>
-                                                    <p className="text-xs text-neutral-300 font-medium">{v.marca_modelo || "N/A"}</p>
+                                                    <p className="text-xs text-neutral-300 font-medium truncate">{v.marca_modelo || "N/A"}</p>
                                                 </div>
-                                                <div className="space-y-1">
+                                                <div className="space-y-1 min-w-0">
                                                     <p className="text-[9px] text-neutral-500 uppercase font-bold">Año</p>
-                                                    <p className="text-xs text-neutral-300 font-medium">{v.ano || "N/A"}</p>
+                                                    <p className="text-xs text-neutral-300 font-medium truncate">{v.ano || "N/A"}</p>
                                                 </div>
-                                                <div className="space-y-1">
+                                                <div className="space-y-1 col-span-2 sm:col-span-1 min-w-0">
                                                     <p className="text-[9px] text-neutral-500 uppercase font-bold">Patente/VIN</p>
-                                                    <p className="text-xs text-neutral-300 font-medium truncate">{v.patente || v.vin || "N/A"}</p>
+                                                    <div className="group relative flex items-center gap-1 min-w-0">
+                                                        <p className="text-xs text-neutral-300 font-medium truncate flex-1 min-w-0" title={v.patente || v.vin || "N/A"}>
+                                                            {v.patente || v.vin || "N/A"}
+                                                        </p>
+                                                        {(v.patente || v.vin) && (
+                                                            <button
+                                                                onClick={() => navigator.clipboard.writeText(v.patente || v.vin || "")}
+                                                                className="text-[10px] text-neutral-500 hover:text-neutral-300 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                                                                title="Copiar"
+                                                                type="button"
+                                                            >
+                                                                📋
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                                <div className="space-y-1">
-                                                    <p className="text-[9px] text-neutral-500 uppercase font-bold">Motor</p>
-                                                    <p className="text-xs text-neutral-300 font-medium">{v.motor || "N/A"}</p>
-                                                </div>
-                                                <div className="space-y-1">
-                                                    <p className="text-[9px] text-neutral-500 uppercase font-bold">Combustible</p>
-                                                    <p className="text-xs text-neutral-300 font-medium">{v.combustible || "N/A"}</p>
+                                                <div className="space-y-1 min-w-0">
+                                                    <p className="text-[9px] text-neutral-500 uppercase font-bold">Motor · Combustible</p>
+                                                    <p className="text-xs text-neutral-300 font-medium truncate" title={`${v.motor || "N/A"} · ${v.combustible || "N/A"}`}>
+                                                        {v.motor || "N/A"} · {v.combustible || "N/A"}
+                                                    </p>
                                                 </div>
                                             </div>
                                             <div className="pt-2">
@@ -626,26 +638,38 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                 </div>
                             ) : (
                                 <div className="space-y-3">
-                                    <div className="grid grid-cols-5 gap-3 bg-white/5 border border-white/10 rounded-xl p-4">
-                                        <div className="space-y-1">
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 bg-white/5 border border-white/10 rounded-xl p-4">
+                                        <div className="space-y-1 min-w-0">
                                             <p className="text-[9px] text-neutral-500 uppercase font-bold">Vehículo</p>
-                                            <p className="text-xs text-neutral-300">{entidades.marca_modelo || "N/A"}</p>
+                                            <p className="text-xs text-neutral-300 truncate">{entidades.marca_modelo || "N/A"}</p>
                                         </div>
-                                        <div className="space-y-1">
+                                        <div className="space-y-1 min-w-0">
                                             <p className="text-[9px] text-neutral-500 uppercase font-bold">Año</p>
-                                            <p className="text-xs text-neutral-300">{entidades.ano || "N/A"}</p>
+                                            <p className="text-xs text-neutral-300 truncate">{entidades.ano || "N/A"}</p>
                                         </div>
-                                        <div className="space-y-1">
+                                        <div className="space-y-1 col-span-2 sm:col-span-1 min-w-0">
                                             <p className="text-[9px] text-neutral-500 uppercase font-bold">Patente/VIN</p>
-                                            <p className="text-xs text-neutral-300 truncate">{entidades.patente || entidades.vin || "N/A"}</p>
+                                            <div className="group relative flex items-center gap-1 min-w-0">
+                                                <p className="text-xs text-neutral-300 truncate flex-1 min-w-0" title={entidades.patente || entidades.vin || "N/A"}>
+                                                    {entidades.patente || entidades.vin || "N/A"}
+                                                </p>
+                                                {(entidades.patente || entidades.vin) && (
+                                                    <button
+                                                        onClick={() => navigator.clipboard.writeText(entidades.patente || entidades.vin || "")}
+                                                        className="text-[10px] text-neutral-500 hover:text-neutral-300 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                                                        title="Copiar"
+                                                        type="button"
+                                                    >
+                                                        📋
+                                                    </button>
+                                                )}
+                                            </div>
                                         </div>
-                                        <div className="space-y-1">
-                                            <p className="text-[9px] text-neutral-500 uppercase font-bold">Motor</p>
-                                            <p className="text-xs text-neutral-300">{entidades.motor || "N/A"}</p>
-                                        </div>
-                                        <div className="space-y-1">
-                                            <p className="text-[9px] text-neutral-500 uppercase font-bold">Combustible</p>
-                                            <p className="text-xs text-neutral-300">{entidades.combustible || "N/A"}</p>
+                                        <div className="space-y-1 min-w-0">
+                                            <p className="text-[9px] text-neutral-500 uppercase font-bold">Motor · Combustible</p>
+                                            <p className="text-xs text-neutral-300 truncate" title={`${entidades.motor || "N/A"} · ${entidades.combustible || "N/A"}`}>
+                                                {entidades.motor || "N/A"} · {entidades.combustible || "N/A"}
+                                            </p>
                                         </div>
                                     </div>
 

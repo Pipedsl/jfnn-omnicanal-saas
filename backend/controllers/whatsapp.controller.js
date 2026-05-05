@@ -5,6 +5,7 @@ const sessionsService = require('../services/sessions.service');
 const storageService = require('../services/storage.service');
 const db = require('../config/db');
 const { printShadowQuote } = require('../utils/shadowQuote');
+const { getDireccionSucursal, esPagoPresencial } = require('../utils/sucursales');
 
 /**
  * Valida la firma X-Hub-Signature-256 del webhook de Meta usando META_APP_SECRET.
@@ -489,7 +490,16 @@ const processBufferedMessages = async (customerPhone) => {
             console.log(`[Session] 🔄 Re-engage detectado para ${customerPhone} (estado: ${session.estado}). Archivando venta y reiniciando...`);
             const { archivedPedido, newSession } = await sessionsService.archiveSession(customerPhone);
             if (newSession) {
-                session = newSession;
+                // Validación defensiva: asegurar que la sesión post-archivado esté limpia
+                const tieneRepuestosViejos = (newSession.entidades?.repuestos_solicitados?.length ?? 0) > 0;
+                const tieneVehiculosViejos = (newSession.entidades?.vehiculos?.length ?? 0) > 0;
+
+                if (tieneRepuestosViejos || tieneVehiculosViejos) {
+                    console.warn(`[Webhook] ⚠️ Sesión post-archivado de ${customerPhone} contiene entidades viejas (repuestos: ${newSession.entidades?.repuestos_solicitados?.length}, vehiculos: ${newSession.entidades?.vehiculos?.length}). Forzando reset adicional.`);
+                    session = await sessionsService.resetSession(customerPhone);
+                } else {
+                    session = newSession;
+                }
             } else {
                 // Si archiveSession falló, forzar un reset limpio
                 console.warn(`[Session] ⚠️ archiveSession falló para ${customerPhone}. Forzando reset...`);
@@ -726,12 +736,19 @@ const processBufferedMessages = async (customerPhone) => {
                     const quoteId = session.entidades.quote_id || 'SIN-NÚMERO';
                     const nombreCliente = session.entidades.nombre_cliente;
 
+                    // Postprocesado robusto: inyectar dirección de sucursal si el pago es presencial (BUG-POST04)
+                    const sucursal = session.entidades.sucursal_retiro || session.sucursal;
+                    const metodoPago = session.entidades.metodo_pago;
+                    const direccionBlock = (sucursal && esPagoPresencial(metodoPago))
+                        ? `\n\n${getDireccionSucursal(sucursal)}`
+                        : '';
+
                     if (nombreCliente) {
-                        finalMessage = `¡Muchas gracias, ${nombreCliente}! 🎉 Su pedido está confirmado.\n\nAl acercarse a nuestra tienda, puede identificarse con:\n• Código de cotización: *${quoteId}*\n• O simplemente con su nombre: *${nombreCliente}*\n\n¡Lo atenderemos de inmediato! 🔧`;
+                        finalMessage = `¡Muchas gracias, ${nombreCliente}! 🎉 Su pedido está confirmado.${direccionBlock}\n\nAl acercarse a nuestra tienda, puede identificarse con:\n• Código de cotización: *${quoteId}*\n• O simplemente con su nombre: *${nombreCliente}*\n\n¡Lo atenderemos de inmediato! 🔧`;
                         await sessionsService.setEstado(customerPhone, 'CICLO_COMPLETO');
                         console.log(`[Venta] Ciclo de cierre completado para ${customerPhone} (Pago presencial)`);
                     } else {
-                        finalMessage = `¡Perfecto! 🎉 Su pedido está confirmado.\nPara agilizar su atención al llegar a la tienda, ¿podría decirme su nombre completo?`;
+                        finalMessage = `¡Perfecto! 🎉 Su pedido está confirmado.${direccionBlock}\nPara agilizar su atención al llegar a la tienda, ¿podría decirme su nombre completo?`;
                         // Mantenemos el estado actual para que en el próximo mensaje Gemini nos extraiga el nombre
                     }
                 }

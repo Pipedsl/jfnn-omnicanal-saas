@@ -42,6 +42,7 @@ const INITIAL_ENTITIES = {
     email_cliente: null,
     rut_cliente: null,
     agente_pausado: false,
+    saludo_dado: false,
     comprobante_url: null,
     datos_extraidos: null,
     datos_factura: { rut: null, razon_social: null, giro: null },
@@ -120,6 +121,12 @@ const sessionCache = new Map();
 const CACHE_TTL = 5000;
 let globalPendingCache = { data: null, timestamp: 0 };
 const GLOBAL_CACHE_TTL = 2500;
+
+// ─── invalidateSessionCache ──────────────────────────────────────
+const invalidateSessionCache = (phone) => {
+    sessionCache.delete(phone);
+    globalPendingCache = { data: null, timestamp: 0 };
+};
 
 // ─── FUNCIÓN AUXILIAR: Mapear fila de DB al formato esperado ────
 const rowToSession = (row) => ({
@@ -505,6 +512,12 @@ const updateEntidades = async (phone, nuevasEntidades) => {
             }
         }
 
+        // MEJORA #7.5: Sticky truthy para saludo_dado (A.3 BUG-POST05)
+        // Una vez que el agente ha saludado (saludo_dado = true), nunca debe volver a false en esta sesión
+        if (entities.saludo_dado === true) {
+            entities.saludo_dado = true; // Persistir — una vez saludado, queda saludado
+        }
+
         // MEJORA #2: Auto-limpieza de flags bloqueantes cuando llega el dato solicitado
         const tienePatenteEnRaiz = !!entities.patente;
         const tienePatenteEnVehiculos = Array.isArray(entities.vehiculos) && entities.vehiculos.some(v => v.patente);
@@ -749,6 +762,9 @@ const archiveSession = async (phone) => {
         );
 
         console.log(`[Sessions] 🗄️  Venta archivada → pedido ID: ${pedidoRows[0]?.id}`);
+        // Invalidar cache explícitamente antes de resetear para evitar race conditions
+        sessionCache.delete(phone);
+        globalPendingCache = { data: null, timestamp: 0 };
         const newSession = await resetSession(phone);
         return { archivedPedido: pedidoRows[0] || null, newSession };
     } catch (err) {
@@ -1404,5 +1420,6 @@ module.exports = {
     claimSession,
     releaseSession,
     validateLock,
+    invalidateSessionCache,
     STATES
 };
