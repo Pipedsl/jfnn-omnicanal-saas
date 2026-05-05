@@ -97,6 +97,24 @@ const isSameRepuesto = (nombreA, nombreB) => {
     return false;
 };
 
+// ─── derivarSucursal ────────────────────────────────────────────
+/**
+ * Deriva la columna sucursal de user_sessions a partir de las entidades de la sesión.
+ * - retiro + sucursal_retiro conocida → esa sucursal
+ * - domicilio → 'Melipilla' (regla provisional: San Felipe sin cobertura de despacho aún)
+ * - sin metodo_entrega → null (aún no se puede determinar)
+ */
+function derivarSucursal(entidades) {
+    if (!entidades) return null;
+    if (entidades.metodo_entrega === 'retiro' && entidades.sucursal_retiro) {
+        return entidades.sucursal_retiro; // 'Melipilla' o 'San Felipe'
+    }
+    if (entidades.metodo_entrega === 'domicilio') {
+        return 'Melipilla'; // regla provisional: domicilio → Melipilla mientras San Felipe se estabiliza
+    }
+    return null;
+}
+
 // ─── Caché en memoria ───────────────────────────────────────────
 const sessionCache = new Map();
 const CACHE_TTL = 5000;
@@ -110,7 +128,10 @@ const rowToSession = (row) => ({
     estado: row.estado,
     entidades: typeof row.entidades === 'string' ? JSON.parse(row.entidades) : row.entidades,
     ultimo_mensaje: row.ultimo_mensaje,
-    created_at: row.created_at
+    created_at: row.created_at,
+    sucursal: row.sucursal || null,
+    lock_vendedor: row.lock_vendedor || null,
+    lock_expires_at: row.lock_expires_at || null
 });
 
 // ─── PERFIL DEL CLIENTE ─────────────────────────────────────────
@@ -499,11 +520,24 @@ const updateEntidades = async (phone, nuevasEntidades) => {
             console.log(`[Merge] 🔓 Flag solicitud_manual_vin limpiado: VIN recibido para ${phone}.`);
         }
 
-        const { rows } = await db.query(
-            `UPDATE user_sessions SET entidades = $1, ultimo_mensaje = NOW()
-             WHERE phone = $2 RETURNING *`,
-            [JSON.stringify(entities), phone]
-        );
+        // Derivar sucursal a partir de metodo_entrega / sucursal_retiro capturados por Gemini
+        const nuevaSucursal = derivarSucursal(entities);
+
+        const { rows } = nuevaSucursal
+            ? await db.query(
+                `UPDATE user_sessions SET entidades = $1, sucursal = $2, ultimo_mensaje = NOW()
+                 WHERE phone = $3 RETURNING *`,
+                [JSON.stringify(entities), nuevaSucursal, phone]
+              )
+            : await db.query(
+                `UPDATE user_sessions SET entidades = $1, ultimo_mensaje = NOW()
+                 WHERE phone = $2 RETURNING *`,
+                [JSON.stringify(entities), phone]
+              );
+
+        if (nuevaSucursal) {
+            console.log(`[Sessions] 📍 Sucursal derivada → "${nuevaSucursal}" para ${phone}`);
+        }
 
         sessionCache.delete(phone);
         globalPendingCache = { data: null, timestamp: 0 }; // Invalidar cache global
@@ -535,8 +569,9 @@ const setEstado = async (phone, nuevoEstado) => {
 };
 
 // ─── getAllPendingSessions ────────────────────────────────────────
-const getAllPendingSessions = async () => {
-    if (globalPendingCache.data && (Date.now() - globalPendingCache.timestamp < GLOBAL_CACHE_TTL)) {
+const getAllPendingSessions = async (sucursal = null) => {
+    // Solo usar cache cuando no hay filtro de sucursal
+    if (!sucursal && globalPendingCache.data && (Date.now() - globalPendingCache.timestamp < GLOBAL_CACHE_TTL)) {
         return globalPendingCache.data;
     }
 
@@ -548,14 +583,24 @@ const getAllPendingSessions = async () => {
             STATES.ENCARGO_SOLICITADO, STATES.ESPERANDO_SALDO, STATES.ESPERANDO_RETIRO, STATES.CICLO_COMPLETO
         ];
 
+        const params = [activeStates];
+        let whereClause = `WHERE estado = ANY($1)`;
+        if (sucursal) {
+            params.push(sucursal);
+            whereClause += ` AND sucursal = $2`;
+        }
+
         const { rows } = await db.query(
-            `SELECT * FROM user_sessions WHERE estado = ANY($1)
+            `SELECT * FROM user_sessions ${whereClause}
              ORDER BY ultimo_mensaje DESC`,
-            [activeStates]
+            params
         );
 
         const data = rows.map(rowToSession);
-        globalPendingCache = { data, timestamp: Date.now() };
+        // Solo guardar en cache cuando no hay filtro de sucursal
+        if (!sucursal) {
+            globalPendingCache = { data, timestamp: Date.now() };
+        }
         return data;
     } catch (err) {
         console.error('[Sessions] ❌ Error en getAllPendingSessions:', err.message);
@@ -568,15 +613,30 @@ const getAllPendingSessions = async () => {
 };
 
 // ─── getHistoricalSessions ────────────────────────────────────────
-const getHistoricalSessions = async () => {
+const getHistoricalSessions = async (sucursal = null) => {
     try {
+        const activeParams = [STATES.ENTREGADO];
+        let activeWhere = `WHERE estado = $1`;
+        if (sucursal) {
+            activeParams.push(sucursal);
+            activeWhere += ` AND sucursal = $2`;
+        }
+
         const { rows: activeRows } = await db.query(
-            `SELECT * FROM user_sessions WHERE estado = $1`,
-            [STATES.ENTREGADO]
+            `SELECT * FROM user_sessions ${activeWhere}`,
+            activeParams
         );
 
+        const archivedParams = [];
+        let archivedWhere = '';
+        if (sucursal) {
+            archivedParams.push(sucursal);
+            archivedWhere = `WHERE sucursal = $1`;
+        }
+
         const { rows: archivedRows } = await db.query(
-            `SELECT * FROM pedidos ORDER BY archivado_en DESC`
+            `SELECT * FROM pedidos ${archivedWhere} ORDER BY archivado_en DESC`,
+            archivedParams
         );
 
         const mapped = archivedRows.map(p => ({
@@ -584,7 +644,8 @@ const getHistoricalSessions = async () => {
             estado: p.estado_final,
             entidades: typeof p.entidades_completas === 'string' ? JSON.parse(p.entidades_completas) : p.entidades_completas,
             ultimo_mensaje: p.archivado_en,
-            updated_at: p.created_at || p.archivado_en
+            updated_at: p.created_at || p.archivado_en,
+            sucursal: p.sucursal || null
         }));
 
         const combined = [...activeRows.map(rowToSession), ...mapped];
@@ -656,12 +717,22 @@ const archiveSession = async (phone) => {
         const mensajesIa = counterRows[0]?.mensajes_ia || 0;
         const mensajesVendedor = counterRows[0]?.mensajes_vendedor || 0;
 
+        // Derivar sucursal para el pedido archivado (fuente de verdad: entidades)
+        const sucursalPedido = derivarSucursal(e);
+
+        // Leer el vendedor que tenía el lock en el momento del cierre (para REQ-03)
+        const { rows: lockRows } = await db.query(
+            `SELECT lock_vendedor FROM user_sessions WHERE phone = $1`,
+            [phone]
+        );
+        const vendedorNombre = lockRows[0]?.lock_vendedor || null;
+
         const { rows: pedidoRows } = await db.query(
             `INSERT INTO pedidos (phone, quote_id, estado_final, marca_modelo, ano, patente, vin,
              repuestos, total_cotizacion, metodo_pago, metodo_entrega, direccion_envio,
              tipo_documento, datos_factura, comprobante_url, datos_comprobante, entidades_completas,
-             mensajes_ia_total, mensajes_vendedor_total, created_at, archivado_en)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
+             mensajes_ia_total, mensajes_vendedor_total, sucursal, vendedor_nombre, created_at, archivado_en)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
              RETURNING *`,
             [
                 phone, e.quote_id || null, session.estado,
@@ -671,6 +742,8 @@ const archiveSession = async (phone) => {
                 e.tipo_documento || null, JSON.stringify(e.datos_factura || {}),
                 e.comprobante_url || null, JSON.stringify(e.pago_pendiente || {}),
                 JSON.stringify(e), mensajesIa, mensajesVendedor,
+                sucursalPedido || 'Melipilla', // backfill seguro: si aún null, asignar Melipilla
+                vendedorNombre,
                 session.created_at || null, session.ultimo_mensaje || null
             ]
         );
@@ -1242,6 +1315,73 @@ const reassignOrphanRepuestos = async (phone, userText) => {
     }
 };
 
+// ─── claimSession ─────────────────────────────────────────────────
+/**
+ * Reclama el lock pesimista de una sesión para un vendedor.
+ * Si otro vendedor ya lo tiene (y no expiró), devuelve success:false con quién lo tiene.
+ * Si el mismo vendedor llama de nuevo, extiende el TTL (renovación).
+ */
+const claimSession = async (phone, vendedor) => {
+    const { rows } = await db.query(`
+        UPDATE user_sessions
+        SET lock_token = gen_random_uuid(),
+            lock_vendedor = $1,
+            lock_expires_at = NOW() + INTERVAL '5 minutes'
+        WHERE phone = $2
+          AND (lock_token IS NULL OR lock_expires_at < NOW() OR lock_vendedor = $1)
+        RETURNING lock_token, lock_vendedor, lock_expires_at
+    `, [vendedor, phone]);
+
+    if (rows.length === 0) {
+        // Bloqueado por otro vendedor — leer quién lo tiene
+        const { rows: holderRows } = await db.query(
+            'SELECT lock_vendedor, lock_expires_at FROM user_sessions WHERE phone = $1',
+            [phone]
+        );
+        return { success: false, ...(holderRows[0] || {}) };
+    }
+    sessionCache.delete(phone);
+    globalPendingCache = { data: null, timestamp: 0 };
+    return { success: true, ...rows[0] };
+};
+
+// ─── releaseSession ───────────────────────────────────────────────
+/**
+ * Libera el lock pesimista. Solo funciona si el lock_token coincide.
+ */
+const releaseSession = async (phone, lock_token) => {
+    const { rowCount } = await db.query(
+        `UPDATE user_sessions SET lock_token = NULL, lock_vendedor = NULL, lock_expires_at = NULL
+         WHERE phone = $1 AND lock_token = $2::uuid`,
+        [phone, lock_token]
+    );
+    if (rowCount > 0) {
+        sessionCache.delete(phone);
+        globalPendingCache = { data: null, timestamp: 0 };
+    }
+    return { success: rowCount > 0 };
+};
+
+// ─── validateLock ─────────────────────────────────────────────────
+/**
+ * Valida si el lock_token dado es vigente para la sesión.
+ * Retorna { valid: true } o { valid: false, reason, lock_vendedor? }
+ */
+const validateLock = async (phone, lock_token) => {
+    if (!lock_token) return { valid: false, reason: 'missing_token' };
+    const { rows } = await db.query(
+        `SELECT lock_token, lock_vendedor, lock_expires_at FROM user_sessions WHERE phone = $1`,
+        [phone]
+    );
+    if (rows.length === 0) return { valid: false, reason: 'not_found' };
+    const r = rows[0];
+    if (!r.lock_token || r.lock_token !== lock_token) {
+        return { valid: false, reason: 'mismatched_token', lock_vendedor: r.lock_vendedor };
+    }
+    if (new Date(r.lock_expires_at) < new Date()) return { valid: false, reason: 'expired' };
+    return { valid: true, lock_vendedor: r.lock_vendedor };
+};
+
 module.exports = {
     getSession,
     updateEntidades,
@@ -1260,5 +1400,9 @@ module.exports = {
     getArchivedSessionForResume,
     reassignOrphanRepuestos,
     incrementMessageCounter,
+    derivarSucursal,
+    claimSession,
+    releaseSession,
+    validateLock,
     STATES
 };

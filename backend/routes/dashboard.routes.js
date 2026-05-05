@@ -90,7 +90,18 @@ router.get('/metrics', async (req, res) => {
  */
 router.get('/cotizaciones', async (req, res) => {
     try {
-        const pending = await sessionsService.getAllPendingSessions();
+        // Resolver filtro de sucursal según rol del usuario
+        const role = req.headers['x-user-role'] || 'admin';
+        const headerSucursal = req.headers['x-user-sucursal'];
+        let sucursal = null;
+        if (role === 'vendedor' && headerSucursal) {
+            // Vendedor: forzar su propia sucursal, ignorar query param
+            sucursal = headerSucursal;
+        } else if (role !== 'vendedor' && req.query.sucursal) {
+            // Admin: respetar filtro de query si viene
+            sucursal = req.query.sucursal;
+        }
+        const pending = await sessionsService.getAllPendingSessions(sucursal || null);
 
         // Formatear y normalizar los datos antes de enviarlos al frontend
         // Esto garantiza que los precios en repuestos_solicitados sean números limpios
@@ -138,11 +149,67 @@ router.get('/cotizaciones', async (req, res) => {
  */
 router.get('/cotizaciones/historial', async (req, res) => {
     try {
-        const history = await sessionsService.getHistoricalSessions();
+        // Resolver filtro de sucursal según rol del usuario
+        const role = req.headers['x-user-role'] || 'admin';
+        const headerSucursal = req.headers['x-user-sucursal'];
+        let sucursal = null;
+        if (role === 'vendedor' && headerSucursal) {
+            // Vendedor: forzar su propia sucursal, ignorar query param
+            sucursal = headerSucursal;
+        } else if (role !== 'vendedor' && req.query.sucursal) {
+            // Admin: respetar filtro de query si viene
+            sucursal = req.query.sucursal;
+        }
+        const history = await sessionsService.getHistoricalSessions(sucursal || null);
         res.status(200).json(history);
     } catch (error) {
         console.error('Error obteniendo historial:', error);
         res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+/**
+ * Reclamar lock pesimista sobre una cotización.
+ * POST /api/dashboard/cotizaciones/:phone/claim
+ * Body: { vendedor: string }
+ * Respuestas: 200 { success:true, lock_token, lock_vendedor, lock_expires_at }
+ *             409 { success:false, lock_vendedor, lock_expires_at }
+ */
+router.post('/cotizaciones/:phone/claim', async (req, res) => {
+    try {
+        const { phone } = req.params;
+        const { vendedor } = req.body;
+        if (!phone || !vendedor) {
+            return res.status(400).json({ error: 'Faltan campos: phone, vendedor' });
+        }
+        const result = await sessionsService.claimSession(phone, vendedor);
+        if (!result.success) {
+            return res.status(409).json(result);
+        }
+        return res.status(200).json(result);
+    } catch (error) {
+        console.error('[Lock] Error en claim:', error);
+        return res.status(500).json({ error: 'Error interno al reclamar lock' });
+    }
+});
+
+/**
+ * Liberar lock pesimista.
+ * POST /api/dashboard/cotizaciones/:phone/release
+ * Body: { lock_token: string }
+ */
+router.post('/cotizaciones/:phone/release', async (req, res) => {
+    try {
+        const { phone } = req.params;
+        const { lock_token } = req.body;
+        if (!phone || !lock_token) {
+            return res.status(400).json({ error: 'Faltan campos: phone, lock_token' });
+        }
+        const result = await sessionsService.releaseSession(phone, lock_token);
+        return res.status(200).json(result);
+    } catch (error) {
+        console.error('[Lock] Error en release:', error);
+        return res.status(500).json({ error: 'Error interno al liberar lock' });
     }
 });
 
@@ -292,10 +359,31 @@ router.post('/cotizaciones/template', async (req, res) => {
  */
 router.patch('/cotizaciones/estado', async (req, res) => {
     try {
-        const { phone, estado, notify, mensaje_logistica, numero_seguimiento } = req.body;
+        const { phone, estado, notify, mensaje_logistica, numero_seguimiento, lock_token, vendedor_nombre } = req.body;
 
         if (!phone || !estado) {
             return res.status(400).json({ error: 'Faltan campos obligatorios' });
+        }
+
+        // Validar lock pesimista si viene lock_token
+        if (lock_token) {
+            const lockCheck = await sessionsService.validateLock(phone, lock_token);
+            if (!lockCheck.valid && lockCheck.reason === 'mismatched_token' && lockCheck.lock_vendedor) {
+                // Hay un lock activo de otro vendedor — rechazar
+                return res.status(409).json({
+                    error: 'locked_by_other',
+                    lock_vendedor: lockCheck.lock_vendedor
+                });
+            }
+            // Si el token está vencido o no hay lock, se permite pasar (sesiones legacy)
+        }
+
+        // Persistir vendedor_nombre en user_sessions si viene en el body (para REQ-03)
+        if (vendedor_nombre) {
+            await db.query(
+                `UPDATE user_sessions SET lock_vendedor = COALESCE(lock_vendedor, $1) WHERE phone = $2`,
+                [vendedor_nombre, phone]
+            );
         }
 
         // Idempotencia: si el estado ya es el solicitado, no hacemos nada.

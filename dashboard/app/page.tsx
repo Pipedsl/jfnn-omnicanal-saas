@@ -18,6 +18,7 @@ interface Quote {
   entidades?: any; // Aceptamos any para el JSON dinámico
   ultimo_mensaje?: string;
   created_at?: string;
+  sucursal?: 'Melipilla' | 'San Felipe' | null;
 }
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000';
@@ -33,6 +34,7 @@ export default function Home() {
   const [userRole, setUserRole] = useState<string>('vendedor');
   const [userSucursal, setUserSucursal] = useState<'Melipilla' | 'San Felipe' | null>(null);
   const [vendedorNombre, setVendedorNombre] = useState<string>('');
+  const [adminSucursalFilter, setAdminSucursalFilter] = useState<'todas' | 'Melipilla' | 'San Felipe'>('todas');
   const [identitySelectorOpen, setIdentitySelectorOpen] = useState(false);
   // useRef para capturar el `view` y `fetchQuotesAndMetrics` actual sin closures stale
   const viewRef = useRef("pendientes");
@@ -86,7 +88,15 @@ export default function Home() {
     console.log(`[Fetch] Cotizaciones activas. Origen: ${source} a las ${new Date().toLocaleTimeString()}`);
     try {
       setLoading(true);
-      const resPend = await axios.get(`${API_URL}/api/dashboard/cotizaciones?t=${Date.now()}`);
+      const role = localStorage.getItem('jfnn_role') ?? 'vendedor';
+      const sucursalLocal = localStorage.getItem('jfnn_sucursal') as 'Melipilla' | 'San Felipe' | null;
+      let sucursalParam = '';
+      if (role === 'vendedor' && sucursalLocal) {
+        sucursalParam = `&sucursal=${encodeURIComponent(sucursalLocal)}`;
+      } else if (role === 'admin' && adminSucursalFilter !== 'todas') {
+        sucursalParam = `&sucursal=${encodeURIComponent(adminSucursalFilter)}`;
+      }
+      const resPend = await axios.get(`${API_URL}/api/dashboard/cotizaciones?t=${Date.now()}${sucursalParam}`);
       const pend: Quote[] = resPend.data || [];
 
       if (viewRef.current === "pendientes") setQuotes(pend);
@@ -103,7 +113,15 @@ export default function Home() {
     console.log(`[Fetch] Historial bajo demanda a las ${new Date().toLocaleTimeString()}`);
     try {
       setLoading(true);
-      const resHist = await axios.get(`${API_URL}/api/dashboard/cotizaciones/historial?t=${Date.now()}`);
+      const role = localStorage.getItem('jfnn_role') ?? 'vendedor';
+      const sucursalLocal = localStorage.getItem('jfnn_sucursal') as 'Melipilla' | 'San Felipe' | null;
+      let sucursalParam = '';
+      if (role === 'vendedor' && sucursalLocal) {
+        sucursalParam = `&sucursal=${encodeURIComponent(sucursalLocal)}`;
+      } else if (role === 'admin' && adminSucursalFilter !== 'todas') {
+        sucursalParam = `&sucursal=${encodeURIComponent(adminSucursalFilter)}`;
+      }
+      const resHist = await axios.get(`${API_URL}/api/dashboard/cotizaciones/historial?t=${Date.now()}${sucursalParam}`);
       const hist: Quote[] = resHist.data || [];
 
       setQuotes(hist);
@@ -139,14 +157,24 @@ export default function Home() {
     }
   }, [view]);
 
-  // Polling cada 10s (sin Supabase Realtime)
+  // Re-fetch cuando admin cambia el filtro de sucursal
+  useEffect(() => {
+    if (view === 'pendientes') {
+      fetchPendientes('adminSucursalFilter_change');
+    } else if (view === 'historial') {
+      fetchHistorial();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adminSucursalFilter]);
+
+  // Polling cada 3s para pendientes (sin Supabase Realtime; necesario para lock pesimista)
   useEffect(() => {
     fetchPendientes("Initial_Load");
     const interval = setInterval(() => {
       if (viewRef.current === "pendientes") {
-        fetchRef.current("Polling_10s");
+        fetchRef.current("Polling_3s");
       }
-    }, 10000);
+    }, 3000);
     return () => clearInterval(interval);
   }, []);
 
@@ -295,6 +323,25 @@ export default function Home() {
             </button>
           ))}
 
+          {/* Selector de sucursal (solo admin) */}
+          {userRole === 'admin' && (
+            <div className="flex items-center gap-1.5 ml-2 pl-2 border-l border-white/10">
+              <span className="text-[9px] font-bold uppercase tracking-widest text-neutral-600">Sucursal:</span>
+              {(['todas', 'Melipilla', 'San Felipe'] as const).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setAdminSucursalFilter(s)}
+                  className={`px-3 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all border ${adminSucursalFilter === s
+                    ? 'bg-accent border-accent text-white'
+                    : 'bg-white/5 border-white/10 text-neutral-500 hover:border-white/20'
+                    }`}
+                >
+                  {s === 'todas' ? 'Todas' : s}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Búsqueda */}
           <div className="relative ml-auto">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
@@ -348,6 +395,7 @@ export default function Home() {
               phone={selectedQuote.phone}
               estado={selectedQuote.estado}
               entidades={selectedQuote.entidades}
+              sucursal={selectedQuote.sucursal ?? null}
               ultimoMensaje={selectedQuote.ultimo_mensaje}
               onResponded={() => { setSelectedQuote(null); view === 'historial' ? fetchHistorial() : fetchPendientes('onResponded_Modal'); }}
               autoOpen={true}

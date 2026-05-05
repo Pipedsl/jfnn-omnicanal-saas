@@ -223,7 +223,7 @@ function SucursalCard({ titulo, sucursal, vendedores, submitting, onAgregar, onT
           type="text"
           value={nombre}
           onChange={(e) => setNombre(e.target.value)}
-          placeholder="Nombre del vendedor"
+          placeholder="Nombre"
           maxLength={60}
           className="w-full sm:flex-1 min-w-0 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-200 placeholder-neutral-600 focus:outline-none focus:border-green-500/50 transition-colors disabled:opacity-50"
           disabled={submitting}

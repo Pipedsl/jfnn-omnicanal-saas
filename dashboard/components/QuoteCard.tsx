@@ -1,11 +1,12 @@
 "use client";
 
-import { Car, Package, User, CheckCircle, Truck, Archive, Edit3, MessageSquareOff, Bot, X, ChevronRight, Hash, Clock, Send, ZoomIn, Check } from 'lucide-react';
+import { Car, Package, User, CheckCircle, Truck, Archive, Edit3, MessageSquareOff, Bot, X, ChevronRight, Hash, Clock, Send, ZoomIn, Check, Lock } from 'lucide-react';
 import { useState, useEffect } from "react";
 import SellerActionForm from "./SellerActionForm";
 import ImageLightbox from "./ImageLightbox";
 import axios from "axios";
 import { BACKEND_URL } from "@/lib/api";
+import { useQuoteLock } from "@/hooks/useQuoteLock";
 
 interface Repuesto {
     nombre: string;
@@ -39,7 +40,7 @@ interface Entidades {
     repuestos_solicitados: Repuesto[] | null;
     sintomas_reportados: string | null;
     metodo_pago: string | null;
-    metodo_entrega: string | null;
+    metodo_entrega: 'retiro' | 'domicilio' | 'envio' | null;
     direccion_envio: string | null;
     tipo_documento: string | null;
     quote_id: string | null;
@@ -60,6 +61,7 @@ interface QuoteCardProps {
     phone: string;
     estado: string;
     entidades: Entidades;
+    sucursal?: 'Melipilla' | 'San Felipe' | null;
     ultimoMensaje?: string;
     onResponded: () => void;
     autoOpen?: boolean;
@@ -84,12 +86,18 @@ function useElapsed(since?: string) {
     return elapsed;
 }
 
-export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onResponded, autoOpen = false, onClose }: QuoteCardProps) {
+export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMensaje, onResponded, autoOpen = false, onClose }: QuoteCardProps) {
     const elapsed = useElapsed(ultimoMensaje);
     const arrivalTime = ultimoMensaje ? new Date(ultimoMensaje).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : null;
     const arrivalDate = ultimoMensaje ? new Date(ultimoMensaje).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' }) : null;
     const [isModalOpen, setIsModalOpen] = useState(autoOpen);
     const closeModal = () => { setIsModalOpen(false); onClose?.(); };
+
+    // Lock pesimista — admin no compite con vendedores (no hace claim)
+    const role = typeof window !== 'undefined' ? (localStorage.getItem('jfnn_role') ?? 'vendedor') : 'vendedor';
+    const vendedorNombre = typeof window !== 'undefined' ? localStorage.getItem('jfnn_vendedor_nombre') : null;
+    const lockVendedor = role === 'admin' ? null : vendedorNombre;
+    const { isLocked, lockedBy, lockToken } = useQuoteLock(isModalOpen ? phone : null, lockVendedor);
     const [isEditing, setIsEditing] = useState(false);
     const [showLogisticsModal, setShowLogisticsModal] = useState(false);
     const [mensajeLogistica, setMensajeLogistica] = useState("");
@@ -216,11 +224,19 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
             await axios.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, {
                 phone,
                 estado: nuevoEstado,
-                notify
+                notify,
+                ...(lockToken ? { lock_token: lockToken } : {}),
+                ...(vendedorNombre ? { vendedor_nombre: vendedorNombre } : {})
             });
             closeModal();
             onResponded();
-        } catch (error) {
+        } catch (error: unknown) {
+            const err = error as { response?: { status?: number; data?: { lock_vendedor?: string } } };
+            if (err.response?.status === 409) {
+                alert(`Otro vendedor ya cotizó esta solicitud: ${err.response.data?.lock_vendedor || 'desconocido'}. Recargando...`);
+                onResponded();
+                return;
+            }
             console.error("Error actualizando estado:", error);
             alert("No se pudo actualizar el estado.");
         }
@@ -235,14 +251,22 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                 estado: estadoFinal,
                 notify: true,
                 mensaje_logistica: mensajeLogistica.trim() || null,
-                numero_seguimiento: esEnvio ? numeroSeguimiento.trim() || null : null
+                numero_seguimiento: esEnvio ? numeroSeguimiento.trim() || null : null,
+                ...(lockToken ? { lock_token: lockToken } : {}),
+                ...(vendedorNombre ? { vendedor_nombre: vendedorNombre } : {})
             });
             setShowLogisticsModal(false);
             setMensajeLogistica("");
             setNumeroSeguimiento("");
             closeModal();
             onResponded();
-        } catch (error) {
+        } catch (error: unknown) {
+            const err = error as { response?: { status?: number; data?: { lock_vendedor?: string } } };
+            if (err.response?.status === 409) {
+                alert(`Otro vendedor ya cotizó esta solicitud: ${err.response.data?.lock_vendedor || 'desconocido'}. Recargando...`);
+                onResponded();
+                return;
+            }
             console.error("Error confirmando logística:", error);
             alert("No se pudo confirmar la logística.");
         } finally {
@@ -329,6 +353,20 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
 
                     {/* Right side */}
                     <div className="flex flex-col items-end gap-2 shrink-0">
+                        <div className="flex items-center gap-1.5">
+                            {sucursal ? (
+                                <>
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full border bg-violet-500/10 text-violet-400 border-violet-500/20 font-bold">
+                                        📍 {sucursal}
+                                    </span>
+                                    {entidades.metodo_entrega === 'domicilio' && (
+                                        <span className="text-[10px] px-2 py-0.5 rounded-full border bg-sky-500/10 text-sky-400 border-sky-500/20 font-bold">
+                                            🚚 Domicilio
+                                        </span>
+                                    )}
+                                </>
+                            ) : null}
+                        </div>
                         <span className={`px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-tighter rounded-full border ${statusConfig.class}`}>
                             {statusConfig.label}
                         </span>
@@ -393,6 +431,22 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                     onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}
                 >
                     <div className="relative w-full w-[95vw] sm:max-w-4xl md:max-w-6xl lg:max-w-7xl max-h-[95vh] flex flex-col glass rounded-2xl">
+                        {/* Lock overlay — otro vendedor está cotizando */}
+                        {isLocked && (
+                            <div className="absolute inset-0 z-20 rounded-2xl bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
+                                <div className="flex items-center gap-2 text-neutral-300">
+                                    <Lock size={20} className="text-amber-400" />
+                                    <span className="text-base font-bold">Cotizando como: <span className="text-amber-400">{lockedBy}</span></span>
+                                </div>
+                                <p className="text-sm text-neutral-500">Otro vendedor está procesando esta cotización.</p>
+                                <button
+                                    onClick={closeModal}
+                                    className="px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/20 text-neutral-300 rounded-xl text-sm font-bold transition-colors"
+                                >
+                                    Cerrar
+                                </button>
+                            </div>
+                        )}
                         {/* Modal Header */}
                         <div className="sticky top-0 z-10 flex items-center justify-between px-6 py-4 bg-background/80 backdrop-blur-sm border-b border-white/5">
                             <div className="flex items-center gap-3">
@@ -423,6 +477,20 @@ export default function QuoteCard({ phone, estado, entidades, ultimoMensaje, onR
                                         {entidades.solicitud_manual_vin && (
                                             <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded border border-yellow-500/30 font-bold animate-pulse">
                                                 ⚠️ ESPERANDO VIN
+                                            </span>
+                                        )}
+                                        {sucursal ? (
+                                            <span className="text-[9px] bg-violet-500/10 text-violet-400 px-2 py-0.5 rounded border border-violet-500/20 font-bold">
+                                                📍 {sucursal}
+                                            </span>
+                                        ) : (
+                                            <span className="text-[9px] bg-white/5 text-neutral-600 px-2 py-0.5 rounded border border-white/10 font-bold">
+                                                📍 —
+                                            </span>
+                                        )}
+                                        {entidades.metodo_entrega === 'domicilio' && (
+                                            <span className="text-[9px] bg-sky-500/10 text-sky-400 px-2 py-0.5 rounded border border-sky-500/20 font-bold">
+                                                🚚 Domicilio
                                             </span>
                                         )}
                                     </div>

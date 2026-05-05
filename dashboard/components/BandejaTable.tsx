@@ -13,6 +13,9 @@ interface Quote {
     entidades?: any;
     ultimo_mensaje?: string;
     created_at?: string;
+    sucursal?: 'Melipilla' | 'San Felipe' | null;
+    lock_vendedor?: string | null;
+    lock_expires_at?: string | null;
 }
 
 interface BandejaTableProps {
@@ -176,12 +179,15 @@ export default function BandejaTable({ quotes, filter, searchQuery, onOpenDetail
                     const vehicleLabel = getVehicleLabel(quote.entidades);
                     const repCount = getRepuestosCount(quote.entidades);
                     const isPaused = quote.entidades?.agente_pausado || false;
+                    const isActiveLock = !!quote.lock_vendedor &&
+                        !!quote.lock_expires_at &&
+                        new Date(quote.lock_expires_at) > new Date();
 
                     return (
                         <div
                             key={quote.id || quote.phone}
                             onClick={() => onOpenDetail(quote)}
-                            className={`grid grid-cols-12 gap-4 px-6 py-3.5 items-center hover:bg-white/[0.03] cursor-pointer transition-colors group ${config.action ? 'border-l-2 border-l-accent/30' : ''}`}
+                            className={`grid grid-cols-12 gap-4 px-6 py-3.5 items-center hover:bg-white/[0.03] cursor-pointer transition-colors group ${config.action ? 'border-l-2 border-l-accent/30' : ''} ${isActiveLock ? 'opacity-50' : ''}`}
                         >
                             {/* Cliente */}
                             <div className="col-span-2 flex items-center gap-2 min-w-0">
@@ -205,6 +211,16 @@ export default function BandejaTable({ quotes, filter, searchQuery, onOpenDetail
                                             </span>
                                         )}
                                     </div>
+                                    {quote.sucursal ? (
+                                        <span className="text-[9px] text-violet-400 font-bold mt-0.5">
+                                            📍 {quote.sucursal}
+                                        </span>
+                                    ) : null}
+                                    {isActiveLock && (
+                                        <span className="text-[9px] text-amber-400 font-bold mt-0.5">
+                                            🔒 {quote.lock_vendedor}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
 

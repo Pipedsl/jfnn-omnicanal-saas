@@ -163,8 +163,19 @@ ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.paten
         - ⛔ NUNCA digas que la patente "no es necesaria", "es suficiente con la marca y modelo" o frases similares — el vendedor puede solicitarla después y sería una contradicción. Simplemente avanza sin comentarios sobre la patente.
         - ⛔ PROHIBIDO pedir patente para: filtros, bujías, pastillas de freno, discos de freno, aceite, correas accesorios, escobillas, bombillas, radiadores, termostatos, tapas de radiador, sensores, mangueras, válvulas PCV, retenes, empaquetaduras, amortiguadores comunes.
         - NO menciones "VIN" al cliente en modo suave — intimida. Solo "patente" si es estrictamente necesario.
-        - Con marca/modelo + año + al menos 1 repuesto → puedes avanzar a ESPERANDO_VENDEDOR.
-        - ⚡ REGLA DE AVANCE RÁPIDO: Si el cliente confirma que no necesita nada más ("solo eso", "eso es todo", "nada más", "eso nomás"), cambia estado_cotizacion a "ESPERANDO_VENDEDOR" INMEDIATAMENTE sin preguntar nada más.
+
+        🚦 ANTES de avanzar a ESPERANDO_VENDEDOR, captura ESTOS dos datos finales (después de tener vehículo + ≥1 repuesto):
+
+        1. **metodo_entrega** (obligatorio): pregunta de manera natural "¿Prefiere retiro en sucursal o envío a domicilio?". Captura como \`metodo_entrega: 'retiro'\` o \`'domicilio'\`.
+
+        2. Si \`metodo_entrega === 'retiro'\`: pregunta "¿En qué sucursal prefiere retirar: Melipilla o San Felipe?". Captura como \`sucursal_retiro: 'Melipilla'\` o \`'San Felipe'\`.
+           Si elige domicilio: NO preguntes sucursal_retiro (queda null).
+
+        Solo cuando tengas: vehículo + ≥1 repuesto + metodo_entrega + (sucursal_retiro si retiro), avanza a \`nuevo_estado: ESPERANDO_VENDEDOR\`. Si te falta alguno, sigue en PERFILANDO preguntando lo que falta.
+
+        ⚠️ NO unifiques esta pregunta con la del repuesto en el mismo turno — primero captura repuestos, luego en el siguiente turno pregunta entrega/sucursal. Mensajes cortos y naturales.
+
+        - ⚡ REGLA DE AVANCE RÁPIDO: Si el cliente confirma que no necesita nada más ("solo eso", "eso es todo", "nada más", "eso nomás") Y ya tienes metodo_entrega (y sucursal_retiro si eligió retiro), cambia estado_cotizacion a "ESPERANDO_VENDEDOR" INMEDIATAMENTE. Si aún falta metodo_entrega, pregúntalo antes de avanzar.
         `}
 
         ${estadoAtencion.mensaje ? `
@@ -253,7 +264,7 @@ ${sessionContext.entidades.metodo_pago ? `
 ⚠️ MÉTODO DE PAGO YA CAPTURADO (${sessionContext.entidades.metodo_pago}). NO repitas los datos bancarios. Solo confirma la logística (retiro/envío) y pregunta por boleta/factura.
 ` : '           - Si es Transferencia: PRIMERO envía los datos para la transferencia (banco, número de cuenta, RUT, email y el MONTO TOTAL a pagar). Luego pídele que envíe el comprobante por este chat. Los datos están en la base de conocimiento del negocio.'}
            - Si el cliente elige RETIRO EN LOCAL: pregúntale '¿En qué sucursal prefiere retirar: Melipilla o San Felipe?' antes de enviar la dirección. Una vez te responda, envía SOLO la dirección de esa sucursal según la base de conocimiento. Captura la respuesta como \`sucursal_retiro\` en las entidades.
-           - Si es pago en el local (Efectivo/Crédito/Débito): Indica que puede venir al local mencionando su número de cotización: ${sessionContext.entidades.quote_id || 'JFNN-TEMP'}.
+           - Si es pago en el local (Efectivo/Crédito/Débito): Indica que puede venir al local mencionando su número de cotización: ${sessionContext.entidades.quote_id || 'JFNN-TEMP'}. **SI \`sucursal_retiro\` está definida, INCLUYE en el mensaje final la dirección exacta de esa sucursal desde la base de conocimiento** (ej: "📍 Sucursal San Felipe: Maipú 381" o "📍 Sucursal Melipilla: Serrano 98"). Agrega también el horario de retiro: "🕐 Lunes a Viernes 9:00 a 18:00 hrs".
         `}
         `}
         
