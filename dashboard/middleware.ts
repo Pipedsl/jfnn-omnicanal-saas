@@ -24,8 +24,9 @@ export async function middleware(req: NextRequest) {
   try {
     const { payload } = await jwtVerify(token, JWT_SECRET);
     const response = NextResponse.next();
-    // Inyecta el rol como header para que los Server Components lo lean
+    // Inyecta el rol y la sucursal como headers para que los Server Components los lean
     response.headers.set('x-user-role', payload.role as string);
+    response.headers.set('x-user-sucursal', (payload.sucursal as string | null | undefined) ?? '');
     return response;
   } catch {
     // Token inválido o expirado

@@ -7,6 +7,7 @@ import QuoteCard from "@/components/QuoteCard";
 import BandejaTable from "@/components/BandejaTable";
 import HistorialTable from "@/components/HistorialTable";
 import DashboardMetrics from "@/components/DashboardMetrics";
+import IdentitySelector from "@/components/IdentitySelector";
 import Link from "next/link";
 
 interface Quote {
@@ -30,23 +31,55 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null);
   const [userRole, setUserRole] = useState<string>('vendedor');
+  const [userSucursal, setUserSucursal] = useState<'Melipilla' | 'San Felipe' | null>(null);
+  const [vendedorNombre, setVendedorNombre] = useState<string>('');
+  const [identitySelectorOpen, setIdentitySelectorOpen] = useState(false);
   // useRef para capturar el `view` y `fetchQuotesAndMetrics` actual sin closures stale
   const viewRef = useRef("pendientes");
   const fetchRef = useRef<(source?: string) => Promise<void>>(null!);
 
   // Eliminado el estado 'metrics' local en favor del componente <DashboardMetrics />
 
-  // Leer rol del usuario desde localStorage al montar
+  // Leer rol, sucursal e identidad del usuario desde localStorage al montar
   useEffect(() => {
-    const storedRole = localStorage.getItem('jfnn_role');
-    if (storedRole) setUserRole(storedRole);
+    const storedRole = localStorage.getItem('jfnn_role') ?? 'vendedor';
+    setUserRole(storedRole);
+
+    const storedSucursal = localStorage.getItem('jfnn_sucursal') as 'Melipilla' | 'San Felipe' | null;
+    const storedNombre = localStorage.getItem('jfnn_vendedor_nombre') ?? '';
+    setVendedorNombre(storedNombre);
+
+    // Abrir selector de identidad si es vendedor sin nombre asignado
+    if (storedRole === 'vendedor') {
+      if (!storedSucursal) {
+        console.warn('[IdentitySelector] jfnn_sucursal vacío (JWT viejo). No se abrirá el selector de identidad.');
+        return;
+      }
+      setUserSucursal(storedSucursal);
+      if (!storedNombre) {
+        setIdentitySelectorOpen(true);
+      }
+    }
   }, []);
 
   const handleLogout = async () => {
     await fetch('/api/logout', { method: 'POST' });
     localStorage.removeItem('jfnn_role');
     localStorage.removeItem('jfnn_token');
+    localStorage.removeItem('jfnn_sucursal');
+    localStorage.removeItem('jfnn_vendedor_nombre');
     window.location.href = '/login';
+  };
+
+  const handleIdentitySelect = (nombre: string) => {
+    setVendedorNombre(nombre);
+    setIdentitySelectorOpen(false);
+  };
+
+  const handleOpenIdentitySelector = () => {
+    if (userSucursal) {
+      setIdentitySelectorOpen(true);
+    }
   };
 
   const fetchPendientes = async (source: string = "unknown") => {
@@ -164,12 +197,27 @@ export default function Home() {
             </div>
             <div className="h-8 w-[1px] bg-white/10 mx-2"></div>
             <div className="flex items-center gap-3">
-              <div className="text-right hidden sm:block">
-                <p className="text-xs font-bold">JFNN Repuestos</p>
-                <p className="text-[10px] text-neutral-500 capitalize">{userRole}</p>
-              </div>
-              <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-accent to-blue-300 flex items-center justify-center text-white text-xs font-bold">
-                {userRole === 'admin' ? '★' : 'V'}
+              {userRole === 'vendedor' && vendedorNombre ? (
+                <button
+                  onClick={handleOpenIdentitySelector}
+                  className="text-right hidden sm:block hover:opacity-80 transition-opacity"
+                  title="Cambiar identidad"
+                >
+                  <p className="text-xs font-bold">👤 {vendedorNombre}</p>
+                  <p className="text-[10px] text-neutral-500">📍 {userSucursal ?? ''}</p>
+                </button>
+              ) : (
+                <div className="text-right hidden sm:block">
+                  <p className="text-xs font-bold">JFNN Repuestos</p>
+                  <p className="text-[10px] text-neutral-500 capitalize">{userRole}</p>
+                </div>
+              )}
+              <div
+                className={`w-9 h-9 rounded-full bg-gradient-to-tr from-accent to-blue-300 flex items-center justify-center text-white text-xs font-bold ${userRole === 'vendedor' && vendedorNombre ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}`}
+                onClick={userRole === 'vendedor' && vendedorNombre ? handleOpenIdentitySelector : undefined}
+                title={userRole === 'vendedor' && vendedorNombre ? 'Cambiar identidad' : undefined}
+              >
+                {userRole === 'admin' ? '★' : vendedorNombre ? vendedorNombre.charAt(0).toUpperCase() : 'V'}
               </div>
               <button
                 onClick={handleLogout}
@@ -308,6 +356,17 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* Selector de identidad de vendedor */}
+      {userRole === 'vendedor' && userSucursal && (
+        <IdentitySelector
+          open={identitySelectorOpen}
+          sucursal={userSucursal}
+          onSelect={handleIdentitySelect}
+          onClose={() => setIdentitySelectorOpen(false)}
+          dismissible={!!vendedorNombre}
+        />
+      )}
     </main>
   );
 }

@@ -7,6 +7,7 @@ const sessionsService = require('../services/sessions.service');
 const whatsappService = require('../services/whatsapp.service');
 const geminiService = require('../services/gemini.service');
 const db = require('../config/db');
+const vendedoresService = require('../services/vendedores.service');
 
 const KNOWLEDGE_JSON_PATH = path.join(__dirname, '../data/knowledge.json');
 
@@ -1060,6 +1061,120 @@ router.post('/auto-archive', async (req, res) => {
     } catch (error) {
         console.error('Error en auto-archive:', error);
         res.status(500).json({ error: 'Error interno al ejecutar auto-archivado.' });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// VENDEDORES — CRUD de equipo por sucursal
+// TODO: restringir a admin cuando haya middleware de roles
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * GET /api/dashboard/vendedores
+ * Query params:
+ *   sucursal         (opcional) — filtra activos de esa sucursal
+ *   incluir_inactivos ('1')    — devuelve todos (activos e inactivos)
+ */
+router.get('/vendedores', async (req, res) => {
+    try {
+        const { sucursal, incluir_inactivos } = req.query;
+
+        let vendedores;
+        if (incluir_inactivos === '1') {
+            vendedores = await vendedoresService.listarTodos();
+        } else if (sucursal) {
+            if (!vendedoresService.SUCURSALES_VALIDAS.includes(sucursal)) {
+                return res.status(400).json({ error: `Sucursal inválida. Debe ser: ${vendedoresService.SUCURSALES_VALIDAS.join(', ')}` });
+            }
+            vendedores = await vendedoresService.listarPorSucursal(sucursal);
+        } else {
+            vendedores = await vendedoresService.listarTodos();
+        }
+
+        res.status(200).json({ vendedores });
+    } catch (error) {
+        console.error('[dashboard.routes] Error GET /vendedores:', error);
+        res.status(500).json({ error: 'Error interno al listar vendedores.' });
+    }
+});
+
+/**
+ * POST /api/dashboard/vendedores
+ * Body: { nombre: string, sucursal: string }
+ * Retorna 201 + vendedor creado
+ */
+router.post('/vendedores', async (req, res) => {
+    try {
+        const { nombre, sucursal } = req.body;
+
+        if (!nombre || !nombre.trim()) {
+            return res.status(400).json({ error: 'El campo "nombre" es obligatorio.' });
+        }
+        if (!sucursal || !sucursal.trim()) {
+            return res.status(400).json({ error: 'El campo "sucursal" es obligatorio.' });
+        }
+
+        const vendedor = await vendedoresService.crear({ nombre, sucursal });
+        res.status(201).json({ vendedor });
+    } catch (error) {
+        if (error.message && error.message.startsWith('Sucursal inválida')) {
+            return res.status(400).json({ error: error.message });
+        }
+        console.error('[dashboard.routes] Error POST /vendedores:', error);
+        res.status(500).json({ error: 'Error interno al crear vendedor.' });
+    }
+});
+
+/**
+ * PATCH /api/dashboard/vendedores/:id
+ * Body: { activo: boolean }
+ * Retorna el vendedor actualizado o 404 si no existe
+ */
+router.patch('/vendedores/:id', async (req, res) => {
+    try {
+        const id = parseInt(req.params.id, 10);
+        if (isNaN(id)) {
+            return res.status(400).json({ error: 'ID inválido.' });
+        }
+
+        const { activo } = req.body;
+        if (typeof activo !== 'boolean') {
+            return res.status(400).json({ error: 'El campo "activo" debe ser un booleano.' });
+        }
+
+        const vendedor = await vendedoresService.actualizarEstado(id, activo);
+        if (!vendedor) {
+            return res.status(404).json({ error: `Vendedor id=${id} no encontrado.` });
+        }
+
+        res.status(200).json({ vendedor });
+    } catch (error) {
+        console.error('[dashboard.routes] Error PATCH /vendedores/:id:', error);
+        res.status(500).json({ error: 'Error interno al actualizar vendedor.' });
+    }
+});
+
+/**
+ * DELETE /api/dashboard/vendedores/:id
+ * Soft delete: pone activo=false en lugar de borrar la fila.
+ * Retorna 200 { ok: true } o 404
+ */
+router.delete('/vendedores/:id', async (req, res) => {
+    try {
+        const id = parseInt(req.params.id, 10);
+        if (isNaN(id)) {
+            return res.status(400).json({ error: 'ID inválido.' });
+        }
+
+        const vendedor = await vendedoresService.actualizarEstado(id, false);
+        if (!vendedor) {
+            return res.status(404).json({ error: `Vendedor id=${id} no encontrado.` });
+        }
+
+        res.status(200).json({ ok: true, vendedor });
+    } catch (error) {
+        console.error('[dashboard.routes] Error DELETE /vendedores/:id:', error);
+        res.status(500).json({ error: 'Error interno al desactivar vendedor.' });
     }
 });
 

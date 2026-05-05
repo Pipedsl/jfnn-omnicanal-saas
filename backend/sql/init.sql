@@ -117,3 +117,34 @@ INSERT INTO feriados (fecha, nombre) VALUES
 ('2026-12-08', 'Inmaculada Concepción'),
 ('2026-12-25', 'Navidad')
 ON CONFLICT (fecha) DO NOTHING;
+
+-- =========== Multi-sucursal MVP migration (2026-05-04) ===========
+
+-- user_sessions: columnas de sucursal y lock pesimista
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS sucursal VARCHAR(30);
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS lock_token UUID;
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS lock_vendedor VARCHAR(100);
+ALTER TABLE user_sessions ADD COLUMN IF NOT EXISTS lock_expires_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_user_sessions_sucursal ON user_sessions(sucursal);
+
+-- pedidos: columnas de sucursal y atribución de vendedor
+ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS sucursal VARCHAR(30);
+ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS vendedor_nombre VARCHAR(100);
+CREATE INDEX IF NOT EXISTS idx_pedidos_sucursal ON pedidos(sucursal);
+CREATE INDEX IF NOT EXISTS idx_pedidos_vendedor ON pedidos(vendedor_nombre);
+
+-- Tabla vendedores (SaaS-ready, CRUD desde settings)
+CREATE TABLE IF NOT EXISTS vendedores (
+    id         SERIAL PRIMARY KEY,
+    nombre     VARCHAR(100) NOT NULL,
+    sucursal   VARCHAR(30)  NOT NULL CHECK (sucursal IN ('Melipilla', 'San Felipe')),
+    activo     BOOLEAN      DEFAULT true,
+    created_at TIMESTAMPTZ  DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_vendedores_sucursal_activo ON vendedores(sucursal, activo);
+
+-- Backfill: sesiones y pedidos sin sucursal → Melipilla (tienda original)
+UPDATE user_sessions SET sucursal = 'Melipilla' WHERE sucursal IS NULL;
+UPDATE pedidos SET sucursal = 'Melipilla' WHERE sucursal IS NULL;
+
+-- =========== Fin migración Multi-sucursal MVP ===========

@@ -3,13 +3,23 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+type Account = 'vendedor_melipilla' | 'vendedor_san_felipe' | 'admin';
+
+const ACCOUNT_OPTIONS: { value: Account; label: string; icon: string }[] = [
+  { value: 'vendedor_melipilla', label: 'Vendedor Melipilla', icon: '📍' },
+  { value: 'vendedor_san_felipe', label: 'Vendedor San Felipe', icon: '🏪' },
+  { value: 'admin', label: 'Administrador', icon: '🛡️' },
+];
+
 export default function LoginPage() {
   const router = useRouter();
-  const [role, setRole] = useState<'vendedor' | 'admin'>('vendedor');
+  const [account, setAccount] = useState<Account>('vendedor_melipilla');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showPwd, setShowPwd] = useState(false);
+
+  const isAdmin = account === 'admin';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,7 +30,7 @@ export default function LoginPage() {
       const res = await fetch('/api/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password, role }),
+        body: JSON.stringify({ password, account }),
       });
 
       if (!res.ok) {
@@ -30,13 +40,14 @@ export default function LoginPage() {
         return;
       }
 
-      const { token, role: userRole } = await res.json();
+      const { token, role: userRole, sucursal } = await res.json();
 
-      // Guarda el token como cookie persistente (sin expiración → sesión hasta cerrar sesión)
+      // Guarda el token como cookie persistente (sesión hasta cerrar sesión)
       document.cookie = `jfnn_auth=${token}; path=/; SameSite=Lax`;
 
-      // También en localStorage para acceso rápido al rol desde los componentes
+      // localStorage para acceso rápido desde componentes
       localStorage.setItem('jfnn_role', userRole);
+      localStorage.setItem('jfnn_sucursal', sucursal ?? '');
       localStorage.setItem('jfnn_token', token);
 
       router.push('/');
@@ -46,6 +57,8 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
+
+  const selectedOption = ACCOUNT_OPTIONS.find(o => o.value === account)!;
 
   return (
     <div style={styles.container}>
@@ -65,33 +78,30 @@ export default function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit} style={styles.form}>
-          {/* Selector de rol */}
+          {/* Selector de cuenta — 3 opciones */}
           <div style={styles.roleSelector}>
-            <button
-              type="button"
-              style={{
-                ...styles.roleBtn,
-                ...(role === 'vendedor' ? styles.roleBtnActive : {}),
-              }}
-              onClick={() => setRole('vendedor')}
-            >
-              👤 Vendedor
-            </button>
-            <button
-              type="button"
-              style={{
-                ...styles.roleBtn,
-                ...(role === 'admin' ? styles.roleBtnActiveAdmin : {}),
-              }}
-              onClick={() => setRole('admin')}
-            >
-              🛡️ Administrador
-            </button>
+            {ACCOUNT_OPTIONS.map(opt => {
+              const isActive = account === opt.value;
+              const activeStyle = opt.value === 'admin' ? styles.roleBtnActiveAdmin : styles.roleBtnActive;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  style={{
+                    ...styles.roleBtn,
+                    ...(isActive ? activeStyle : {}),
+                  }}
+                  onClick={() => setAccount(opt.value)}
+                >
+                  {opt.icon} {opt.label}
+                </button>
+              );
+            })}
           </div>
 
           {/* Campo de contraseña */}
           <div style={styles.inputGroup}>
-            <label style={styles.label}>Contraseña</label>
+            <label style={styles.label}>Contraseña — {selectedOption.label}</label>
             <div style={styles.inputWrapper}>
               <input
                 type={showPwd ? 'text' : 'password'}
@@ -126,7 +136,7 @@ export default function LoginPage() {
             disabled={loading || !password}
             style={{
               ...styles.submitBtn,
-              ...(role === 'admin' ? styles.submitBtnAdmin : {}),
+              ...(isAdmin ? styles.submitBtnAdmin : {}),
               opacity: loading || !password ? 0.6 : 1,
               cursor: loading || !password ? 'not-allowed' : 'pointer',
             }}
@@ -134,7 +144,7 @@ export default function LoginPage() {
             {loading ? (
               <span style={styles.spinner}>⟳</span>
             ) : (
-              `Entrar como ${role === 'admin' ? 'Administrador' : 'Vendedor'}`
+              `Entrar como ${selectedOption.label}`
             )}
           </button>
         </form>
@@ -188,7 +198,7 @@ const styles: Record<string, React.CSSProperties> = {
     position: 'relative',
     zIndex: 1,
     width: '100%',
-    maxWidth: '400px',
+    maxWidth: '420px',
     margin: '1rem',
     background: 'rgba(255,255,255,0.03)',
     backdropFilter: 'blur(20px)',
@@ -236,27 +246,30 @@ const styles: Record<string, React.CSSProperties> = {
   },
   roleSelector: {
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: '0.5rem',
+    gridTemplateColumns: '1fr 1fr 1fr',
+    gap: '0.4rem',
     background: 'rgba(255,255,255,0.04)',
     padding: '4px',
     borderRadius: '10px',
     border: '1px solid rgba(255,255,255,0.06)',
   },
   roleBtn: {
-    padding: '0.6rem',
+    padding: '0.55rem 0.3rem',
     border: 'none',
     borderRadius: '7px',
     background: 'transparent',
     color: 'rgba(255,255,255,0.45)',
-    fontSize: '0.85rem',
+    fontSize: '0.75rem',
     fontWeight: '500',
     cursor: 'pointer',
     transition: 'all 0.2s ease',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '0.4rem',
+    gap: '0.25rem',
+    lineHeight: 1.2,
+    textAlign: 'center',
+    whiteSpace: 'normal',
   },
   roleBtnActive: {
     background: 'linear-gradient(135deg, #6366f1, #8b5cf6)',

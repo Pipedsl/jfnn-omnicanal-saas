@@ -6,6 +6,7 @@ import Link from "next/link";
 import axios from "axios";
 
 import { BACKEND_URL } from "@/lib/api";
+import EquipoSection from "@/components/EquipoSection";
 
 const API = `${BACKEND_URL}/api/dashboard`;
 
@@ -18,7 +19,7 @@ interface Regla {
 
 export default function SettingsPage() {
     const [rubro, setRubro] = useState("repuestos");
-    const [seccion, setSeccion] = useState<"personalidad" | "entrenamiento" | "feriados">("personalidad");
+    const [seccion, setSeccion] = useState<"personalidad" | "entrenamiento" | "feriados" | "equipo">("personalidad");
 
     // Feriados
     interface Feriado { id: number; fecha: string; nombre: string; }
@@ -182,6 +183,15 @@ export default function SettingsPage() {
                         >
                             <CalendarDays size={18} />
                             Feriados
+                        </button>
+                        <button
+                            onClick={() => setSeccion("equipo")}
+                            className={`w-full text-left px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-3 transition-colors ${seccion === "equipo"
+                                ? "bg-green-500/10 border border-green-500/20 text-green-400"
+                                : "hover:bg-white/5 text-neutral-500 border border-transparent"
+                                }`}
+                        >
+                            👥 Equipo
                         </button>
                     </div>
 
@@ -412,6 +422,11 @@ export default function SettingsPage() {
                                     )}
                                 </section>
                             </div>
+                        )}
+
+                        {/* ── SECCIÓN EQUIPO ── */}
+                        {seccion === "equipo" && (
+                            <EquipoSection />
                         )}
                     </div>
                 </div>
