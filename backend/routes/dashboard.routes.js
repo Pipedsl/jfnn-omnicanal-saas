@@ -1308,24 +1308,27 @@ router.post('/cotizaciones/:phone/saldo-pagado-local', async (req, res) => {
             );
         }
 
-        await sessionsService.setEstado(phone, 'PAGO_VERIFICADO');
+        // Saldo pagado en local = cliente está físicamente con el producto → cerrar ciclo directo
+        await sessionsService.setEstado(phone, 'ENTREGADO');
 
-        // Mensaje al cliente con dirección si aplica
-        const sucursal = session.entidades?.sucursal_retiro || session.sucursal;
-        const direccionInfo = sucursal ? getDireccionSucursal(sucursal) : null;
-        const direccionBlock = direccionInfo ? `\n\n${direccionInfo}` : '';
-
-        const mensaje = `✅ *¡Recibimos el pago del saldo en el local!* Su pedido está completamente pagado y entregado.${direccionBlock}\n\n` +
+        const mensaje = `✅ *¡Recibimos el pago del saldo y la entrega del producto!* Su pedido está completo.\n\n` +
                         `¡Muchas gracias por preferir *Repuestos JFNN*! 🙌`;
 
         await whatsappService.sendSellerMessage(phone, mensaje);
         await sessionsService.incrementMessageCounter(phone, 'vendedor');
 
-        console.log(`[Dashboard] 💵 Saldo pagado en local confirmado para ${phone}${vendedor_nombre ? ` por ${vendedor_nombre}` : ''}`);
+        // Solicitud de reseña Google con delay (mismo patrón que /cotizaciones/estado en ENTREGADO)
+        setTimeout(() => {
+            whatsappService.sendGoogleReviewRequest(phone).catch(err => {
+                console.error('Error enviando solicitud de reseña Google:', err);
+            });
+        }, 5000);
+
+        console.log(`[Dashboard] 💵 Saldo pagado en local + entrega cerrada para ${phone}${vendedor_nombre ? ` por ${vendedor_nombre}` : ''}`);
 
         res.status(200).json({
             success: true,
-            estado: 'PAGO_VERIFICADO',
+            estado: 'ENTREGADO',
             phone
         });
     } catch (error) {
