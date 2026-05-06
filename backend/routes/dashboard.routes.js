@@ -243,7 +243,7 @@ router.post('/cotizaciones/responder', async (req, res) => {
 
             if (precio) total += (precio * cant);
             if (isEncargo) {
-                return `📦 ${cant}x ${item.nombre} | $${priceStr} c/u (Requiere abono previo)`;
+                return `📦 ${cant}x ${item.nombre} | $${priceStr} c/u`;
             }
 
             return `✔️ ${cant}x ${item.nombre} | Cód: ${item.codigo || 'N/A'} | $${priceStr || 0} c/u${cant > 1 ? ` (Total: $${(parseInt(item.precio) * cant).toLocaleString('es-CL')})` : ''}`;
@@ -259,10 +259,19 @@ router.post('/cotizaciones/responder', async (req, res) => {
             detailsText = items.map(parseItem).join('\n');
         }
 
+        // Detectar si hay encargo en items o vehiculos
+        const hayEncargoEnItems = (items || []).some(i => i.disponibilidad === 'POR_ENCARGO') ||
+            (vehiculos || []).some(v => (v.repuestos_solicitados || []).some(r => r.disponibilidad === 'POR_ENCARGO'));
+
+        const notaEncargo = hayEncargoEnItems
+            ? `\n\n📦 *Sobre los productos marcados con 📦:* No están en stock local. Para confirmarlos, los solicitamos a nuestra bodega central, lo que requiere un abono parcial por transferencia. El saldo lo pagas cuando llegan al local. ⏳`
+            : '';
+
         const message = `*COTIZACIÓN FORMAL - JFNN*\n` +
             `📄 ID: ${quoteId}\n\n` +
             `Estimado cliente, revisamos el stock de lo solicitado:\n\n` +
-            `${detailsText}\n\n` +
+            `${detailsText}` +
+            `${notaEncargo}\n\n` +
             (total > 0 ? `*TOTAL APROXIMADO: $${total.toLocaleString('es-CL')}*\n\n` : '') +
             `${horario_entrega ? `📦 Logística: ${horario_entrega}\n\n` : ''}` +
             `${note ? `📝 Nota del asesor: ${note}\n\n` : ''}` +
@@ -1268,6 +1277,60 @@ router.delete('/vendedores/:id', async (req, res) => {
     } catch (error) {
         console.error('[dashboard.routes] Error DELETE /vendedores/:id:', error);
         res.status(500).json({ error: 'Error interno al desactivar vendedor.' });
+    }
+});
+
+/**
+ * BUG-POST07: Vendedor confirma que el cliente pagó el saldo presencialmente al retirar.
+ * POST /api/dashboard/cotizaciones/:phone/saldo-pagado-local
+ * Body: { vendedor_nombre? } (opcional)
+ */
+router.post('/cotizaciones/:phone/saldo-pagado-local', async (req, res) => {
+    try {
+        const { phone } = req.params;
+        const { vendedor_nombre } = req.body || {};
+
+        const session = await sessionsService.getSession(phone);
+        if (!session) {
+            return res.status(404).json({ error: 'Sesión no encontrada' });
+        }
+        if (session.estado !== 'ESPERANDO_SALDO') {
+            return res.status(409).json({
+                error: `Solo se puede confirmar saldo en local cuando estado === ESPERANDO_SALDO. Estado actual: '${session.estado}'.`
+            });
+        }
+
+        // Persistir vendedor_nombre si vino
+        if (vendedor_nombre) {
+            await db.query(
+                `UPDATE user_sessions SET vendedor_nombre = COALESCE(vendedor_nombre, $1) WHERE phone = $2`,
+                [vendedor_nombre, phone]
+            );
+        }
+
+        await sessionsService.setEstado(phone, 'PAGO_VERIFICADO');
+
+        // Mensaje al cliente con dirección si aplica
+        const sucursal = session.entidades?.sucursal_retiro || session.sucursal;
+        const direccionInfo = sucursal ? getDireccionSucursal(sucursal) : null;
+        const direccionBlock = direccionInfo ? `\n\n${direccionInfo}` : '';
+
+        const mensaje = `✅ *¡Recibimos el pago del saldo en el local!* Su pedido está completamente pagado y entregado.${direccionBlock}\n\n` +
+                        `¡Muchas gracias por preferir *Repuestos JFNN*! 🙌`;
+
+        await whatsappService.sendSellerMessage(phone, mensaje);
+        await sessionsService.incrementMessageCounter(phone, 'vendedor');
+
+        console.log(`[Dashboard] 💵 Saldo pagado en local confirmado para ${phone}${vendedor_nombre ? ` por ${vendedor_nombre}` : ''}`);
+
+        res.status(200).json({
+            success: true,
+            estado: 'PAGO_VERIFICADO',
+            phone
+        });
+    } catch (error) {
+        console.error('[Dashboard] Error en saldo-pagado-local:', error);
+        res.status(500).json({ error: 'Error interno' });
     }
 });
 

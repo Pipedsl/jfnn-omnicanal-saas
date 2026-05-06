@@ -1095,6 +1095,34 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                     </button>
                                 )}
 
+                                {/* BUG-POST07: Vendedor confirma pago de saldo en local (efectivo/tarjeta) */}
+                                {estado === 'ESPERANDO_SALDO' && (
+                                    <button
+                                        type="button"
+                                        disabled={loadingPago}
+                                        onClick={async () => {
+                                            if (!confirm('¿Confirmás que el cliente pagó el saldo en el local? Esto cerrará el cobro y notificará al cliente.')) return;
+                                            setLoadingPago(true);
+                                            try {
+                                                await axios.post(
+                                                    `${BACKEND_URL}/api/dashboard/cotizaciones/${encodeURIComponent(phone)}/saldo-pagado-local`,
+                                                    { vendedor_nombre: vendedorNombre || undefined }
+                                                );
+                                                closeModal();
+                                                onResponded();
+                                            } catch (err) {
+                                                console.error('Error al confirmar saldo en local:', err);
+                                                alert('No se pudo confirmar el saldo. Intenta nuevamente.');
+                                            } finally {
+                                                setLoadingPago(false);
+                                            }
+                                        }}
+                                        className="w-full bg-green-500 hover:bg-green-400 disabled:bg-neutral-700 disabled:text-neutral-500 text-black font-bold px-4 py-3 rounded-xl transition-all flex items-center justify-center gap-2"
+                                    >
+                                        {loadingPago ? 'Procesando...' : '💵 Saldo Pagado en Local'}
+                                    </button>
+                                )}
+
                                 {estado === 'CICLO_COMPLETO' && (() => {
                                     const esCashRetiro = entidades.metodo_pago === 'local' && esRetiro;
                                     return (
