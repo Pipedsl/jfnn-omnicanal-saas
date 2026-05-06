@@ -2,6 +2,7 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const fs = require('fs');
 const path = require('path');
 const scheduleService = require('./schedule.service');
+const sessionsService = require('./sessions.service');
 
 /**
  * Servicio para interactuar con Google Gemini AI con Structured Outputs
@@ -88,6 +89,9 @@ const generateResponse = async (userText, sessionContext, imageData = null, audi
 
         const isConfirming = state === 'CONFIRMANDO_COMPRA' || state === 'ESPERANDO_COMPROBANTE';
         const isWaitingVoucher = state === 'ESPERANDO_COMPROBANTE';
+
+        // REQ-06 (Ticket B.2): detectar si hay repuestos POR_ENCARGO para forzar transferencia
+        const entidadesTienenEncargo = sessionsService.tieneRepuestosPorEncargo(sessionContext.entidades);
 
         // Inyección dinámica de la Knowledge Base (si está disponible)
         const knowledgeSection = knowledgeBase
@@ -254,6 +258,14 @@ ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.paten
         ` : `
         El cliente ya recibió su cotización formal en el dashboard y ahora quiere concretar la compra.
         Tu misión es recolectar los datos finales de pago y despacho de forma amable:
+${entidadesTienenEncargo ? `
+        🚨 REGLA POR_ENCARGO ACTIVA (REQ-06):
+        - ESTA COTIZACIÓN tiene repuestos POR ENCARGO (no están en stock local, hay que solicitarlos al proveedor).
+        - NO ofrezcas pago en local para confirmar el pedido. Estos repuestos necesitan un ABONO POR TRANSFERENCIA antes de que podamos solicitarlos al proveedor.
+        - Explica al cliente con tono natural: "Para confirmar este pedido, necesitamos un abono por transferencia. Los productos marcados con 📦 son por encargo y debemos solicitarlos a nuestra bodega central. El saldo lo pagas cómodamente en el local cuando vengas a retirarlo."
+        - Si el cliente insiste en pagar todo en local: explícale que necesitamos el abono por transferencia primero para poder solicitar el repuesto al proveedor. Pídele confirmar la transferencia.
+        - Cuando el cliente acepte transferir el abono, pasa el estado a ESPERANDO_COMPROBANTE en tu JSON output.
+` : ''}
         1. **Método de Pago**: Pregunta si prefiere 'Transferencia Online' o 'Pago en el local (Efectivo, Débito o Crédito)'.
         2. **Entrega**: 
            - Si paga online: Pregunta si desea 'Retiro en local' o 'Envío a domicilio'.

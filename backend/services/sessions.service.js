@@ -116,6 +116,23 @@ function derivarSucursal(entidades) {
     return null;
 }
 
+// ─── tieneRepuestosPorEncargo ────────────────────────────────────
+/**
+ * Detecta si una sesión tiene al menos un repuesto marcado como POR_ENCARGO.
+ * Usado para activar el sub-flujo de abono/encargo (REQ-06).
+ * @param {Object} entidades - Las entidades de la sesión (session.entidades).
+ * @returns {boolean}
+ */
+function tieneRepuestosPorEncargo(entidades) {
+    if (!entidades) return false;
+    const checkArr = (arr) => Array.isArray(arr) && arr.some(r => r?.disponibilidad === 'POR_ENCARGO');
+    if (checkArr(entidades.repuestos_solicitados)) return true;
+    if (Array.isArray(entidades.vehiculos)) {
+        return entidades.vehiculos.some(v => checkArr(v?.repuestos_solicitados));
+    }
+    return false;
+}
+
 // ─── Caché en memoria ───────────────────────────────────────────
 const sessionCache = new Map();
 const CACHE_TTL = 5000;
@@ -1417,6 +1434,7 @@ module.exports = {
     reassignOrphanRepuestos,
     incrementMessageCounter,
     derivarSucursal,
+    tieneRepuestosPorEncargo,
     claimSession,
     releaseSession,
     validateLock,

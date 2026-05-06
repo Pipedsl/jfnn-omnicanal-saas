@@ -8,6 +8,7 @@ const whatsappService = require('../services/whatsapp.service');
 const geminiService = require('../services/gemini.service');
 const db = require('../config/db');
 const vendedoresService = require('../services/vendedores.service');
+const { getDireccionSucursal } = require('../utils/sucursales');
 
 const KNOWLEDGE_JSON_PATH = path.join(__dirname, '../data/knowledge.json');
 
@@ -818,29 +819,33 @@ router.post('/encargos/recibido', async (req, res) => {
     try {
         const { phone } = req.body;
         if (!phone) return res.status(400).json({ error: "Teléfono requerido." });
-        
+
         const session = await sessionsService.getSession(phone);
         const e = session.entidades || {};
-        
+
         const repuestos = (e.repuestos_solicitados || []).map(r => ({
-            ...r, 
+            ...r,
             precio: normalizarPrecio(r.precio) || 0,
             cantidad: r.cantidad || 1
         }));
         const totalCotizacion = repuestos.reduce((acc, r) => acc + ((r.precio || 0) * r.cantidad), 0);
-        
+
         const montoAbono = normalizarPrecio(e.pago_pendiente?.monto || 0);
         const saldoPendiente = Math.max(0, totalCotizacion - montoAbono);
-        
+
         // Formatear precios
         const formatMoney = (val) => new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP" }).format(val);
-        
+
+        // Inyectar dirección de sucursal si aplica
+        const sucursal = e.sucursal_retiro || session.sucursal;
+        const direccionBlock = sucursal ? `\n\n${getDireccionSucursal(sucursal)}` : '';
+
         let mensaje;
         let nuevoEstado;
-        
+
         if (saldoPendiente > 0) {
             nuevoEstado = 'ESPERANDO_SALDO';
-            mensaje = `🎉 *¡Buena noticia! Sus repuestos ya llegaron a nuestro local.*\n\n` +
+            mensaje = `🎉 *¡Buena noticia! Sus repuestos ya llegaron a nuestro local.*${direccionBlock}\n\n` +
                       `Para proceder con la entrega o despacho, necesitamos que por favor realice el pago del *saldo pendiente*.\n\n` +
                       `🧾 *Resumen:*\n` +
                       `- Total Cotización: ${formatMoney(totalCotizacion)}\n` +
@@ -849,7 +854,7 @@ router.post('/encargos/recibido', async (req, res) => {
                       `Por favor, envíenos el *comprobante de transferencia* del saldo pendiente por aquí mismo para validar y hacer la entrega.`;
         } else {
             nuevoEstado = 'PAGO_VERIFICADO'; // Ya pagó todo
-             mensaje = `🎉 *¡Buena noticia! Sus repuestos ya llegaron a nuestro local.*\n\n` +
+             mensaje = `🎉 *¡Buena noticia! Sus repuestos ya llegaron a nuestro local.*${direccionBlock}\n\n` +
                       `Su pedido está completamente pagado. En breve gestionaremos la logística de entrega.`;
         }
         

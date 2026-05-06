@@ -7,6 +7,7 @@ import ImageLightbox from "./ImageLightbox";
 import axios from "axios";
 import { BACKEND_URL } from "@/lib/api";
 import { useQuoteLock } from "@/hooks/useQuoteLock";
+import { tieneRepuestosPorEncargo } from '@/lib/encargo';
 
 interface Repuesto {
     nombre: string;
@@ -293,6 +294,10 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
 
     const statusConfig = getStatusConfig(estado);
 
+    // B.5: Detectar si hay repuestos por encargo
+    const hayEncargo = tieneRepuestosPorEncargo(entidades);
+    const mostrarBannerEncargo = hayEncargo && ['ESPERANDO_VENDEDOR', 'CONFIRMANDO_COMPRA', 'ESPERANDO_COMPROBANTE'].includes(estado);
+
     // Summary helpers for compact card
     // Si hay vehiculos, suma de sus cantidades. Si no, suma del array repuestos plano.
     const totalQuantity = vehiculos.length > 0
@@ -528,6 +533,20 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                         <div className="flex-1 overflow-hidden flex flex-col md:flex-row min-h-0">
                             {/* Columna Izquierda: Información */}
                             <div className={`p-6 space-y-5 overflow-y-auto custom-scrollbar ${ (estado === 'ESPERANDO_VENDEDOR' || isEditing) ? 'w-full md:w-5/12 lg:w-1/3 border-r border-white/5' : 'w-full' }`}>
+                                {/* B.5: Banner informativo de encargo */}
+                                {mostrarBannerEncargo && (
+                                  <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-4 py-3 flex items-start gap-2">
+                                    <span className="text-yellow-400 text-lg flex-shrink-0">📦</span>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-xs font-bold text-yellow-400 mb-0.5">Sub-flujo: Por Encargo</p>
+                                      <p className="text-[10px] text-neutral-400 leading-relaxed">
+                                        Esta cotización tiene repuestos por encargo. El cliente debe pagar abono por transferencia,
+                                        luego solicitas al proveedor. Cuando llegue, marcas "Encargo recibido" y el cliente paga el saldo.
+                                      </p>
+                                    </div>
+                                  </div>
+                                )}
+
                                 {/* Síntomas */}
                             {entidades.sintomas_reportados && (
                                 <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-3">

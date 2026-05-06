@@ -303,6 +303,7 @@ export default function Home() {
             { id: 'ESPERANDO_VENDEDOR', label: 'Esperando Precios' },
             { id: 'CONFIRMANDO_COMPRA', label: 'Cierres' },
             { id: 'ESPERANDO_APROBACION_ADMIN', label: 'Revisión Admin' },
+            { id: 'POR_LLEGAR', label: '📦 Por Llegar' },
             { id: 'ESPERANDO_RETIRO', label: 'Esperando Retiro' },
             { id: 'CICLO_COMPLETO', label: 'Por Validar Pago' },
             { id: 'PAGO_VERIFICADO', label: 'Pagados' }

@@ -135,8 +135,15 @@ export default function BandejaTable({ quotes, filter, searchQuery, onOpenDetail
     };
 
     // Filtrar y buscar
+    const matchesFilter = (q: Quote, filterId: string): boolean => {
+        if (filterId === 'todos') return true;
+        if (filterId === 'POR_LLEGAR') {
+            return ['ABONO_VERIFICADO', 'ENCARGO_SOLICITADO', 'ESPERANDO_SALDO'].includes(q.estado);
+        }
+        return q.estado === filterId;
+    };
     const filtered = quotes
-        .filter((q) => filter === 'todos' || q.estado === filter)
+        .filter((q) => matchesFilter(q, filter))
         .filter((q) => {
             if (!searchQuery.trim()) return true;
             const query = searchQuery.toLowerCase();
