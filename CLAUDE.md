@@ -39,28 +39,47 @@ docker exec jfnn_postgres psql -U jfnn_user -d jfnn_db -c "SELECT ..."  # Run qu
 |------|---------------|
 | `backend/controllers/whatsapp.controller.js` | Webhook handler, debounce buffer, image/receipt processing |
 | `backend/services/gemini.service.js` | AI prompt construction, dual-model routing (Flash vs Pro) |
-| `backend/services/sessions.service.js` | State machine, entity merging, session CRUD, metrics |
+| `backend/services/sessions.service.js` | State machine, entity merging, session CRUD, metrics, helpers (`derivarSucursal`, `tieneRepuestosPorEncargo`, claim/release lock) |
 | `backend/services/whatsapp.service.js` | Meta WhatsApp API wrapper |
+| `backend/services/vendedores.service.js` | CRUD vendedores por sucursal (consumido por `/settings`) |
+| `backend/utils/sucursales.js` | Catálogo Melipilla/San Felipe + `getDireccionSucursal()` + `esPagoPresencial()` — reusado en mensajes WhatsApp |
 | `backend/routes/dashboard.routes.js` | All `/api/dashboard/*` endpoints |
+| `dashboard/lib/encargo.ts` | TS port de `tieneRepuestosPorEncargo` para QuoteCard/Bandeja |
+| `dashboard/hooks/useQuoteLock.ts` | Hook de lock pesimista (claim/release/renew) usado en QuoteCard |
+| `dashboard/components/IdentitySelector.tsx` | Modal "¿Quién está cotizando hoy?" — selector de vendedor activo por turno |
 
 ### State Machine
 
-Defined in `sessions.service.js` lines 7-21. Flow:
+Defined in `sessions.service.js` lines 7-21. Flow principal:
 
 ```
 PERFILANDO → ESPERANDO_VENDEDOR → CONFIRMANDO_COMPRA → ESPERANDO_COMPROBANTE
 → ESPERANDO_APROBACION_ADMIN → PAGO_VERIFICADO → ESPERANDO_RETIRO → ENTREGADO → ARCHIVADO
 ```
 
-Branch states: `ABONO_VERIFICADO`, `ENCARGO_SOLICITADO`, `ESPERANDO_SALDO`, `CICLO_COMPLETO`
+**Sub-flujo POR_ENCARGO (REQ-06)** — activado cuando algún repuesto tiene `disponibilidad: 'POR_ENCARGO'`:
+
+```
+ESPERANDO_COMPROBANTE → (admin verifica como abono) → ABONO_VERIFICADO
+→ (vendedor pulsa "Solicitar a proveedor") → ENCARGO_SOLICITADO
+→ (vendedor pulsa "Repuestos Llegaron") → ESPERANDO_SALDO o PAGO_VERIFICADO (si saldo=0)
+→ (cliente paga saldo: transferencia → admin verifica) o (presencial → vendedor pulsa "Saldo Pagado en Local") → ENTREGADO
+```
+
+El flag `disponibilidad: 'POR_ENCARGO'` se setea en el QuoteCard al cotizar (selector "🟡 Abono"). El helper `tieneRepuestosPorEncargo(entidades)` detecta si la sesión tiene al menos un repuesto en encargo (usado por Gemini, banner UI, filtro bandeja "📦 Por Llegar").
+
+Branch states: `CICLO_COMPLETO`
 
 ### Database
 
-PostgreSQL 16 via Docker. Schema in `backend/sql/init.sql`. Core tables:
-- `user_sessions` — Active conversations (phone as tenant key, JSONB `entidades` for all customer data)
-- `pedidos` — Archived completed sales
+PostgreSQL 16 via Docker (local) + Supabase prod (project ID `uzsrvigcuehtzhwzuaer`). Schema in `backend/sql/init.sql`. Core tables:
+- `user_sessions` — Active conversations (phone as tenant key, JSONB `entidades` for all customer data). Columnas multi-sucursal: `sucursal`, `lock_token`, `lock_vendedor`, `lock_expires_at`, `vendedor_nombre`.
+- `pedidos` — Archived completed sales. Columnas multi-sucursal: `sucursal`, `vendedor_nombre`.
+- `vendedores` — Equipo por sucursal (`nombre`, `sucursal`, `activo`). Editable desde `/settings` por admin.
 - `clientes` — Recurring customer profiles
 - `training_examples` — HU-7 learned AI rules (soft-delete with `activo` boolean)
+
+**Migraciones a producción**: usar MCP Supabase `apply_migration` (NO `psql` directo — el rol `jfnn_app` no tiene permisos DDL sobre tablas existentes).
 
 ### Knowledge Base (HU-7)
 
@@ -75,23 +94,46 @@ Both are injected into Gemini's system prompt on every call.
 - **Never modify Gemini model versions** (`gemini-3.1-pro-preview`, `gemini-3-flash-preview`) without explicit approval
 - **Gemini returns a single string** `mensaje_cliente` — NOT an array. Responses are split into multiple WhatsApp messages by the controller based on newlines/length.
 - **The AI agent never gives prices to customers** — prices are set exclusively by the seller via dashboard
+- **Direcciones de sucursal NO van en el prompt** — Gemini debe abstenerse de incluirlas. La inyección al cliente se hace en backend usando `getDireccionSucursal()` post-respuesta (BUG-POST04 fix). Esto evita alucinaciones y mensajes inconsistentes.
+- **Saludo único por sesión**: el flag `entidades.saludo_dado` (sticky truthy) controla que el agente salude SOLO en el primer turno. Una vez `true`, no se sobreescribe a `false` en el merge.
 - **Quantity merging uses `cantidad_fijada` flag**: when `true`, Gemini can only change quantity if it returns a non-null value explicitly (client-requested change). `Math.max` is only used when `cantidad_fijada` is `false`.
 - **Price merging**: `viejo.precio != null ? viejo.precio : nuevo.precio` — seller's price is NEVER overwritten once set
 - **Multi-vehicle**: Gemini uses `vehiculos[]` array when client mentions 2+ vehicles. Never concatenate with "/". Each vehicle has its own `repuestos_solicitados[]`.
-- **Repuesto deduplication**: `isSameRepuesto()` strips parenthetical vehicle annotations before comparing names, uses token overlap ≥60% for fuzzy match. Avoids duplicates when Gemini refines part names across calls.
+- **Repuesto deduplication**: `isSameRepuesto()` strips parenthetical vehicle annotations before comparing names, uses token overlap ≥75% for fuzzy match (con stopwords filtradas: `de, la, el, los, las, y, con, para, sin, a`). Avoids duplicates when Gemini refines part names across calls.
 - **Webhook must respond fast** (<30s) — heavy processing (image downloads, Gemini calls) runs asynchronously
 - **24h Meta message window** — code handles error 130472 gracefully
 - **All state transitions** go through `sessionsService.setEstado()` to ensure cache invalidation
+- **Re-engage clean**: cuando un cliente con sesión ENTREGADO/ARCHIVADO escribe nuevamente, `archiveSession` invalida cache + `whatsapp.controller.js` valida defensivamente que la sesión nueva no traiga repuestos viejos. Sin esta protección hay riesgo de mergear datos de sesiones antiguas (BUG-POST03).
+- **POR_ENCARGO fuerza transferencia**: si la cotización tiene ≥1 repuesto `disponibilidad: 'POR_ENCARGO'`, el prompt CONFIRMANDO_COMPRA bloquea pago en local y exige abono por transferencia. Para escape manual existen botones "💵 Saldo Pagado en Local" (BUG-POST07) y futuro "💵 Abono Pagado en Local" (BUG-POST10 pendiente).
 
 ## Patterns
 
 - **Logging**: Prefixed with `[ServiceName]` and status emoji for console output
 - **DB queries**: Always parameterized (`$1`, `$2`, etc.)
 - **Session caching**: 5s TTL per session, 2.5s for global pending list — invalidated on writes
-- **Dashboard polling**: 10s interval on pendientes view, manual refresh for historial
-- **Frontend API calls**: axios with cache-busting `?t=${Date.now()}`
+- **Dashboard polling**: 3s en vista pendientes (necesario para que el lock pesimista se vea casi-instantáneo), manual refresh en historial
+- **Frontend API calls**: axios con cache-busting `?t=${Date.now()}`
 - **Status badges**: `bg-[color]/10 text-[color] border-[color]/20` pattern in Tailwind
 - **Agent rules**: Role-specific prompts in `.agent/rules/` (arquitecto.lead.md, backend-node.md, etc.)
+
+## Auth, roles y multi-sucursal
+
+- **3 cuentas en `.env`** (Vercel prod): `AUTH_VENDEDOR_MELIPILLA_PIN`, `AUTH_VENDEDOR_SAN_FELIPE_PIN`, `AUTH_ADMIN_PIN`. JWT carga `{role, sucursal}`.
+- **localStorage del cliente**: `jfnn_role` (`'vendedor' | 'admin'`), `jfnn_sucursal` (`'Melipilla' | 'San Felipe' | ''`), `jfnn_token`, `jfnn_vendedor_nombre` (identidad declarada al login del vendedor).
+- **Identidad por turno**: vendedores comparten cuenta por sucursal. Al login se abre `IdentitySelector` que carga vendedores activos de la sucursal y guarda el nombre elegido en localStorage. Esto sirve para REQ-03 (atribución de comisiones) y para el lock.
+- **Bandeja filtrada**: backend fuerza `?sucursal=X` según `x-user-sucursal` del JWT (vendedor solo ve su sucursal). Admin ve selector "Todas / Melipilla / San Felipe".
+- **Lock pesimista en QuoteCard**: hook `useQuoteLock(phone, vendedor)` hace claim al abrir el card, renew cada 4 min, release en cleanup/`beforeunload`. Si otro vendedor tiene el lock, overlay "🔒 Cotizando como X" + inputs deshabilitados. Validación en PATCH `/cotizaciones/estado` rechaza si `lock_token` no coincide (409 `locked_by_other`).
+
+## Sub-flujo POR_ENCARGO (REQ-06)
+
+Cuando el vendedor cotiza marcando un repuesto con `disponibilidad: 'POR_ENCARGO'` (selector "🟡 Abono"):
+
+1. Cliente confirma → agente Gemini bloquea "pago en local" y exige abono por transferencia (regla en prompt CONFIRMANDO_COMPRA, condicional `entidadesTienenEncargo`)
+2. Cliente envía comprobante → admin verifica con `accion: 'approved_abono'` (en `verify-payment`) → estado `ABONO_VERIFICADO`
+3. Filtro bandeja "📦 Por Llegar" agrupa `ABONO_VERIFICADO + ENCARGO_SOLICITADO + ESPERANDO_SALDO`
+4. Vendedor pulsa "Marcar Encargo Listo y Notificar" → `POST /encargos/solicitar` con días ETA → `ENCARGO_SOLICITADO`
+5. Vendedor pulsa "Repuestos Llegaron" → `POST /encargos/recibido` → si saldo>0 `ESPERANDO_SALDO`, sino `PAGO_VERIFICADO`. Mensaje incluye dirección sucursal.
+6. Saldo: cliente puede pagar por transferencia (admin verifica) o presencial (vendedor pulsa **"💵 Saldo Pagado en Local"** → `POST /cotizaciones/:phone/saldo-pagado-local` → directo a `ENTREGADO` + reseña Google).
 
 ## API Route Mounting
 
