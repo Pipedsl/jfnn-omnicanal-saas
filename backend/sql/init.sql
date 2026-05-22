@@ -148,3 +148,26 @@ UPDATE user_sessions SET sucursal = 'Melipilla' WHERE sucursal IS NULL;
 UPDATE pedidos SET sucursal = 'Melipilla' WHERE sucursal IS NULL;
 
 -- =========== Fin migración Multi-sucursal MVP ===========
+
+-- =========== REQ-04 Fase 1 — Persistencia de mensajes (2026-05-22) ===========
+
+CREATE TABLE IF NOT EXISTS mensajes (
+    id            BIGSERIAL PRIMARY KEY,
+    phone         VARCHAR(30)  NOT NULL,
+    direccion     VARCHAR(10)  NOT NULL CHECK (direccion IN ('entrante','saliente')),
+    tipo          VARCHAR(15)  NOT NULL CHECK (tipo IN ('text','image','audio','video','document')),
+    contenido     TEXT,                       -- cuerpo de texto o caption
+    media_url     TEXT,                       -- ruta Supabase Storage (null si tipo=text)
+    media_mime    VARCHAR(60),
+    transcripcion TEXT,                        -- solo audio (Fase 2)
+    autor         VARCHAR(15)  NOT NULL CHECK (autor IN ('cliente','agente_ia','vendedor')),
+    autor_nombre  VARCHAR(100),                -- nombre del vendedor cuando autor='vendedor'
+    sucursal      VARCHAR(30),
+    wa_message_id VARCHAR(80),                 -- id de Meta, para dedupe de reintentos de webhook
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_mensajes_phone_fecha ON mensajes(phone, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mensajes_sucursal    ON mensajes(sucursal);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mensajes_wa_id ON mensajes(wa_message_id) WHERE wa_message_id IS NOT NULL;
+
+-- =========== Fin REQ-04 Fase 1 ===========

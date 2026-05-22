@@ -3,6 +3,7 @@ const geminiService = require('../services/gemini.service');
 const whatsappService = require('../services/whatsapp.service');
 const sessionsService = require('../services/sessions.service');
 const storageService = require('../services/storage.service');
+const mensajesService = require('../services/mensajes.service');
 const db = require('../config/db');
 const { printShadowQuote } = require('../utils/shadowQuote');
 const { getDireccionSucursal, esPagoPresencial } = require('../utils/sucursales');
@@ -97,6 +98,12 @@ const processBufferedMessages = async (customerPhone) => {
         // Audios: recolectar TODOS del lote
         const audios = messages.filter(m => m.hasAudio);
         const hasAudio = audios.length > 0;
+
+        // REQ-04 Fase 2: video y document
+        const videos = messages.filter(m => m.hasVideo);
+        const hasVideo = videos.length > 0;
+        const documents = messages.filter(m => m.hasDocument);
+        const hasDocument = documents.length > 0;
 
         console.log(`[Debounce] Procesando lote de ${customerPhone} (${messages.length} mensaje/s): "${userText.replace(/\n/g, ' ')}"`);
 
@@ -251,8 +258,10 @@ const processBufferedMessages = async (customerPhone) => {
             console.log(`[ImageID] 📸 ${images.length} imagen(s) recibida(s) de ${customerPhone}. Clasificando...`);
 
             // Fase 1: descargar y clasificar cada imagen en paralelo
+            // REQ-04 Fase 2: incluir waMessageId para actualizar mensajes tras subida a storage
             const classified = await Promise.all(images.map(async (imgMsg) => {
                 const mediaId = imgMsg.message.image?.id;
+                const waMessageId = imgMsg.message?.id || null;
                 if (!mediaId) return null;
                 const imageData = await whatsappService.downloadMedia(mediaId);
                 if (!imageData) {
@@ -260,7 +269,7 @@ const processBufferedMessages = async (customerPhone) => {
                     return null;
                 }
                 const analysis = await geminiService.analyzeImage(imageData);
-                return { imageData, analysis };
+                return { imageData, analysis, waMessageId };
             }));
             const validImages = classified.filter(Boolean);
             const padrones = validImages.filter(x => x.analysis.tipo === 'padron' && x.analysis.padron);
@@ -334,11 +343,22 @@ const processBufferedMessages = async (customerPhone) => {
                     ? `${session.entidades.marca_modelo}${session.entidades.ano ? ' ' + session.entidades.ano : ''}`
                     : '';
 
-                const resultados = await Promise.all(partes.map(async ({ imageData }) => {
+                const resultados = await Promise.all(partes.map(async ({ imageData, waMessageId }) => {
                     const [imagePath, identificacion] = await Promise.all([
                         storageService.uploadPartImage(customerPhone, imageData.buffer, imageData.mimeType),
                         geminiService.identifyPartFromImage(imageData, contextoVehiculo)
                     ]);
+                    // REQ-04 Fase 2: actualizar media_url en el registro mensajes ya creado
+                    if (imagePath && waMessageId) {
+                        try {
+                            await mensajesService.actualizarMedia(waMessageId, {
+                                mediaUrl: imagePath,
+                                mediaMime: imageData.mimeType,
+                            });
+                        } catch (mediaUpdateErr) {
+                            console.error(`[Mensajes] ❌ Error actualizando media_url de imagen (flujo continúa):`, mediaUpdateErr.message);
+                        }
+                    }
                     return { imagePath, identificacion };
                 }));
 
@@ -458,6 +478,19 @@ const processBufferedMessages = async (customerPhone) => {
                 return;
             }
 
+            // REQ-04 Fase 2: actualizar media_url en el registro mensajes del comprobante
+            const voucherWaId = images[0]?.message?.id || null;
+            if (voucherWaId) {
+                try {
+                    await mensajesService.actualizarMedia(voucherWaId, {
+                        mediaUrl: comprobanteUrl,
+                        mediaMime: imageData.mimeType,
+                    });
+                } catch (mediaUpdateErr) {
+                    console.error(`[Mensajes] ❌ Error actualizando media_url de voucher (flujo continúa):`, mediaUpdateErr.message);
+                }
+            }
+
             await sessionsService.saveVoucherData(customerPhone, comprobanteUrl, datosExtraidos);
 
             const respuestaConfirmacion = `¡Perfecto! 📸 Recibí su comprobante de pago. Nuestro equipo lo está verificando ahora y le confirmaremos en unos minutos. Si tiene alguna consulta, no dude en escribirnos. 👌`;
@@ -479,6 +512,76 @@ const processBufferedMessages = async (customerPhone) => {
             const msg = 'Recibí tu audio, pero en este momento estamos esperando la imagen del comprobante de pago. ¿Lo tienes listo? 📸';
             await new Promise(resolve => setTimeout(resolve, 1500));
             await whatsappService.sendAgentMessage(customerPhone, msg);
+            return;
+        }
+
+        // ═══════════════════════════════════════════════════════
+        // REQ-04 FASE 2: VIDEO — descargar, subir a Supabase Storage y registrar.
+        // NO se envía a Gemini (riesgo R3 — costo de tokens).
+        // Solo se notifica al vendedor que el cliente envió un video.
+        // ═══════════════════════════════════════════════════════
+        if (hasVideo) {
+            console.log(`[Video] 🎥 ${videos.length} video(s) recibido(s) de ${customerPhone}. Subiendo a storage...`);
+            for (const vidMsg of videos) {
+                const mediaId = vidMsg.videoMediaId;
+                const waId = vidMsg.message?.id || null;
+                if (!mediaId) continue;
+                try {
+                    const videoData = await whatsappService.downloadMedia(mediaId);
+                    if (!videoData) {
+                        console.error(`[Video] ❌ No se pudo descargar video ${mediaId} de ${customerPhone}.`);
+                        continue;
+                    }
+                    const videoPath = await storageService.uploadVideo(customerPhone, videoData.buffer, videoData.mimeType);
+                    if (videoPath && waId) {
+                        await mensajesService.actualizarMedia(waId, {
+                            mediaUrl: videoPath,
+                            mediaMime: videoData.mimeType,
+                        });
+                    }
+                    console.log(`[Video] ✅ Video de ${customerPhone} almacenado en: ${videoPath}`);
+                } catch (vidErr) {
+                    console.error(`[Video] ❌ Error procesando video de ${customerPhone}:`, vidErr.message);
+                }
+            }
+            // Notificar al vendedor en la conversación sin enviar a Gemini
+            const msgVideo = 'Recibí tu video. Un asesor lo revisará en breve. 🎥';
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            await whatsappService.sendAgentMessage(customerPhone, msgVideo);
+            return;
+        }
+
+        // ═══════════════════════════════════════════════════════
+        // REQ-04 FASE 2: DOCUMENT — descargar, subir a Supabase Storage y registrar.
+        // NO se envía a Gemini (riesgo R3 — costo de tokens).
+        // ═══════════════════════════════════════════════════════
+        if (hasDocument) {
+            console.log(`[Doc] 📄 ${documents.length} documento(s) recibido(s) de ${customerPhone}. Subiendo a storage...`);
+            for (const docMsg of documents) {
+                const mediaId = docMsg.documentMediaId;
+                const waId = docMsg.message?.id || null;
+                if (!mediaId) continue;
+                try {
+                    const docData = await whatsappService.downloadMedia(mediaId);
+                    if (!docData) {
+                        console.error(`[Doc] ❌ No se pudo descargar documento ${mediaId} de ${customerPhone}.`);
+                        continue;
+                    }
+                    const docPath = await storageService.uploadDocument(customerPhone, docData.buffer, docData.mimeType);
+                    if (docPath && waId) {
+                        await mensajesService.actualizarMedia(waId, {
+                            mediaUrl: docPath,
+                            mediaMime: docData.mimeType,
+                        });
+                    }
+                    console.log(`[Doc] ✅ Documento de ${customerPhone} almacenado en: ${docPath}`);
+                } catch (docErr) {
+                    console.error(`[Doc] ❌ Error procesando documento de ${customerPhone}:`, docErr.message);
+                }
+            }
+            const msgDoc = 'Recibí tu documento. Un asesor lo revisará en breve. 📄';
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            await whatsappService.sendAgentMessage(customerPhone, msgDoc);
             return;
         }
 
@@ -554,6 +657,7 @@ const processBufferedMessages = async (customerPhone) => {
         let imageData = null;
 
         // Descargar TODOS los audios del lote
+        // REQ-04 Fase 2: tras descargar, subir a Supabase Storage y actualizar media_url en mensajes
         let audioDataList = [];
         if (hasAudio) {
             console.log(`[Audio] 🎤 Descargando ${audios.length} nota(s) de voz de ${customerPhone}...`);
@@ -567,6 +671,24 @@ const processBufferedMessages = async (customerPhone) => {
                 return;
             }
             console.log(`[Audio] ✅ ${audioDataList.length} audio(s) descargados`);
+
+            // Subir audios a Supabase Storage (aislado — si falla, continúa el flujo de Gemini)
+            for (let i = 0; i < audios.length; i++) {
+                const aData = audioDataList[i];
+                const waId = audios[i]?.message?.id || null;
+                if (!aData) continue;
+                try {
+                    const audioPath = await storageService.uploadAudio(customerPhone, aData.buffer, aData.mimeType);
+                    if (audioPath && waId) {
+                        await mensajesService.actualizarMedia(waId, {
+                            mediaUrl: audioPath,
+                            mediaMime: aData.mimeType,
+                        });
+                    }
+                } catch (audioUploadErr) {
+                    console.error(`[Audio] ❌ Error subiendo audio a storage (flujo Gemini continúa):`, audioUploadErr.message);
+                }
+            }
         }
 
         // 3. Obtener respuesta y entidades de Gemini con selección dinámica de modelo
@@ -589,6 +711,25 @@ const processBufferedMessages = async (customerPhone) => {
         }
         
         console.log(`[Gemini] Respuesta (${session.estado}):`, JSON.stringify(aiJson, null, 2));
+
+        // REQ-04 Fase 2: extraer transcripcion_audio del JSON de Gemini y persistirla.
+        // Esto actualiza el registro mensajes ya creado en receiveMessage.
+        // Aislado en try/catch — si falla, el flujo de Gemini continúa (riesgo R1).
+        if (hasAudio && aiJson.transcripcion_audio) {
+            try {
+                for (const audioMsg of audios) {
+                    const waId = audioMsg?.message?.id || null;
+                    if (waId) {
+                        await mensajesService.actualizarMedia(waId, {
+                            transcripcion: aiJson.transcripcion_audio,
+                        });
+                    }
+                }
+                console.log(`[Mensajes] ✅ Transcripción de audio guardada para ${customerPhone}`);
+            } catch (transcErr) {
+                console.error(`[Mensajes] ❌ Error guardando transcripción de audio (flujo continúa):`, transcErr.message);
+            }
+        }
 
         // 4. Actualizar entidades en la sesión
         const originalSession = JSON.parse(JSON.stringify(session)); // Backup
@@ -763,6 +904,21 @@ const processBufferedMessages = async (customerPhone) => {
             await new Promise(resolve => setTimeout(resolve, delayMs));
             // 7. Enviar respuesta vía WhatsApp
             await whatsappService.sendAgentMessage(customerPhone, msg);
+
+            // REQ-04 FASE 1: Persistir mensaje SALIENTE del agente IA.
+            // Try/catch aislado: si el INSERT falla, el flujo continúa (riesgo R1).
+            try {
+                const sucursalSaliente = session?.sucursal || session?.entidades?.sucursal_retiro || null;
+                await mensajesService.registrarSaliente({
+                    phone: customerPhone,
+                    tipo: 'text',
+                    contenido: msg,
+                    autor: 'agente_ia',
+                    sucursal: sucursalSaliente,
+                });
+            } catch (persistErr) {
+                console.error(`[Mensajes] ❌ Error persistiendo saliente IA para ${customerPhone} (flujo continúa):`, persistErr.message);
+            }
         }
         await sessionsService.incrementMessageCounter(customerPhone, 'ia');
 
@@ -786,15 +942,52 @@ const receiveMessage = async (req, res) => {
         if (message) {
             console.log(`[Webhook] 📨 Tipo recibido: "${message.type}" de ${message.from} (auto-deploy test)`);
         }
-        if (!message || !['text', 'image', 'audio'].includes(message.type)) {
+        // REQ-04 Fase 2: ampliar tipos soportados a video y document
+        if (!message || !['text', 'image', 'audio', 'video', 'document'].includes(message.type)) {
             return res.status(200).send('EVENT_RECEIVED');
         }
 
         const customerPhone = message.from;
-        const userText = message.text?.body || message.image?.caption || '';
+        const userText = message.text?.body || message.image?.caption || message.video?.caption || message.document?.caption || '';
         const hasImage = message.type === 'image';
         const hasAudio = message.type === 'audio';
+        const hasVideo = message.type === 'video';
+        const hasDocument = message.type === 'document';
         const audioMediaId = hasAudio ? message.audio?.id : null;
+        const videoMediaId = hasVideo ? message.video?.id : null;
+        const documentMediaId = hasDocument ? message.document?.id : null;
+
+        // -------------------------------------------------------------
+        // REQ-04 FASE 1: Persistencia del mensaje ENTRANTE
+        // Se hace aquí, antes del debounce y antes de cualquier chequeo
+        // de agente_pausado, para que TODOS los mensajes queden registrados
+        // incluso cuando la IA está pausada (riesgo R7 del plan).
+        // El try/catch está aislado: si el INSERT falla el webhook sigue
+        // normalmente sin afectar el flujo de Gemini (riesgo R1).
+        // media_url y mediaMime se actualizan después en processBufferedMessages
+        // una vez que el archivo se descargó y subió a Supabase (Fase 2).
+        // -------------------------------------------------------------
+        try {
+            let tipoMensaje = 'text';
+            if (hasImage) tipoMensaje = 'image';
+            else if (hasAudio) tipoMensaje = 'audio';
+            else if (hasVideo) tipoMensaje = 'video';
+            else if (hasDocument) tipoMensaje = 'document';
+
+            const contenido = userText || null;
+            const waMessageId = message.id || null;
+            await mensajesService.registrarEntrante({
+                phone: customerPhone,
+                tipo: tipoMensaje,
+                contenido,
+                waMessageId,
+                // sucursal aún no está derivada en este punto — se resolverá cuando
+                // processBufferedMessages consulte la sesión. Se deja null.
+                sucursal: null,
+            });
+        } catch (persistErr) {
+            console.error(`[Mensajes] ❌ Error persistiendo entrante de ${customerPhone} (flujo continúa):`, persistErr.message);
+        }
 
         // -------------------------------------------------------------
         // DEBOUNCE LOGIC
@@ -804,7 +997,7 @@ const receiveMessage = async (req, res) => {
             buffer = { messages: [], timer: null };
         }
 
-        buffer.messages.push({ userText, hasImage, hasAudio, audioMediaId, message, timestamp: Date.now() });
+        buffer.messages.push({ userText, hasImage, hasAudio, hasVideo, hasDocument, audioMediaId, videoMediaId, documentMediaId, message, timestamp: Date.now() });
 
         if (buffer.timer) {
             clearTimeout(buffer.timer);

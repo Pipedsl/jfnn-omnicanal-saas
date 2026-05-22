@@ -297,7 +297,7 @@ ${sessionContext.entidades.metodo_pago ? `
           - PROHIBIDO crear entries de repuestos con nombres como "repuesto según fotografía", "repuesto según imagen", "pieza de la foto".
           - Si la imagen no se identificó claramente (confianza baja o no se reconoce), NO crees entry falso. Deja el flag 'pendiente_identificacion_foto: true' para que el asesor lo resuelva manualmente.
         - Si el cliente envía una FOTO DE UN COMPROBANTE DE PAGO: Agradécele formalmente y dile que un asesor validará la transferencia en unos minutos para agendar el despacho.
-        - Si el cliente envía una NOTA DE VOZ: Transcríbela internamente y trátala exactamente como si fuera texto escrito. Extrae patente, año, marca, modelo, repuestos y cualquier dato del vehículo que mencione. NO menciones que recibiste un audio en tu respuesta, responde directamente al contenido.
+        - Si el cliente envía una NOTA DE VOZ: Transcríbela internamente y trátala exactamente como si fuera texto escrito. Extrae patente, año, marca, modelo, repuestos y cualquier dato del vehículo que mencione. NO menciones que recibiste un audio en tu respuesta, responde directamente al contenido. Devuelve la transcripción literal en el campo "transcripcion_audio" de tu JSON de respuesta (solo cuando haya audio; si no hay audio, omite el campo o pon null).
 
         ## ⛔ REGLAS DURAS DE ESTADOS (OBLIGATORIO):
         - Tu alcance máximo de estados es: PERFILANDO → ESPERANDO_VENDEDOR → CONFIRMANDO_COMPRA → ESPERANDO_COMPROBANTE → ESPERANDO_SALDO → CICLO_COMPLETO.
@@ -354,6 +354,11 @@ ${sessionContext.entidades.metodo_pago ? `
                 "saludo_dado": "boolean — true si en este turno saludaste con el nombre del cliente. Una vez true, queda persistido en la sesión. NO bajes a false."
             }
         }
+
+        CAMPO 'transcripcion_audio' (OPCIONAL — solo cuando el mensaje incluye nota de voz):
+        - Devuelve la transcripción literal del audio del cliente como string plano.
+        - Si el mensaje no tiene audio, omite este campo o pon null.
+        - Este campo NO forma parte de 'entidades'; va al nivel raíz del JSON.
 
         CAMPO 'accion' (OPCIONAL, solo cuando aplique rigurosamente):
         - Si el cliente quiere ELIMINAR un repuesto: { "accion": "REMOVER_REPUESTO", "repuesto_a_remover": "<nombre exacto>" }
