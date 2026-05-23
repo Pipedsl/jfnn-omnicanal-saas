@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import axios from "axios";
-import { MessageCircle, Image, Mic, Video, FileText, ArrowLeft, User, Bot, Clock, Timer, AlertTriangle } from "lucide-react";
+import { MessageCircle, Image, Mic, Video, FileText, ArrowLeft, User, Bot, Clock, Timer, AlertTriangle, Send, ChevronDown } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
 
@@ -33,6 +33,13 @@ interface Mensaje {
 interface Ventana24h {
   ultimo_entrante_at: string;
   expira_at: string;
+}
+
+interface PlantillaHSM {
+  id: string;
+  nombre: string;
+  descripcion: string;
+  params: string[];
 }
 
 interface ChatData {
@@ -108,11 +115,44 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
   const chatEndRef = useRef<HTMLDivElement>(null);
   const prevMsgCountRef = useRef<number>(0);
   const [, setTick] = useState(0);
+  const [plantillas, setPlantillas] = useState<PlantillaHSM[]>([]);
+  const [showPlantillas, setShowPlantillas] = useState(false);
+  const [sendingPlantilla, setSendingPlantilla] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => setTick(t => t + 1), 60000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    axios.get(`${API_URL}/api/dashboard/plantillas-hsm`)
+      .then(res => setPlantillas(res.data || []))
+      .catch(() => {});
+  }, []);
+
+  const sendPlantilla = async (plantilla: PlantillaHSM) => {
+    if (!selectedPhone || !chat) return;
+    setSendingPlantilla(plantilla.id);
+    try {
+      const params: Record<string, string> = {};
+      if (plantilla.params.includes("nombre") && chat.nombre_cliente) {
+        params.nombre = chat.nombre_cliente;
+      }
+      const vendedorNombre = typeof window !== "undefined" ? localStorage.getItem("jfnn_vendedor_nombre") : null;
+      await axios.post(`${API_URL}/api/dashboard/conversaciones/${selectedPhone}/plantilla`, {
+        plantilla_id: plantilla.id,
+        params,
+        vendedor_nombre: vendedorNombre,
+      });
+      setShowPlantillas(false);
+      fetchChat(selectedPhone, false);
+    } catch (err) {
+      console.error("[Plantilla] Error:", err);
+      alert("Error al enviar plantilla. Puede que no esté aprobada en Meta aún.");
+    } finally {
+      setSendingPlantilla(null);
+    }
+  };
 
   const fetchConversaciones = async (isInitial = false) => {
     try {
@@ -389,6 +429,63 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
                 ))
               )}
               <div ref={chatEndRef} />
+            </div>
+
+            {/* Template Toolbar */}
+            <div className="border-t border-white/5 px-4 py-2 bg-white/[0.02]">
+              {(() => {
+                const v = getVentanaStatus(chat?.ventana_24h ?? null);
+                if (v.expired) {
+                  return (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-xs text-red-400">
+                        <AlertTriangle size={12} />
+                        <span>Ventana de 24h cerrada — solo plantillas HSM</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        {plantillas.map((p) => (
+                          <button
+                            key={p.id}
+                            onClick={() => sendPlantilla(p)}
+                            disabled={sendingPlantilla !== null}
+                            className="text-left px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 transition-colors disabled:opacity-50"
+                          >
+                            <p className="text-xs font-semibold text-neutral-200">{p.nombre}</p>
+                            <p className="text-[10px] text-neutral-500">{p.descripcion}</p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowPlantillas(!showPlantillas)}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 transition-colors text-xs text-neutral-400"
+                    >
+                      <Send size={12} />
+                      Plantillas HSM
+                      <ChevronDown size={12} className={`transition-transform ${showPlantillas ? "rotate-180" : ""}`} />
+                    </button>
+                    {showPlantillas && (
+                      <div className="absolute bottom-full left-0 mb-2 w-80 bg-neutral-900 border border-white/10 rounded-xl shadow-xl p-2 space-y-1 z-10">
+                        {plantillas.map((p) => (
+                          <button
+                            key={p.id}
+                            onClick={() => sendPlantilla(p)}
+                            disabled={sendingPlantilla !== null}
+                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/5 transition-colors disabled:opacity-50"
+                          >
+                            <p className="text-xs font-semibold text-neutral-200">{p.nombre}</p>
+                            <p className="text-[10px] text-neutral-500">{p.descripcion}</p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           </>
         )}

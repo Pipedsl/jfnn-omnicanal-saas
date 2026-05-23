@@ -1505,4 +1505,66 @@ router.get('/conversaciones/:phone', async (req, res) => {
     }
 });
 
+/**
+ * GET /api/dashboard/plantillas-hsm
+ * Catálogo de plantillas HSM disponibles para re-engage.
+ * Nota: requiere Business Verification de Meta para funcionar en producción.
+ */
+router.get('/plantillas-hsm', (_req, res) => {
+    const plantillas = [
+        { id: 'retomar_cotizacion', nombre: 'Retomar cotización', descripcion: 'Re-abrir conversación con el cliente', params: ['nombre'], language: 'es_CL' },
+        { id: 'cotizacion_lista', nombre: 'Cotización lista', descripcion: 'Avisar que la cotización ya tiene precios', params: ['nombre', 'repuesto'], language: 'es' },
+        { id: 'comprobante_pendiente', nombre: 'Comprobante pendiente', descripcion: 'Recordar envío de comprobante de pago', params: ['nombre'], language: 'es' },
+        { id: 'pedido_listo', nombre: 'Pedido listo para retiro', descripcion: 'Avisar que los repuestos están listos', params: ['nombre'], language: 'es' },
+        { id: 'encargo_llegada', nombre: 'Encargo llegó', descripcion: 'Avisar que el repuesto por encargo llegó', params: ['nombre', 'repuesto'], language: 'es' },
+        { id: 'seguimiento_postventa', nombre: 'Seguimiento postventa', descripcion: 'Consultar satisfacción post-compra', params: ['nombre'], language: 'es' },
+    ];
+    res.json(plantillas);
+});
+
+/**
+ * POST /api/dashboard/conversaciones/:phone/plantilla
+ * Enviar una plantilla HSM desde el chat y persistir como mensaje saliente.
+ */
+router.post('/conversaciones/:phone/plantilla', async (req, res) => {
+    try {
+        const { phone } = req.params;
+        const { plantilla_id, params: tplParams = {}, vendedor_nombre } = req.body;
+
+        if (!plantilla_id) {
+            return res.status(400).json({ error: 'Falta plantilla_id' });
+        }
+
+        const langMap = {
+            'retomar_cotizacion': 'es_CL',
+            'cotizacion_lista': 'es',
+            'comprobante_pendiente': 'es',
+            'pedido_listo': 'es',
+            'encargo_llegada': 'es',
+            'seguimiento_postventa': 'es',
+        };
+        const languageCode = langMap[plantilla_id] || 'es';
+
+        const bodyParams = Object.entries(tplParams).map(([name, text]) => ({ name, text: String(text) }));
+
+        const response = await whatsappService.sendTemplateMessage(phone, plantilla_id, languageCode, bodyParams);
+
+        const session = await sessionsService.getSession(phone).catch(() => null);
+
+        await mensajesService.registrarSaliente({
+            phone,
+            tipo: 'text',
+            contenido: `[Plantilla: ${plantilla_id}] ${Object.values(tplParams).join(', ')}`,
+            autor: 'vendedor',
+            autorNombre: vendedor_nombre || null,
+            sucursal: session?.sucursal || null,
+        });
+
+        res.json({ success: true, messageId: response?.messages?.[0]?.id || 'sent' });
+    } catch (error) {
+        console.error('[Dashboard] Error enviando plantilla desde chat:', error.message);
+        res.status(500).json({ error: 'Error al enviar plantilla', detalle: error.message });
+    }
+});
+
 module.exports = router;
