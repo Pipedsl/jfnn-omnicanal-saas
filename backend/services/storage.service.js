@@ -22,6 +22,7 @@
  */
 
 const { createClient } = require('@supabase/supabase-js');
+const WebSocket = require('ws');
 
 const BUCKET = 'whatsapp-media';
 const MAX_BYTES = 16 * 1024 * 1024; // 16 MB — límite Meta (riesgo R2)
@@ -42,7 +43,8 @@ const _getClient = () => {
     }
 
     supabase = createClient(url, key, {
-        auth: { persistSession: false }
+        auth: { persistSession: false },
+        realtime: { transport: WebSocket },
     });
     console.log('[Storage] ✅ Cliente Supabase Storage inicializado.');
     return supabase;
