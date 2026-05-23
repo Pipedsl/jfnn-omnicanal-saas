@@ -7,7 +7,9 @@ import QuoteCard from "@/components/QuoteCard";
 import BandejaTable from "@/components/BandejaTable";
 import HistorialTable from "@/components/HistorialTable";
 import DashboardMetrics from "@/components/DashboardMetrics";
+import AgentMetrics from "@/components/AgentMetrics";
 import IdentitySelector from "@/components/IdentitySelector";
+import ConversacionesPanel from "@/components/ConversacionesPanel";
 import Link from "next/link";
 
 interface Quote {
@@ -26,7 +28,7 @@ const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000';
 export default function Home() {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState("pendientes"); // "pendientes" | "historial"
+  const [view, setView] = useState("pendientes"); // "pendientes" | "historial" | "conversaciones"
   const [filter, setFilter] = useState("todos");
   const [isSyncing, setIsSyncing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -262,6 +264,7 @@ export default function Home() {
       <div className="max-w-7xl mx-auto px-6">
         {/* KPI Panel */}
         <DashboardMetrics />
+        <AgentMetrics />
 
         {/* Hero Section */}
         <header className="py-12">
@@ -281,9 +284,18 @@ export default function Home() {
                 >
                   Historial
                 </button>
+                <span className="text-3xl font-extrabold text-neutral-800">/</span>
+                <button
+                  onClick={() => setView('conversaciones')}
+                  className={`text-3xl font-extrabold tracking-tight transition-all ${view === 'conversaciones' ? 'text-white' : 'text-neutral-600 hover:text-neutral-400'}`}
+                >
+                  Chat
+                </button>
               </div>
               <p className="text-neutral-500">
-                {view === 'pendientes' ? 'Solicitudes activas y cierres automáticos.' : 'Registro de ventas finalizadas y entregadas.'}
+                {view === 'pendientes' ? 'Solicitudes activas y cierres automáticos.' :
+                 view === 'historial' ? 'Registro de ventas finalizadas y entregadas.' :
+                 'Mensajes de WhatsApp en tiempo real.'}
               </p>
             </div>
 
@@ -296,8 +308,8 @@ export default function Home() {
           </div>
         </header>
 
-        {/* Filters */}
-        <div className="flex items-center gap-2 pb-6 overflow-x-auto no-scrollbar">
+        {/* Filters (hidden in conversaciones view) */}
+        <div className={`flex items-center gap-2 pb-6 overflow-x-auto no-scrollbar ${view === 'conversaciones' ? 'hidden' : ''}`}>
           {(view === 'pendientes' ? [
             { id: 'todos', label: 'Todos' },
             { id: 'ESPERANDO_VENDEDOR', label: 'Esperando Precios' },
@@ -368,6 +380,14 @@ export default function Home() {
               <LayoutDashboard size={48} className="text-neutral-800 mb-4" />
               <p className="text-neutral-500 font-medium">No hay registros en esta sección.</p>
             </div>
+          ) : view === 'conversaciones' ? (
+            /* ── Vista Conversaciones: Chat en tiempo real ── */
+            <ConversacionesPanel
+              sucursalFilter={
+                userRole === 'vendedor' ? userSucursal :
+                adminSucursalFilter !== 'todas' ? adminSucursalFilter : null
+              }
+            />
           ) : view === 'pendientes' ? (
             /* ── Vista Pendientes: Tabla Compacta ── */
             <BandejaTable
