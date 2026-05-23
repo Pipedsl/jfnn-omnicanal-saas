@@ -291,6 +291,22 @@ const processBufferedMessages = async (customerPhone) => {
             const partes = validImages.filter(x => x.analysis.tipo !== 'padron');
 
             // ── FASE 2A: PROCESAR PADRONES ──
+            // REQ-04 Fase 2: subir imágenes de padrón a Storage
+            for (const padron of padrones) {
+                const { imageData, waMessageId } = padron;
+                try {
+                    const padronPath = await storageService.uploadPartImage(customerPhone, imageData.buffer, imageData.mimeType);
+                    if (padronPath && waMessageId) {
+                        await mensajesService.actualizarMedia(waMessageId, {
+                            mediaUrl: padronPath,
+                            mediaMime: imageData.mimeType,
+                        });
+                    }
+                } catch (storageErr) {
+                    console.error(`[ImageID] ❌ Error subiendo padrón a storage (flujo continúa):`, storageErr.message);
+                }
+            }
+
             let padronDatos = null; // para el mensaje final
             let propietarioPendiente = null;
             for (const { analysis } of padrones) {
