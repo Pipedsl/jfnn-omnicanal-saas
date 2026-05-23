@@ -80,6 +80,21 @@ const messageBuffer = new Map();
 // Debounce ajustable por env. Dev/test: 5s. Producción recomendado: 20s (ahorra tokens).
 const DEBOUNCE_TIME_MS = parseInt(process.env.WHATSAPP_DEBOUNCE_MS || '5000', 10);
 
+const sendAndPersist = async (phone, text, { autor = 'agente_ia', sucursal = null } = {}) => {
+    await whatsappService.sendAgentMessage(phone, text);
+    try {
+        await mensajesService.registrarSaliente({
+            phone,
+            tipo: 'text',
+            contenido: text,
+            autor,
+            sucursal,
+        });
+    } catch (err) {
+        console.error(`[Mensajes] ❌ Error persistiendo saliente para ${phone} (flujo continúa):`, err.message);
+    }
+};
+
 const processBufferedMessages = async (customerPhone) => {
     try {
         const bufferData = messageBuffer.get(customerPhone);
@@ -145,7 +160,7 @@ const processBufferedMessages = async (customerPhone) => {
                 console.log(`[Padrón] ❌ Cliente cotiza para otro (no auto-vinculamos propietario): ${customerPhone}`);
                 const ack = 'Entendido, cotizamos sin vincular esos datos a tu nombre. ¿Qué repuesto necesitas para ese vehículo?';
                 await new Promise(r => setTimeout(r, 1200));
-                await whatsappService.sendAgentMessage(customerPhone, ack);
+                await sendAndPersist(customerPhone, ack);
                 return;
             }
 
@@ -159,7 +174,7 @@ const processBufferedMessages = async (customerPhone) => {
                 const nombreCorto = (p.nombre || '').split(/\s+/)[0] || '';
                 const ack = `¡Perfecto${nombreCorto ? ' ' + nombreCorto : ''}! Ya registré tus datos. ¿Qué repuesto necesitas?`;
                 await new Promise(r => setTimeout(r, 1200));
-                await whatsappService.sendAgentMessage(customerPhone, ack);
+                await sendAndPersist(customerPhone, ack);
                 return;
             }
             // Si no matchea claramente, dejamos el flag y seguimos al flujo normal.
@@ -178,7 +193,7 @@ const processBufferedMessages = async (customerPhone) => {
             const saludoRespuesta = '¡Hola! 👋 ¿En qué puedo ayudarte hoy?';
             const delayMs = Math.min(saludoRespuesta.length * 25, 1500);
             await new Promise(resolve => setTimeout(resolve, delayMs));
-            await whatsappService.sendAgentMessage(customerPhone, saludoRespuesta);
+            await sendAndPersist(customerPhone, saludoRespuesta);
             return;
         }
 
@@ -203,7 +218,7 @@ const processBufferedMessages = async (customerPhone) => {
                     const msg = `¡Perfecto! Retomamos tu cotización de ${archived.summary}. ¿Hay algo que quieras modificar?`;
                     const delayMs = Math.min(msg.length * 25, 3500);
                     await new Promise(resolve => setTimeout(resolve, delayMs));
-                    await whatsappService.sendAgentMessage(customerPhone, msg);
+                    await sendAndPersist(customerPhone, msg);
                     return;
                 } else if (quiereNueva || !esSaludoCorto) {
                     // Resetear completamente si dice que NO explícitamente, o si ya nos mandó un texto largo (empezando a pedir repuestos)
@@ -215,7 +230,7 @@ const processBufferedMessages = async (customerPhone) => {
                     const msg = `¡Hola de nuevo! 👋 Veo que tenías pendiente una cotización de ${archived.summary}. ¿Te gustaría continuarla o prefieres empezar una nueva?`;
                     const delayMs = Math.min(msg.length * 25, 3500);
                     await new Promise(resolve => setTimeout(resolve, delayMs));
-                    await whatsappService.sendAgentMessage(customerPhone, msg);
+                    await sendAndPersist(customerPhone, msg);
                     return;
                 }
             } else {
@@ -240,7 +255,7 @@ const processBufferedMessages = async (customerPhone) => {
                 const mensajeEspera = '¡Hola! Tu comprobante de pago ya fue recibido y está siendo revisado por nuestro equipo. Te confirmaremos el pago en unos minutos. ¿Hay algo más en lo que pueda ayudarte mientras tanto?';
                 const delayMs = Math.min(mensajeEspera.length * 25, 3500);
                 await new Promise(resolve => setTimeout(resolve, delayMs));
-                await whatsappService.sendAgentMessage(customerPhone, mensajeEspera);
+                await sendAndPersist(customerPhone, mensajeEspera);
             } else {
                 console.log(`[Webhook] Ignorando imagen adicional de ${customerPhone} (ya en ESPERANDO_APROBACION_ADMIN).`);
             }
@@ -398,7 +413,7 @@ const processBufferedMessages = async (customerPhone) => {
                 const patenteStr = padronDatos.patente ? ` (patente ${padronDatos.patente})` : '';
                 const msg = `📄 Recibí tu padrón del ${veh}${patenteStr}. Ya anoté los datos del vehículo. ¿Está a tu nombre (${propietarioPendiente.nombre || 'el propietario del padrón'}) o cotizas para otra persona?`;
                 await new Promise(r => setTimeout(r, 1500));
-                await whatsappService.sendAgentMessage(customerPhone, msg);
+                await sendAndPersist(customerPhone, msg);
                 return;
             }
 
@@ -408,7 +423,7 @@ const processBufferedMessages = async (customerPhone) => {
                 const patenteStr = padronDatos.patente ? ` (patente ${padronDatos.patente})` : '';
                 const msg = `📄 Recibí tu padrón del ${veh}${patenteStr}. Ya anoté los datos del vehículo. ¿Qué repuesto necesitas?`;
                 await new Promise(r => setTimeout(r, 1500));
-                await whatsappService.sendAgentMessage(customerPhone, msg);
+                await sendAndPersist(customerPhone, msg);
                 return;
             }
 
@@ -423,16 +438,16 @@ const processBufferedMessages = async (customerPhone) => {
                     await sessionsService.setEstado(customerPhone, sessionsService.STATES.ESPERANDO_VENDEDOR);
                     const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''}. Un asesor las revisará y te cotizará en breve. 🔧`;
                     await new Promise(r => setTimeout(r, 1500));
-                    await whatsappService.sendAgentMessage(customerPhone, msg);
+                    await sendAndPersist(customerPhone, msg);
                 } else {
                     const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''}. Para cotizar necesito también los datos del auto: marca, año y patente. ¿Me los puedes enviar?`;
                     await new Promise(r => setTimeout(r, 1500));
-                    await whatsappService.sendAgentMessage(customerPhone, msg);
+                    await sendAndPersist(customerPhone, msg);
                 }
             } else {
                 const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''} adicional${nFotos > 1 ? 'es' : ''}. El asesor las revisará junto a la cotización. 🔧`;
                 await new Promise(r => setTimeout(r, 1500));
-                await whatsappService.sendAgentMessage(customerPhone, msg);
+                await sendAndPersist(customerPhone, msg);
             }
 
             return;
@@ -465,7 +480,7 @@ const processBufferedMessages = async (customerPhone) => {
 
             if (!imageData) {
                 console.error(`[P1] ❌ No se pudo descargar la imagen de ${customerPhone}.`);
-                await whatsappService.sendAgentMessage(customerPhone, 'Tuvimos un problema al recibir su comprobante. ¿Podía enviarlo nuevamente, por favor?');
+                await sendAndPersist(customerPhone, 'Tuvimos un problema al recibir su comprobante. ¿Podía enviarlo nuevamente, por favor?');
                 return;
             }
 
@@ -474,7 +489,7 @@ const processBufferedMessages = async (customerPhone) => {
 
             if (!comprobanteUrl) {
                 console.error(`[P1] ❌ No se pudo subir el voucher de ${customerPhone} al storage.`);
-                await whatsappService.sendAgentMessage(customerPhone, 'Tuvimos un inconveniente técnico guardando su comprobante. Por favor, inténtelo en un momento.');
+                await sendAndPersist(customerPhone, 'Tuvimos un inconveniente técnico guardando su comprobante. Por favor, inténtelo en un momento.');
                 return;
             }
 
@@ -496,7 +511,7 @@ const processBufferedMessages = async (customerPhone) => {
             const respuestaConfirmacion = `¡Perfecto! 📸 Recibí su comprobante de pago. Nuestro equipo lo está verificando ahora y le confirmaremos en unos minutos. Si tiene alguna consulta, no dude en escribirnos. 👌`;
             const delayMs = Math.min(respuestaConfirmacion.length * 25, 3500);
             await new Promise(resolve => setTimeout(resolve, delayMs));
-            await whatsappService.sendAgentMessage(customerPhone, respuestaConfirmacion);
+            await sendAndPersist(customerPhone, respuestaConfirmacion);
 
             console.log(`[P1] ✅ Flujo de comprobante completado para ${customerPhone}. Esperando aprobación del admin.`);
             return;
@@ -511,7 +526,7 @@ const processBufferedMessages = async (customerPhone) => {
         )) {
             const msg = 'Recibí tu audio, pero en este momento estamos esperando la imagen del comprobante de pago. ¿Lo tienes listo? 📸';
             await new Promise(resolve => setTimeout(resolve, 1500));
-            await whatsappService.sendAgentMessage(customerPhone, msg);
+            await sendAndPersist(customerPhone, msg);
             return;
         }
 
@@ -547,7 +562,7 @@ const processBufferedMessages = async (customerPhone) => {
             // Notificar al vendedor en la conversación sin enviar a Gemini
             const msgVideo = 'Recibí tu video. Un asesor lo revisará en breve. 🎥';
             await new Promise(resolve => setTimeout(resolve, 1000));
-            await whatsappService.sendAgentMessage(customerPhone, msgVideo);
+            await sendAndPersist(customerPhone, msgVideo);
             return;
         }
 
@@ -581,7 +596,7 @@ const processBufferedMessages = async (customerPhone) => {
             }
             const msgDoc = 'Recibí tu documento. Un asesor lo revisará en breve. 📄';
             await new Promise(resolve => setTimeout(resolve, 1000));
-            await whatsappService.sendAgentMessage(customerPhone, msgDoc);
+            await sendAndPersist(customerPhone, msgDoc);
             return;
         }
 
@@ -642,7 +657,7 @@ const processBufferedMessages = async (customerPhone) => {
                 const intentResult = await geminiService.classifyIntent(userText);
                 if (!intentResult.es_compra) {
                     console.log(`[Hand-off] Ignorando mensaje de ${customerPhone} (ESPERANDO_VENDEDOR, no es compra)`);
-                    await whatsappService.sendAgentMessage(customerPhone,
+                    await sendAndPersist(customerPhone,
                         '¡Hola! Estamos buscando los precios para ti, en unos minutos te enviamos la cotización completa. 🔍');
                     return;
                 }
@@ -667,7 +682,7 @@ const processBufferedMessages = async (customerPhone) => {
             audioDataList = downloadResults.filter(Boolean);
             if (audioDataList.length === 0) {
                 console.error(`[Audio] ❌ No se pudo descargar ningún audio de ${customerPhone}.`);
-                await whatsappService.sendAgentMessage(customerPhone, 'Tuve un problema al escuchar tu audio. ¿Lo puedes reenviar o escribir tu consulta?');
+                await sendAndPersist(customerPhone, 'Tuve un problema al escuchar tu audio. ¿Lo puedes reenviar o escribir tu consulta?');
                 return;
             }
             console.log(`[Audio] ✅ ${audioDataList.length} audio(s) descargados`);
@@ -903,22 +918,7 @@ const processBufferedMessages = async (customerPhone) => {
             const delayMs = Math.min(msg.length * 25, 3500);
             await new Promise(resolve => setTimeout(resolve, delayMs));
             // 7. Enviar respuesta vía WhatsApp
-            await whatsappService.sendAgentMessage(customerPhone, msg);
-
-            // REQ-04 FASE 1: Persistir mensaje SALIENTE del agente IA.
-            // Try/catch aislado: si el INSERT falla, el flujo continúa (riesgo R1).
-            try {
-                const sucursalSaliente = session?.sucursal || session?.entidades?.sucursal_retiro || null;
-                await mensajesService.registrarSaliente({
-                    phone: customerPhone,
-                    tipo: 'text',
-                    contenido: msg,
-                    autor: 'agente_ia',
-                    sucursal: sucursalSaliente,
-                });
-            } catch (persistErr) {
-                console.error(`[Mensajes] ❌ Error persistiendo saliente IA para ${customerPhone} (flujo continúa):`, persistErr.message);
-            }
+            await sendAndPersist(customerPhone, msg);
         }
         await sessionsService.incrementMessageCounter(customerPhone, 'ia');
 
