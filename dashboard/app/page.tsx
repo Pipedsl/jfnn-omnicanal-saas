@@ -262,12 +262,16 @@ export default function Home() {
       </nav>
 
       <div className="max-w-7xl mx-auto px-6">
-        {/* KPI Panel */}
-        <DashboardMetrics />
-        <AgentMetrics />
+        {/* KPI Panel (hidden in chat view) */}
+        {view !== 'conversaciones' && (
+          <>
+            <DashboardMetrics />
+            <AgentMetrics />
+          </>
+        )}
 
         {/* Hero Section */}
-        <header className="py-12">
+        <header className={view === 'conversaciones' ? 'py-6' : 'py-12'}>
           <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
             <div>
               <div className="flex items-center gap-4 mb-2">
@@ -299,12 +303,14 @@ export default function Home() {
               </p>
             </div>
 
-            <div className={`glass px-6 py-2 rounded-xl flex items-center gap-3 transition-all ${view === 'pendientes' ? 'opacity-100' : 'opacity-50'}`}>
-              <div className={`w-2 h-2 rounded-full animate-pulse ${view === 'pendientes' ? 'bg-green-500' : 'bg-neutral-500'}`}></div>
-              <span className="text-sm font-bold text-neutral-300">
-                {view === 'pendientes' ? `Live: ${quotes.length} alertas` : `${quotes.length} registros`}
-              </span>
-            </div>
+            {view !== 'conversaciones' && (
+              <div className={`glass px-6 py-2 rounded-xl flex items-center gap-3 transition-all ${view === 'pendientes' ? 'opacity-100' : 'opacity-50'}`}>
+                <div className={`w-2 h-2 rounded-full animate-pulse ${view === 'pendientes' ? 'bg-green-500' : 'bg-neutral-500'}`}></div>
+                <span className="text-sm font-bold text-neutral-300">
+                  {view === 'pendientes' ? `Live: ${quotes.length} alertas` : `${quotes.length} registros`}
+                </span>
+              </div>
+            )}
           </div>
         </header>
 
@@ -370,7 +376,15 @@ export default function Home() {
 
         {/* Grid / Table */}
         <section>
-          {loading && quotes.length === 0 ? (
+          {view === 'conversaciones' ? (
+            /* ── Vista Conversaciones: Chat en tiempo real ── */
+            <ConversacionesPanel
+              sucursalFilter={
+                userRole === 'vendedor' ? userSucursal :
+                adminSucursalFilter !== 'todas' ? adminSucursalFilter : null
+              }
+            />
+          ) : loading && quotes.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 glass rounded-3xl animate-pulse">
               <div className="w-12 h-12 border-4 border-accent/20 border-t-accent rounded-full animate-spin mb-4"></div>
               <p className="text-neutral-500 font-medium">Sincronizando...</p>
@@ -380,14 +394,6 @@ export default function Home() {
               <LayoutDashboard size={48} className="text-neutral-800 mb-4" />
               <p className="text-neutral-500 font-medium">No hay registros en esta sección.</p>
             </div>
-          ) : view === 'conversaciones' ? (
-            /* ── Vista Conversaciones: Chat en tiempo real ── */
-            <ConversacionesPanel
-              sucursalFilter={
-                userRole === 'vendedor' ? userSucursal :
-                adminSucursalFilter !== 'todas' ? adminSucursalFilter : null
-              }
-            />
           ) : view === 'pendientes' ? (
             /* ── Vista Pendientes: Tabla Compacta ── */
             <BandejaTable

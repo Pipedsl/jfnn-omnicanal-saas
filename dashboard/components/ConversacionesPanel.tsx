@@ -93,8 +93,10 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
 
   const fetchConversaciones = async () => {
     try {
-      const params = sucursalFilter ? `?sucursal=${encodeURIComponent(sucursalFilter)}` : "";
-      const res = await axios.get(`${API_URL}/api/dashboard/conversaciones${params}&t=${Date.now()}`);
+      const params = new URLSearchParams();
+      if (sucursalFilter) params.set("sucursal", sucursalFilter);
+      params.set("t", String(Date.now()));
+      const res = await axios.get(`${API_URL}/api/dashboard/conversaciones?${params.toString()}`);
       setConversaciones(res.data || []);
     } catch (err) {
       console.error("[Conversaciones] Error fetching list:", err);
