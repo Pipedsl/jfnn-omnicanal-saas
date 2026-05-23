@@ -90,8 +90,9 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
   const [loadingList, setLoadingList] = useState(true);
   const [loadingChat, setLoadingChat] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const prevMsgCountRef = useRef<number>(0);
 
-  const fetchConversaciones = async () => {
+  const fetchConversaciones = async (isInitial = false) => {
     try {
       const params = new URLSearchParams();
       if (sucursalFilter) params.set("sucursal", sucursalFilter);
@@ -101,40 +102,44 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
     } catch (err) {
       console.error("[Conversaciones] Error fetching list:", err);
     } finally {
-      setLoadingList(false);
+      if (isInitial) setLoadingList(false);
     }
   };
 
-  const fetchChat = async (phone: string) => {
-    setLoadingChat(true);
+  const fetchChat = async (phone: string, isInitial = false) => {
+    if (isInitial) setLoadingChat(true);
     try {
       const res = await axios.get(`${API_URL}/api/dashboard/conversaciones/${phone}?t=${Date.now()}`);
       setChat(res.data);
     } catch (err) {
       console.error("[Conversaciones] Error fetching chat:", err);
     } finally {
-      setLoadingChat(false);
+      if (isInitial) setLoadingChat(false);
     }
   };
 
   useEffect(() => {
-    fetchConversaciones();
-    const interval = setInterval(fetchConversaciones, 4000);
+    fetchConversaciones(true);
+    const interval = setInterval(() => fetchConversaciones(false), 4000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sucursalFilter]);
 
   useEffect(() => {
     if (selectedPhone) {
-      fetchChat(selectedPhone);
-      const interval = setInterval(() => fetchChat(selectedPhone), 4000);
+      fetchChat(selectedPhone, true);
+      const interval = setInterval(() => fetchChat(selectedPhone, false), 4000);
       return () => clearInterval(interval);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPhone]);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const count = chat?.mensajes?.length ?? 0;
+    if (count > 0 && count !== prevMsgCountRef.current) {
+      prevMsgCountRef.current = count;
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [chat?.mensajes]);
 
   const handleSelectConv = (phone: string) => {

@@ -163,18 +163,20 @@ const listarConversacionesActivas = async ({ sucursal = null } = {}) => {
             query = `
                 SELECT
                     m.phone,
-                    m.sucursal,
-                    MAX(m.created_at)                           AS ultimo_mensaje_at,
+                    MAX(m.sucursal)                              AS sucursal,
+                    MAX(m.created_at)                             AS ultimo_mensaje_at,
                     (
                         SELECT contenido FROM mensajes
                         WHERE phone = m.phone
                         ORDER BY created_at DESC
                         LIMIT 1
-                    )                                           AS ultimo_contenido,
+                    )                                             AS ultimo_contenido,
                     COUNT(*) FILTER (WHERE m.direccion = 'entrante') AS total_entrantes
                 FROM mensajes m
-                WHERE m.sucursal = $1 OR m.sucursal IS NULL
-                GROUP BY m.phone, m.sucursal
+                WHERE m.phone IN (
+                    SELECT DISTINCT phone FROM mensajes WHERE sucursal = $1
+                ) OR m.sucursal IS NULL
+                GROUP BY m.phone
                 ORDER BY ultimo_mensaje_at DESC
             `;
             params = [sucursal];
@@ -182,17 +184,17 @@ const listarConversacionesActivas = async ({ sucursal = null } = {}) => {
             query = `
                 SELECT
                     m.phone,
-                    m.sucursal,
-                    MAX(m.created_at)                           AS ultimo_mensaje_at,
+                    MAX(m.sucursal)                              AS sucursal,
+                    MAX(m.created_at)                             AS ultimo_mensaje_at,
                     (
                         SELECT contenido FROM mensajes
                         WHERE phone = m.phone
                         ORDER BY created_at DESC
                         LIMIT 1
-                    )                                           AS ultimo_contenido,
+                    )                                             AS ultimo_contenido,
                     COUNT(*) FILTER (WHERE m.direccion = 'entrante') AS total_entrantes
                 FROM mensajes m
-                GROUP BY m.phone, m.sucursal
+                GROUP BY m.phone
                 ORDER BY ultimo_mensaje_at DESC
             `;
             params = [];
