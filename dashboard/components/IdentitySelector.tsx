@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import axios from 'axios';
+import { api } from "@/lib/api";
 import { X, User, RefreshCcw, AlertCircle } from 'lucide-react';
 
 export interface Vendedor {
@@ -36,7 +36,7 @@ export default function IdentitySelector({
     setLoading(true);
     setError(null);
     try {
-      const res = await axios.get<{ vendedores: Vendedor[] }>(
+      const res = await api.get<{ vendedores: Vendedor[] }>(
         `${API_URL}/api/dashboard/vendedores?sucursal=${encodeURIComponent(sucursal)}&t=${Date.now()}`
       );
       setVendedores(res.data.vendedores ?? []);

@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState, useRef } from 'react';
-import axios from 'axios';
+import { api } from "@/lib/api";
 import { BACKEND_URL } from '@/lib/api';
 
 interface UseQuoteLockResult {
@@ -29,7 +29,7 @@ export function useQuoteLock(phone: string | null, vendedor: string | null): Use
         const claim = async () => {
             setState((s) => ({ ...s, loading: true }));
             try {
-                const res = await axios.post(
+                const res = await api.post(
                     `${BACKEND_URL}/api/dashboard/cotizaciones/${encodeURIComponent(phone)}/claim`,
                     { vendedor }
                 );
@@ -84,7 +84,7 @@ export function useQuoteLock(phone: string | null, vendedor: string | null): Use
             if (renewInterval) clearInterval(renewInterval);
             window.removeEventListener('beforeunload', handleBeforeUnload);
             if (tokenRef.current) {
-                axios
+                api
                     .post(
                         `${BACKEND_URL}/api/dashboard/cotizaciones/${encodeURIComponent(phone)}/release`,
                         { lock_token: tokenRef.current }

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import axios from "axios";
 import { MessageCircle, Image, Mic, Video, FileText, ArrowLeft, User, Bot, Clock, Timer, AlertTriangle, Send, ChevronDown, Plus, X } from "lucide-react";
+import { api } from "@/lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
 
@@ -129,7 +129,7 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
   }, []);
 
   useEffect(() => {
-    axios.get(`${API_URL}/api/dashboard/plantillas-hsm`)
+    api.get(`${API_URL}/api/dashboard/plantillas-hsm`)
       .then(res => setPlantillas(res.data || []))
       .catch(() => {});
   }, []);
@@ -143,7 +143,7 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
         params.nombre = chat.nombre_cliente;
       }
       const vendedorNombre = typeof window !== "undefined" ? localStorage.getItem("jfnn_vendedor_nombre") : null;
-      await axios.post(`${API_URL}/api/dashboard/conversaciones/${selectedPhone}/plantilla`, {
+      await api.post(`${API_URL}/api/dashboard/conversaciones/${selectedPhone}/plantilla`, {
         plantilla_id: plantilla.id,
         params,
         vendedor_nombre: vendedorNombre,
@@ -163,7 +163,7 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
     setSendingMessage(true);
     try {
       const vendedorNombre = typeof window !== "undefined" ? localStorage.getItem("jfnn_vendedor_nombre") : null;
-      await axios.post(`${API_URL}/api/dashboard/conversaciones/${selectedPhone}/mensaje`, {
+      await api.post(`${API_URL}/api/dashboard/conversaciones/${selectedPhone}/mensaje`, {
         texto: messageText.trim(),
         vendedor_nombre: vendedorNombre,
       });
@@ -195,7 +195,7 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
     setSendingPlantilla(plantilla.id);
     try {
       const vendedorNombre = typeof window !== "undefined" ? localStorage.getItem("jfnn_vendedor_nombre") : null;
-      await axios.post(`${API_URL}/api/dashboard/conversaciones/${phone}/plantilla`, {
+      await api.post(`${API_URL}/api/dashboard/conversaciones/${phone}/plantilla`, {
         plantilla_id: plantilla.id,
         params: {},
         vendedor_nombre: vendedorNombre,
@@ -218,7 +218,7 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
       const params = new URLSearchParams();
       if (sucursalFilter) params.set("sucursal", sucursalFilter);
       params.set("t", String(Date.now()));
-      const res = await axios.get(`${API_URL}/api/dashboard/conversaciones?${params.toString()}`);
+      const res = await api.get(`${API_URL}/api/dashboard/conversaciones?${params.toString()}`);
       setConversaciones(res.data || []);
     } catch (err) {
       console.error("[Conversaciones] Error fetching list:", err);
@@ -230,7 +230,7 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
   const fetchChat = async (phone: string, isInitial = false) => {
     if (isInitial) setLoadingChat(true);
     try {
-      const res = await axios.get(`${API_URL}/api/dashboard/conversaciones/${phone}?t=${Date.now()}`);
+      const res = await api.get(`${API_URL}/api/dashboard/conversaciones/${phone}?t=${Date.now()}`);
       setChat(res.data);
     } catch (err) {
       console.error("[Conversaciones] Error fetching chat:", err);

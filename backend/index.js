@@ -1,10 +1,12 @@
 const express = require('express');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 // Importar rutas
 const whatsappRoutes = require('./routes/whatsapp.routes');
 const dashboardRoutes = require('./routes/dashboard.routes');
+const { verifyJWT } = require('./middleware/auth.middleware');
 const sessionsService = require('./services/sessions.service');
 const db = require('./config/db');
 
@@ -15,12 +17,18 @@ app.use(cors({
     origin: [
         'http://localhost:3000',
         'https://panel.repuestosjfnn.cl',
-        // Acepta cualquier subdominio de vercel.app durante el deploy
-        /\.vercel\.app$/,
+        process.env.DASHBOARD_URL || 'https://jfnn-omnicanal-saas.vercel.app',
     ],
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     credentials: true
 }));
+
+const apiLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 120,
+    standardHeaders: true,
+    legacyHeaders: false,
+});
 // Capturar rawBody para que el webhook de Meta pueda validar X-Hub-Signature-256.
 app.use(express.json({
     verify: (req, _res, buf) => { req.rawBody = buf; }
@@ -32,24 +40,19 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Registro de rutas
 app.use('/api/whatsapp', whatsappRoutes);
-app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/dashboard', apiLimiter, verifyJWT, dashboardRoutes);
 
 // Health check básico para Railway (liveness — no toca la DB)
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', uptime: process.uptime(), env: process.env.NODE_ENV });
 });
 
-// Health check profundo — verifica conexión real a la base de datos.
-// Útil para detectar URLs/tenants inválidos sin esperar a que falle una ruta de negocio.
 app.get('/api/health/db', async (req, res) => {
     try {
-        const { rows } = await db.query(
-            'SELECT current_database() AS db, current_user AS "user", (SELECT count(*) FROM user_sessions) AS sessions'
-        );
-        res.json({ status: 'ok', ...rows[0] });
-    } catch (err) {
-        console.error('[Health] ❌ DB check falló:', err.message);
-        res.status(503).json({ status: 'error', error: err.message, code: err.code });
+        await db.query('SELECT 1');
+        res.json({ status: 'ok' });
+    } catch {
+        res.status(503).json({ status: 'error' });
     }
 });
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { LayoutDashboard, RefreshCcw, Bell, Settings, ShieldCheck, Search, LogOut, BarChart3 } from "lucide-react";
 import QuoteCard from "@/components/QuoteCard";
 import BandejaTable from "@/components/BandejaTable";
@@ -98,7 +98,7 @@ export default function Home() {
       } else if (role === 'admin' && adminSucursalFilter !== 'todas') {
         sucursalParam = `&sucursal=${encodeURIComponent(adminSucursalFilter)}`;
       }
-      const resPend = await axios.get(`${API_URL}/api/dashboard/cotizaciones?t=${Date.now()}${sucursalParam}`);
+      const resPend = await api.get(`${API_URL}/api/dashboard/cotizaciones?t=${Date.now()}${sucursalParam}`);
       const pend: Quote[] = resPend.data || [];
 
       if (viewRef.current === "pendientes") setQuotes(pend);
@@ -123,7 +123,7 @@ export default function Home() {
       } else if (role === 'admin' && adminSucursalFilter !== 'todas') {
         sucursalParam = `&sucursal=${encodeURIComponent(adminSucursalFilter)}`;
       }
-      const resHist = await axios.get(`${API_URL}/api/dashboard/cotizaciones/historial?t=${Date.now()}${sucursalParam}`);
+      const resHist = await api.get(`${API_URL}/api/dashboard/cotizaciones/historial?t=${Date.now()}${sucursalParam}`);
       const hist: Quote[] = resHist.data || [];
 
       setQuotes(hist);

@@ -4,7 +4,7 @@ import { Car, Package, User, CheckCircle, Truck, Archive, Edit3, MessageSquareOf
 import { useState, useEffect } from "react";
 import SellerActionForm from "./SellerActionForm";
 import ImageLightbox from "./ImageLightbox";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { BACKEND_URL } from "@/lib/api";
 import { useQuoteLock } from "@/hooks/useQuoteLock";
 import { tieneRepuestosPorEncargo } from '@/lib/encargo';
@@ -120,7 +120,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
         if (!nombre) return;
         setConfirmandoImagen(imagen_url);
         try {
-            await axios.patch(`${BACKEND_URL}/api/dashboard/repuestos/confirmar-imagen`, {
+            await api.patch(`${BACKEND_URL}/api/dashboard/repuestos/confirmar-imagen`, {
                 phone,
                 imagen_url,
                 nombre_confirmado: nombre
@@ -137,7 +137,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
     const handleSolicitarVin = async (itemName: string) => {
         setSolicitandoVinId(itemName);
         try {
-            await axios.post(`${BACKEND_URL}/api/dashboard/solicitar-vin`, {
+            await api.post(`${BACKEND_URL}/api/dashboard/solicitar-vin`, {
                 phone,
                 itemName
             });
@@ -154,7 +154,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
     const handleSolicitarPatente = async (itemName: string) => {
         setSolicitandoPatenteId(itemName);
         try {
-            await axios.post(`${BACKEND_URL}/api/dashboard/solicitar-patente`, {
+            await api.post(`${BACKEND_URL}/api/dashboard/solicitar-patente`, {
                 phone,
                 itemName
             });
@@ -222,7 +222,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
 
     const handleStatusUpdate = async (nuevoEstado: string, notify: boolean = true) => {
         try {
-            await axios.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, {
+            await api.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, {
                 phone,
                 estado: nuevoEstado,
                 notify,
@@ -247,7 +247,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
         setLoadingPago(true);
         try {
             const estadoFinal = esRetiro ? 'ESPERANDO_RETIRO' : 'ENTREGADO';
-            await axios.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, {
+            await api.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, {
                 phone,
                 estado: estadoFinal,
                 notify: true,
@@ -280,7 +280,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
         setLoadingPausa(true);
         const nuevoEstado = !isPaused;
         try {
-            await axios.patch(`${BACKEND_URL}/api/dashboard/sessions/${phone}/pausa`, {
+            await api.patch(`${BACKEND_URL}/api/dashboard/sessions/${phone}/pausa`, {
                 pausado: nuevoEstado
             });
             setIsPaused(nuevoEstado);
@@ -334,13 +334,13 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                 {entidades.nombre_cliente || phone}
                             </span>
                             {entidades.nombre_cliente && (
-                                <span className="text-[10px] text-neutral-500 font-mono">{phone}</span>
+                                <span className="text-xs text-neutral-500 font-mono">{phone}</span>
                             )}
-                            <span className="text-[10px] bg-accent/10 text-accent px-1.5 py-0.5 rounded flex items-center gap-0.5 font-mono font-bold">
+                            <span className="text-xs bg-accent/10 text-accent px-1.5 py-0.5 rounded flex items-center gap-0.5 font-mono font-bold">
                                 <Hash size={10} /> {quoteId}
                             </span>
                         </div>
-                        <div className="flex items-center gap-2 mt-0.5 text-neutral-500 text-[10px]">
+                        <div className="flex items-center gap-2 mt-0.5 text-neutral-500 text-xs">
                             {vehiculoLabel && (
                                 <span className="flex items-center gap-1">
                                     <Car size={10} />
@@ -361,18 +361,18 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                         <div className="flex items-center gap-1.5">
                             {sucursal ? (
                                 <>
-                                    <span className="text-[10px] px-2 py-0.5 rounded-full border bg-violet-500/10 text-violet-400 border-violet-500/20 font-bold">
+                                    <span className="text-xs px-2 py-0.5 rounded-full border bg-violet-500/10 text-violet-400 border-violet-500/20 font-bold">
                                         📍 {sucursal}
                                     </span>
                                     {entidades.metodo_entrega === 'domicilio' && (
-                                        <span className="text-[10px] px-2 py-0.5 rounded-full border bg-sky-500/10 text-sky-400 border-sky-500/20 font-bold">
+                                        <span className="text-xs px-2 py-0.5 rounded-full border bg-sky-500/10 text-sky-400 border-sky-500/20 font-bold">
                                             🚚 Domicilio
                                         </span>
                                     )}
                                 </>
                             ) : null}
                         </div>
-                        <span className={`px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-tighter rounded-full border ${statusConfig.class}`}>
+                        <span className={`px-2.5 py-0.5 text-xs font-bold uppercase tracking-tighter rounded-full border ${statusConfig.class}`}>
                             {statusConfig.label}
                         </span>
 
@@ -382,7 +382,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                 onClick={togglePausa}
                                 disabled={loadingPausa}
                                 title={isPaused ? "Reactivar Agente IA" : "Pausar Agente IA"}
-                                className={`flex items-center gap-1 px-2 py-1 rounded-lg border transition-all text-[9px] font-black uppercase tracking-widest ${isPaused
+                                className={`flex items-center gap-1 px-2 py-1 rounded-lg border transition-all text-xs font-black uppercase tracking-widest ${isPaused
                                     ? 'bg-orange-500/10 border-orange-500/30 text-orange-500 hover:bg-orange-500/20'
                                     : 'bg-white/5 border-white/10 text-neutral-500 hover:bg-white/10'}`}
                             >
@@ -400,12 +400,12 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                     <div className="flex items-center gap-1.5 text-neutral-600">
                         <Clock size={10} />
                         {arrivalTime && (
-                            <span className="text-[10px]">{arrivalDate} {arrivalTime}</span>
+                            <span className="text-xs">{arrivalDate} {arrivalTime}</span>
                         )}
                     </div>
                     <div className="flex items-center gap-2">
                         {elapsed && (
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
                                 elapsed.includes('d') ? 'text-red-400 bg-red-500/10 border-red-500/20' :
                                 elapsed.includes('h') ? 'text-orange-400 bg-orange-500/10 border-orange-500/20' :
                                 'text-neutral-500 bg-white/5 border-white/10'
@@ -414,7 +414,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                             </span>
                         )}
                         {needsAction && (
-                            <span className="text-[10px] text-accent font-bold uppercase tracking-widest">
+                            <span className="text-xs text-accent font-bold uppercase tracking-widest">
                                 {estado === 'ESPERANDO_VENDEDOR' ? 'Cotizar' :
                                  estado === 'ESPERANDO_APROBACION_ADMIN' ? 'Aprobar pago' :
                                  estado === 'PAGO_VERIFICADO' ? 'Logística' :
@@ -466,46 +466,46 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                 <div>
                                     <div className="flex items-center gap-2">
                                         <h3 className="text-foreground font-bold">{entidades.nombre_cliente || phone}</h3>
-                                        <span className="text-[10px] bg-accent/20 text-accent px-2 py-0.5 rounded flex items-center gap-1 font-mono font-bold">
+                                        <span className="text-xs bg-accent/20 text-accent px-2 py-0.5 rounded flex items-center gap-1 font-mono font-bold">
                                             <Hash size={10} /> {entidades.quote_id || `ID-TEMP-${phone.slice(-4)}`}
                                         </span>
                                         {isPaused && (
-                                            <span className="text-[9px] bg-orange-500/20 text-orange-400 px-2 py-0.5 rounded border border-orange-500/30 font-bold animate-pulse">
+                                            <span className="text-xs bg-orange-500/20 text-orange-400 px-2 py-0.5 rounded border border-orange-500/30 font-bold animate-pulse">
                                                 🔇 PAUSADO
                                             </span>
                                         )}
                                         {entidades.solicitud_manual_patente && (
-                                            <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded border border-yellow-500/30 font-bold animate-pulse">
+                                            <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded border border-yellow-500/30 font-bold animate-pulse">
                                                 ⚠️ ESPERANDO PATENTE
                                             </span>
                                         )}
                                         {entidades.solicitud_manual_vin && (
-                                            <span className="text-[9px] bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded border border-yellow-500/30 font-bold animate-pulse">
+                                            <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded border border-yellow-500/30 font-bold animate-pulse">
                                                 ⚠️ ESPERANDO VIN
                                             </span>
                                         )}
                                         {sucursal ? (
-                                            <span className="text-[9px] bg-violet-500/10 text-violet-400 px-2 py-0.5 rounded border border-violet-500/20 font-bold">
+                                            <span className="text-xs bg-violet-500/10 text-violet-400 px-2 py-0.5 rounded border border-violet-500/20 font-bold">
                                                 📍 {sucursal}
                                             </span>
                                         ) : (
-                                            <span className="text-[9px] bg-white/5 text-neutral-600 px-2 py-0.5 rounded border border-white/10 font-bold">
+                                            <span className="text-xs bg-white/5 text-neutral-600 px-2 py-0.5 rounded border border-white/10 font-bold">
                                                 📍 —
                                             </span>
                                         )}
                                         {entidades.metodo_entrega === 'domicilio' && (
-                                            <span className="text-[9px] bg-sky-500/10 text-sky-400 px-2 py-0.5 rounded border border-sky-500/20 font-bold">
+                                            <span className="text-xs bg-sky-500/10 text-sky-400 px-2 py-0.5 rounded border border-sky-500/20 font-bold">
                                                 🚚 Domicilio
                                             </span>
                                         )}
                                     </div>
                                     {entidades.nombre_cliente && (
-                                        <p className="text-[10px] text-neutral-500 font-medium">{phone}</p>
+                                        <p className="text-xs text-neutral-500 font-medium">{phone}</p>
                                     )}
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
-                                <span className={`px-3 py-1 text-[10px] font-bold uppercase tracking-tighter rounded-full border ${statusConfig.class}`}>
+                                <span className={`px-3 py-1 text-xs font-bold uppercase tracking-tighter rounded-full border ${statusConfig.class}`}>
                                     {statusConfig.label}
                                 </span>
                                 {/* Pause/Resume Agent Toggle */}
@@ -513,7 +513,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                     onClick={togglePausa}
                                     disabled={loadingPausa}
                                     title={isPaused ? "Reactivar Agente IA" : "Pausar Agente IA"}
-                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-all text-[10px] font-bold uppercase tracking-wider ${isPaused
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border transition-all text-xs font-bold uppercase tracking-wider ${isPaused
                                         ? 'bg-orange-500/10 border-orange-500/30 text-orange-400 hover:bg-orange-500/20'
                                         : 'bg-white/5 border-white/10 text-neutral-500 hover:bg-white/10 hover:text-green-400 hover:border-green-500/30'}`}
                                 >
@@ -530,16 +530,16 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                         </div>
 
                         {/* Modal Body container for Grid */}
-                        <div className="flex-1 overflow-hidden flex flex-col md:flex-row min-h-0">
+                        <div className="flex-1 overflow-y-auto md:overflow-hidden flex flex-col md:flex-row min-h-0">
                             {/* Columna Izquierda: Información */}
-                            <div className={`p-6 space-y-5 overflow-y-auto custom-scrollbar ${ (estado === 'ESPERANDO_VENDEDOR' || isEditing) ? 'w-full md:w-5/12 lg:w-1/3 border-r border-white/5' : 'w-full' }`}>
+                            <div className={`p-6 space-y-5 overflow-visible md:overflow-y-auto custom-scrollbar ${ (estado === 'ESPERANDO_VENDEDOR' || isEditing) ? 'w-full md:w-5/12 lg:w-1/3 border-r border-white/5' : 'w-full' }`}>
                                 {/* B.5: Banner informativo de encargo */}
                                 {mostrarBannerEncargo && (
                                   <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-4 py-3 flex items-start gap-2">
                                     <span className="text-yellow-400 text-lg flex-shrink-0">📦</span>
                                     <div className="flex-1 min-w-0">
                                       <p className="text-xs font-bold text-yellow-400 mb-0.5">Sub-flujo: Por Encargo</p>
-                                      <p className="text-[10px] text-neutral-400 leading-relaxed">
+                                      <p className="text-xs text-neutral-400 leading-relaxed">
                                         Esta cotización tiene repuestos por encargo. El cliente debe pagar abono por transferencia,
                                         luego solicitas al proveedor. Cuando llegue, marcas "Encargo recibido" y el cliente paga el saldo.
                                       </p>
@@ -550,7 +550,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                 {/* Síntomas */}
                             {entidades.sintomas_reportados && (
                                 <div className="bg-red-500/5 border border-red-500/10 rounded-xl p-3">
-                                    <p className="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-1">Síntoma Técnico</p>
+                                    <p className="text-xs font-bold text-red-400 uppercase tracking-widest mb-1">Síntoma Técnico</p>
                                     <p className="text-xs text-neutral-400 italic">&quot;{entidades.sintomas_reportados}&quot;</p>
                                 </div>
                             )}
@@ -566,15 +566,15 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                             </div>
                                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
                                                 <div className="space-y-1 min-w-0">
-                                                    <p className="text-[9px] text-neutral-500 uppercase font-bold">Marca/Modelo</p>
+                                                    <p className="text-xs text-neutral-500 uppercase font-bold">Marca/Modelo</p>
                                                     <p className="text-xs text-neutral-300 font-medium truncate">{v.marca_modelo || "N/A"}</p>
                                                 </div>
                                                 <div className="space-y-1 min-w-0">
-                                                    <p className="text-[9px] text-neutral-500 uppercase font-bold">Año</p>
+                                                    <p className="text-xs text-neutral-500 uppercase font-bold">Año</p>
                                                     <p className="text-xs text-neutral-300 font-medium truncate">{v.ano || "N/A"}</p>
                                                 </div>
                                                 <div className="space-y-1 col-span-2 sm:col-span-1 min-w-0">
-                                                    <p className="text-[9px] text-neutral-500 uppercase font-bold">Patente/VIN</p>
+                                                    <p className="text-xs text-neutral-500 uppercase font-bold">Patente/VIN</p>
                                                     <div className="group relative flex items-center gap-1 min-w-0">
                                                         <p className="text-xs text-neutral-300 font-medium truncate flex-1 min-w-0" title={v.patente || v.vin || "N/A"}>
                                                             {v.patente || v.vin || "N/A"}
@@ -582,7 +582,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                         {(v.patente || v.vin) && (
                                                             <button
                                                                 onClick={() => navigator.clipboard.writeText(v.patente || v.vin || "")}
-                                                                className="text-[10px] text-neutral-500 hover:text-neutral-300 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                                                                className="text-xs text-neutral-500 hover:text-neutral-300 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
                                                                 title="Copiar"
                                                                 type="button"
                                                             >
@@ -592,7 +592,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                     </div>
                                                 </div>
                                                 <div className="space-y-1 min-w-0">
-                                                    <p className="text-[9px] text-neutral-500 uppercase font-bold">Motor · Combustible</p>
+                                                    <p className="text-xs text-neutral-500 uppercase font-bold">Motor · Combustible</p>
                                                     <p className="text-xs text-neutral-300 font-medium truncate" title={`${v.motor || "N/A"} · ${v.combustible || "N/A"}`}>
                                                         {v.motor || "N/A"} · {v.combustible || "N/A"}
                                                     </p>
@@ -601,7 +601,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                             <div className="pt-2">
                                                 <div className="flex items-center gap-1.5 text-neutral-500 mb-2">
                                                     <Package size={12} />
-                                                    <span className="text-[9px] font-bold uppercase tracking-wider">Repuestos</span>
+                                                    <span className="text-xs font-bold uppercase tracking-wider">Repuestos</span>
                                                 </div>
                                                 <div className="space-y-1.5">
                                                     {v.repuestos_solicitados?.length > 0 ? (
@@ -609,7 +609,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                             <div key={rIdx} className="flex items-center justify-between text-xs bg-black/20 p-2 rounded-lg hover:bg-black/40 transition-colors">
                                                                 <div className="flex flex-col">
                                                                     <span className="text-neutral-300 font-bold">• {r.cantidad && r.cantidad > 1 ? `${r.cantidad}x ` : ''}{r.nombre}</span>
-                                                                    {r.codigo && <span className="text-[10px] text-neutral-500 font-mono">Código: {r.codigo}</span>}
+                                                                    {r.codigo && <span className="text-xs text-neutral-500 font-mono">Código: {r.codigo}</span>}
                                                                     {estado === 'ESPERANDO_VENDEDOR' && (
                                                                         <div className="mt-2 flex gap-2 flex-wrap">
                                                                             {!v.patente && (
@@ -640,7 +640,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                                         {r.precio ? `$${(Number(String(r.precio).replace(/[^\d]/g, "")) * (r.cantidad || 1)).toLocaleString('es-CL')}` : 'Sin precio'}
                                                                     </span>
                                                                     {r.precio && r.cantidad && r.cantidad > 1 && (
-                                                                        <div className="text-[10px] text-neutral-500 mt-0.5">
+                                                                        <div className="text-xs text-neutral-500 mt-0.5">
                                                                             ${Number(String(r.precio).replace(/[^\d]/g, "")).toLocaleString('es-CL')} c/u
                                                                         </div>
                                                                     )}
@@ -659,15 +659,15 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                 <div className="space-y-3">
                                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 bg-white/5 border border-white/10 rounded-xl p-4">
                                         <div className="space-y-1 min-w-0">
-                                            <p className="text-[9px] text-neutral-500 uppercase font-bold">Vehículo</p>
+                                            <p className="text-xs text-neutral-500 uppercase font-bold">Vehículo</p>
                                             <p className="text-xs text-neutral-300 truncate">{entidades.marca_modelo || "N/A"}</p>
                                         </div>
                                         <div className="space-y-1 min-w-0">
-                                            <p className="text-[9px] text-neutral-500 uppercase font-bold">Año</p>
+                                            <p className="text-xs text-neutral-500 uppercase font-bold">Año</p>
                                             <p className="text-xs text-neutral-300 truncate">{entidades.ano || "N/A"}</p>
                                         </div>
                                         <div className="space-y-1 col-span-2 sm:col-span-1 min-w-0">
-                                            <p className="text-[9px] text-neutral-500 uppercase font-bold">Patente/VIN</p>
+                                            <p className="text-xs text-neutral-500 uppercase font-bold">Patente/VIN</p>
                                             <div className="group relative flex items-center gap-1 min-w-0">
                                                 <p className="text-xs text-neutral-300 truncate flex-1 min-w-0" title={entidades.patente || entidades.vin || "N/A"}>
                                                     {entidades.patente || entidades.vin || "N/A"}
@@ -675,7 +675,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                 {(entidades.patente || entidades.vin) && (
                                                     <button
                                                         onClick={() => navigator.clipboard.writeText(entidades.patente || entidades.vin || "")}
-                                                        className="text-[10px] text-neutral-500 hover:text-neutral-300 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                                                        className="text-xs text-neutral-500 hover:text-neutral-300 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
                                                         title="Copiar"
                                                         type="button"
                                                     >
@@ -685,7 +685,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                             </div>
                                         </div>
                                         <div className="space-y-1 min-w-0">
-                                            <p className="text-[9px] text-neutral-500 uppercase font-bold">Motor · Combustible</p>
+                                            <p className="text-xs text-neutral-500 uppercase font-bold">Motor · Combustible</p>
                                             <p className="text-xs text-neutral-300 truncate" title={`${entidades.motor || "N/A"} · ${entidades.combustible || "N/A"}`}>
                                                 {entidades.motor || "N/A"} · {entidades.combustible || "N/A"}
                                             </p>
@@ -696,7 +696,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                         <div className="space-y-1.5">
                                             <div className="flex items-center gap-1.5 text-neutral-500 mb-2">
                                                 <Package size={12} />
-                                                <span className="text-[9px] font-bold uppercase tracking-wider">Repuestos</span>
+                                                <span className="text-xs font-bold uppercase tracking-wider">Repuestos</span>
                                             </div>
                                             {repuestos.map((r, i) => (
                                                 <div key={i} className={`text-xs rounded-lg transition-colors ${r.pendiente_identificacion ? 'bg-amber-500/10 border border-amber-500/30 p-3' : 'bg-white/5 p-2 hover:bg-white/10'}`}>
@@ -721,12 +721,12 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                             </button>
                                                             <div className="flex-1 flex flex-col gap-1.5">
                                                                 <div className="flex items-center gap-1.5">
-                                                                    <span className="text-[9px] font-bold uppercase tracking-wider text-amber-400 bg-amber-500/20 px-1.5 py-0.5 rounded">IA sugiere</span>
-                                                                    <span className="text-amber-300 font-bold text-[10px]">{r.nombre}</span>
-                                                                    {r.confianza_ia && <span className="text-[9px] text-neutral-500">{r.confianza_ia}/10</span>}
+                                                                    <span className="text-xs font-bold uppercase tracking-wider text-amber-400 bg-amber-500/20 px-1.5 py-0.5 rounded">IA sugiere</span>
+                                                                    <span className="text-amber-300 font-bold text-xs">{r.nombre}</span>
+                                                                    {r.confianza_ia && <span className="text-xs text-neutral-500">{r.confianza_ia}/10</span>}
                                                                 </div>
                                                                 {r.identificacion_ia && (
-                                                                    <p className="text-[9px] text-neutral-500 italic">{r.identificacion_ia}</p>
+                                                                    <p className="text-xs text-neutral-500 italic">{r.identificacion_ia}</p>
                                                                 )}
                                                                 {/* Input de confirmación */}
                                                                 <div className="flex gap-1.5 mt-0.5">
@@ -736,7 +736,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                                         value={nombreConfirmInput[r.imagen_url] || ''}
                                                                         onChange={(e) => { e.stopPropagation(); setNombreConfirmInput(prev => ({ ...prev, [r.imagen_url!]: e.target.value })); }}
                                                                         onClick={(e) => e.stopPropagation()}
-                                                                        className="flex-1 bg-neutral-900 border border-amber-500/30 rounded px-2 py-1 text-[10px] text-white placeholder-neutral-600 focus:outline-none focus:border-amber-400"
+                                                                        className="flex-1 bg-neutral-900 border border-amber-500/30 rounded px-2 py-1 text-xs text-white placeholder-neutral-600 focus:outline-none focus:border-amber-400"
                                                                     />
                                                                     <button
                                                                         type="button"
@@ -770,7 +770,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                                 )}
                                                                 <div className="flex flex-col">
                                                                     <span className="text-neutral-300 font-bold">• {r.cantidad && r.cantidad > 1 ? `${r.cantidad}x ` : ''}{r.nombre}</span>
-                                                                    {r.codigo && <span className="text-[10px] text-neutral-500 font-mono">Código: {r.codigo}</span>}
+                                                                    {r.codigo && <span className="text-xs text-neutral-500 font-mono">Código: {r.codigo}</span>}
                                                                     {estado === 'ESPERANDO_VENDEDOR' && (
                                                                         <div className="mt-2 flex gap-2 flex-wrap">
                                                                             {!entidades.patente && (
@@ -802,7 +802,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                                     {r.precio ? `$${(Number(String(r.precio).replace(/[^\d]/g, "")) * (r.cantidad || 1)).toLocaleString('es-CL')}` : 'Sin precio'}
                                                                 </span>
                                                                 {r.precio && r.cantidad && r.cantidad > 1 && (
-                                                                    <div className="text-[10px] text-neutral-500 mt-0.5">
+                                                                    <div className="text-xs text-neutral-500 mt-0.5">
                                                                         ${Number(String(r.precio).replace(/[^\d]/g, "")).toLocaleString('es-CL')} c/u
                                                                     </div>
                                                                 )}
@@ -821,24 +821,24 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                 <div className="bg-white/5 border border-white/5 rounded-xl p-4">
                                     <div className="flex items-center gap-1.5 text-neutral-500 mb-3">
                                         <Truck size={14} className="text-accent" />
-                                        <span className="text-[10px] font-bold uppercase">Logística y Entrega</span>
+                                        <span className="text-xs font-bold uppercase">Logística y Entrega</span>
                                     </div>
                                     <div className="grid grid-cols-2 gap-3">
                                         <div className="space-y-1">
-                                            <p className="text-[9px] text-neutral-500 uppercase font-bold">Método Entrega</p>
+                                            <p className="text-xs text-neutral-500 uppercase font-bold">Método Entrega</p>
                                             <p className="text-xs text-neutral-300">
                                                 {entidades.metodo_entrega === 'domicilio' ? '🏠 Envío a Domicilio' : '🏪 Retiro en Local'}
                                             </p>
                                         </div>
                                         <div className="space-y-1">
-                                            <p className="text-[9px] text-neutral-500 uppercase font-bold">Método Pago</p>
+                                            <p className="text-xs text-neutral-500 uppercase font-bold">Método Pago</p>
                                             <p className="text-xs text-neutral-300">
                                                 {entidades.metodo_pago === 'online' ? '💳 Transferencia/Link' : entidades.metodo_pago === 'local' ? '💵 Efectivo/Débito' : 'Pendiente'}
                                             </p>
                                         </div>
                                         {entidades.metodo_entrega === 'domicilio' && (
                                             <div className="space-y-1 col-span-2">
-                                                <p className="text-[9px] text-neutral-500 uppercase font-bold">Dirección de Despacho</p>
+                                                <p className="text-xs text-neutral-500 uppercase font-bold">Dirección de Despacho</p>
                                                 <p className={`text-xs p-2 rounded-lg border ${entidades.direccion_envio ? 'text-neutral-300 bg-accent/5 border-accent/20' : 'text-yellow-500 bg-yellow-500/5 border-yellow-500/20'}`}>
                                                     {entidades.direccion_envio || "⚠️ Pendiente por confirmar"}
                                                 </p>
@@ -851,7 +851,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                             {/* Datos Factura */}
                             {entidades.tipo_documento === 'factura' && entidades.datos_factura?.rut && (
                                 <div className="bg-neutral-900/50 border border-white/5 rounded-xl p-3">
-                                    <p className="text-[10px] font-bold text-neutral-500 uppercase mb-2">Datos de Facturación</p>
+                                    <p className="text-xs font-bold text-neutral-500 uppercase mb-2">Datos de Facturación</p>
                                     <div className="text-[11px] text-neutral-400 space-y-0.5">
                                         <p>RUT: {entidades.datos_factura.rut}</p>
                                         <p>Razón: {entidades.datos_factura.razon_social}</p>
@@ -863,7 +863,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
 
                             {/* Formulario de Vendedor (Columna Derecha) */}
                             {(estado === 'ESPERANDO_VENDEDOR' || isEditing) && (
-                                <div className="flex-1 flex flex-col overflow-hidden relative animate-in fade-in slide-in-from-right-4 duration-300">
+                                <div className="flex-1 flex flex-col overflow-visible md:overflow-hidden relative animate-in fade-in slide-in-from-right-4 duration-300">
                                     <SellerActionForm
                                         phone={phone}
                                         items={repuestos}
@@ -879,7 +879,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                     <button
                                                         type="button"
                                                         onClick={() => setIsEditing(false)}
-                                                        className="w-full mb-2 py-2 rounded-xl text-[10px] text-neutral-500 font-bold uppercase hover:bg-red-500/10 hover:text-red-400 transition-colors"
+                                                        className="w-full mb-2 py-2 rounded-xl text-xs text-neutral-500 font-bold uppercase hover:bg-red-500/10 hover:text-red-400 transition-colors"
                                                     >
                                                         Cancelar edición
                                                     </button>
@@ -887,7 +887,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                 <div className="flex flex-col gap-2 pt-2 border-t border-white/5">
                                                     {(estado === 'ARCHIVADO' || estado === 'ESPERANDO_VENDEDOR') && (
                                                         <>
-                                                            <p className="text-[10px] text-neutral-500 text-center uppercase tracking-wider font-bold">
+                                                            <p className="text-xs text-neutral-500 text-center uppercase tracking-wider font-bold">
                                                                 📨 Re-enganche (si pasaron +24h)
                                                             </p>
                                                             <div className="flex gap-2">
@@ -895,7 +895,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                                     type="button"
                                                                     onClick={async () => {
                                                                         try {
-                                                                            await axios.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
+                                                                            await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
                                                                                 phone,
                                                                                 templateName: 'cotizacion_lista',
                                                                                 nombre: entidades.nombre_cliente || "Cliente",
@@ -909,7 +909,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                                             alert("Error al enviar la plantilla.");
                                                                         }
                                                                     }}
-                                                                    className="flex-1 py-2 rounded-xl bg-green-500/10 border border-green-500/30 text-green-400 text-[10px] font-bold hover:bg-green-500/20 transition-colors flex items-center justify-center gap-1.5"
+                                                                    className="flex-1 py-2 rounded-xl bg-green-500/10 border border-green-500/30 text-green-400 text-xs font-bold hover:bg-green-500/20 transition-colors flex items-center justify-center gap-1.5"
                                                                     title="Notifica al cliente que su cotización está lista para revisión."
                                                                 >
                                                                     <Send size={12} /> Cotización Lista
@@ -918,7 +918,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                                     type="button"
                                                                     onClick={async () => {
                                                                         try {
-                                                                            await axios.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
+                                                                            await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
                                                                                 phone,
                                                                                 templateName: 'retomar_cotizacion',
                                                                                 nombre: entidades.nombre_cliente || "Cliente",
@@ -932,7 +932,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                                             alert("Error al enviar la plantilla.");
                                                                         }
                                                                     }}
-                                                                    className="flex-1 py-2 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-400 text-[10px] font-bold hover:bg-purple-500/20 transition-colors flex items-center justify-center gap-1.5"
+                                                                    className="flex-1 py-2 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-400 text-xs font-bold hover:bg-purple-500/20 transition-colors flex items-center justify-center gap-1.5"
                                                                     title="Envía un recordatorio al cliente para que retome una cotización abandonada."
                                                                 >
                                                                     <MessageSquareOff size={12} /> Retomar Conversación
@@ -949,7 +949,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                                     handleStatusUpdate('ARCHIVADO', false);
                                                                 }
                                                             }}
-                                                            className="w-full mt-1 py-1.5 rounded-lg bg-neutral-800/50 border border-neutral-700/50 text-neutral-500 text-[10px] font-medium hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 transition-all flex items-center justify-center gap-1.5"
+                                                            className="w-full mt-1 py-1.5 rounded-lg bg-neutral-800/50 border border-neutral-700/50 text-neutral-500 text-xs font-medium hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 transition-all flex items-center justify-center gap-1.5"
                                                             title="Archiva esta cotización. Aparecerá en la pestaña Cierres."
                                                         >
                                                             <Archive size={11} /> Archivar / Descartar
@@ -967,12 +967,40 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                         {!(estado === 'ESPERANDO_VENDEDOR' || isEditing) && (
                             <div className="shrink-0 px-6 py-4 border-t border-white/5 bg-background/80 backdrop-blur-sm rounded-b-2xl flex flex-col gap-2">
                             {estado === 'CONFIRMANDO_COMPRA' && !isEditing && (
-                                <button
-                                    onClick={() => setIsEditing(true)}
-                                    className="w-full py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-neutral-400 text-[10px] font-bold uppercase tracking-widest hover:bg-neutral-700 hover:text-white transition-all flex items-center justify-center gap-2"
-                                >
-                                    <Edit3 size={12} /> Corregir Precios / Stock
-                                </button>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => setIsEditing(true)}
+                                        className="flex-1 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-neutral-400 text-xs font-bold uppercase tracking-widest hover:bg-neutral-700 hover:text-white transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <Edit3 size={12} /> Corregir Precios / Stock
+                                    </button>
+                                    <button
+                                        onClick={async () => {
+                                            const tipoPago = hayEncargo ? 'el abono' : 'el total';
+                                            if (!confirm(`¿Confirmas que el cliente pagó ${tipoPago} en efectivo en el local?`)) return;
+                                            setLoadingPago(true);
+                                            try {
+                                                const nuevoEstado = hayEncargo ? 'ABONO_VERIFICADO' : 'PAGO_VERIFICADO';
+                                                await api.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, {
+                                                    phone,
+                                                    estado: nuevoEstado,
+                                                    notify: false
+                                                });
+                                                closeModal();
+                                                onResponded();
+                                            } catch (error) {
+                                                console.error("Error confirmando pago en efectivo:", error);
+                                                alert("No se pudo confirmar el pago.");
+                                            } finally {
+                                                setLoadingPago(false);
+                                            }
+                                        }}
+                                        disabled={loadingPago}
+                                        className="flex-1 py-2 rounded-xl bg-green-500 text-white text-xs font-bold uppercase tracking-widest hover:bg-green-600 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <CheckCircle size={12} /> {loadingPago ? 'Procesando...' : `Confirmar Pago en Efectivo (${hayEncargo ? 'Abono' : 'Total'})`}
+                                    </button>
+                                </div>
                             )}
 
                                 {(estado === 'PAGO_VERIFICADO' || estado === 'ABONO_VERIFICADO') && !showLogisticsModal && !showEtaModal && (
@@ -993,15 +1021,15 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
 
                                 {showLogisticsModal && (
                                     <div className="w-full animate-in fade-in slide-in-from-top-2 duration-300 space-y-3 bg-neutral-900/80 border border-green-500/30 rounded-xl p-4">
-                                        <p className="text-[10px] font-bold uppercase text-green-400 tracking-widest">📦 Mensaje al cliente</p>
-                                        <p className="text-[10px] text-neutral-500">Este mensaje se enviará por WhatsApp al confirmar el pago.</p>
+                                        <p className="text-xs font-bold uppercase text-green-400 tracking-widest">📦 Mensaje al cliente</p>
+                                        <p className="text-xs text-neutral-500">Este mensaje se enviará por WhatsApp al confirmar el pago.</p>
                                         <div className="flex gap-2">
                                             <button type="button" onClick={() => setMensajeLogistica(TEMPLATE_RETIRO)}
-                                                className="flex-1 py-1.5 text-[10px] rounded-lg bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white hover:bg-neutral-700 transition-all">
+                                                className="flex-1 py-1.5 text-xs rounded-lg bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white hover:bg-neutral-700 transition-all">
                                                 🏪 Template Retiro
                                             </button>
                                             <button type="button" onClick={() => setMensajeLogistica(TEMPLATE_ENVIO)}
-                                                className="flex-1 py-1.5 text-[10px] rounded-lg bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white hover:bg-neutral-700 transition-all">
+                                                className="flex-1 py-1.5 text-xs rounded-lg bg-neutral-800 border border-neutral-700 text-neutral-400 hover:text-white hover:bg-neutral-700 transition-all">
                                                 🚚 Template Envío
                                             </button>
                                         </div>
@@ -1014,7 +1042,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                         />
                                         {esEnvio && (
                                             <div className="space-y-2">
-                                                <label className="text-[10px] text-neutral-500 font-bold uppercase">Número de Seguimiento (Opcional)</label>
+                                                <label className="text-xs text-neutral-500 font-bold uppercase">Número de Seguimiento (Opcional)</label>
                                                 <input
                                                     type="text"
                                                     placeholder="Ej: CHI123456789 (Chilexpress)"
@@ -1026,7 +1054,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                         )}
                                         <div className="flex gap-2">
                                             <button type="button" onClick={() => setShowLogisticsModal(false)}
-                                                className="flex-1 py-2 rounded-xl bg-neutral-800 text-neutral-400 text-[10px] font-bold hover:bg-neutral-700 transition-colors">
+                                                className="flex-1 py-2 rounded-xl bg-neutral-800 text-neutral-400 text-xs font-bold hover:bg-neutral-700 transition-colors">
                                                 Cancelar
                                             </button>
                                             <button type="button" disabled={loadingPago} onClick={handleConfirmarLogistica}
@@ -1039,10 +1067,10 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
 
                                 {showEtaModal && (
                                     <div className="w-full animate-in fade-in slide-in-from-top-2 duration-300 space-y-3 bg-neutral-900/80 border border-yellow-500/30 rounded-xl p-4">
-                                        <p className="text-[10px] font-bold uppercase text-yellow-500 tracking-widest">⏳ ETA Proveedor</p>
-                                        <p className="text-[10px] text-neutral-400">Indica cuántos días hábiles tardarán los repuestos. Se enviará un WhatsApp automático avisando al cliente.</p>
+                                        <p className="text-xs font-bold uppercase text-yellow-500 tracking-widest">⏳ ETA Proveedor</p>
+                                        <p className="text-xs text-neutral-400">Indica cuántos días hábiles tardarán los repuestos. Se enviará un WhatsApp automático avisando al cliente.</p>
                                         <div className="flex items-center gap-2">
-                                            <label className="text-[10px] text-neutral-500 font-bold">Días Hábiles:</label>
+                                            <label className="text-xs text-neutral-500 font-bold">Días Hábiles:</label>
                                             <input type="number" min="1" max="30" value={diasEta}
                                                 onChange={(e) => setDiasEta(e.target.value)}
                                                 className="w-20 bg-neutral-950 border border-neutral-700 rounded-lg p-2 text-xs text-center text-white focus:outline-none focus:border-yellow-500/50"
@@ -1050,14 +1078,14 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                         </div>
                                         <div className="flex gap-2 mt-2">
                                             <button type="button" onClick={() => setShowEtaModal(false)}
-                                                className="flex-1 py-1.5 rounded-xl bg-neutral-800 text-neutral-400 text-[10px] font-bold hover:bg-neutral-700 transition-colors">
+                                                className="flex-1 py-1.5 rounded-xl bg-neutral-800 text-neutral-400 text-xs font-bold hover:bg-neutral-700 transition-colors">
                                                 Cancelar
                                             </button>
                                             <button type="button" disabled={loadingEncargo}
                                                 onClick={async () => {
                                                     setLoadingEncargo(true);
                                                     try {
-                                                        const response = await axios.post(`${BACKEND_URL}/api/dashboard/encargos/solicitar`, { phone, dias_eta: diasEta });
+                                                        const response = await api.post(`${BACKEND_URL}/api/dashboard/encargos/solicitar`, { phone, dias_eta: diasEta });
                                                         if (response.data.success) { setShowEtaModal(false); closeModal(); onResponded(); }
                                                     } catch (error) {
                                                         console.error(error);
@@ -1080,7 +1108,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                             if (!confirm('¿Los repuestos ya llegaron al local? Se calculará el saldo y se notificará al cliente.')) return;
                                             setLoadingEncargo(true);
                                             try {
-                                                const response = await axios.post(`${BACKEND_URL}/api/dashboard/encargos/recibido`, { phone });
+                                                const response = await api.post(`${BACKEND_URL}/api/dashboard/encargos/recibido`, { phone });
                                                 if (response.data.success) { closeModal(); onResponded(); }
                                             } catch (error) {
                                                 console.error(error);
@@ -1104,7 +1132,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                             if (!confirm('¿Confirmás que el cliente pagó el saldo en el local? Esto cerrará el cobro y notificará al cliente.')) return;
                                             setLoadingPago(true);
                                             try {
-                                                await axios.post(
+                                                await api.post(
                                                     `${BACKEND_URL}/api/dashboard/cotizaciones/${encodeURIComponent(phone)}/saldo-pagado-local`,
                                                     { vendedor_nombre: vendedorNombre || undefined }
                                                 );
@@ -1141,7 +1169,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                     const payload = esCashRetiro
                                                         ? { phone, estado: 'ENTREGADO', notify: true }
                                                         : { phone, estado: 'PAGO_VERIFICADO', notify: false };
-                                                    await axios.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, payload);
+                                                    await api.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, payload);
                                                     closeModal();
                                                     onResponded();
                                                 } catch (error) {
@@ -1186,14 +1214,14 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
 
                                 {(estado === 'ARCHIVADO' || estado === 'ESPERANDO_VENDEDOR') && (
                                     <div className={`flex flex-col gap-2 ${estado === 'ESPERANDO_VENDEDOR' ? 'mt-4' : ''}`}>
-                                        <p className="text-[10px] text-neutral-500 text-center uppercase tracking-wider font-bold">
+                                        <p className="text-xs text-neutral-500 text-center uppercase tracking-wider font-bold">
                                             📨 Re-enganche (si pasaron +24h)
                                         </p>
                                         <div className="flex gap-2">
                                             <button
                                                 onClick={async () => {
                                                     try {
-                                                        await axios.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
+                                                        await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
                                                             phone,
                                                             templateName: 'cotizacion_lista',
                                                             nombre: entidades.nombre_cliente || "Cliente",
@@ -1207,7 +1235,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                         alert("Error al enviar la plantilla.");
                                                     }
                                                 }}
-                                                className="flex-1 py-2 rounded-xl bg-green-500/10 border border-green-500/30 text-green-400 text-[10px] font-bold hover:bg-green-500/20 transition-colors flex items-center justify-center gap-1.5"
+                                                className="flex-1 py-2 rounded-xl bg-green-500/10 border border-green-500/30 text-green-400 text-xs font-bold hover:bg-green-500/20 transition-colors flex items-center justify-center gap-1.5"
                                                 title="Notifica al cliente que su cotización está lista para revisión."
                                             >
                                                 <Send size={12} /> Cotización Lista
@@ -1215,7 +1243,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                             <button
                                                 onClick={async () => {
                                                     try {
-                                                        await axios.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
+                                                        await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
                                                             phone,
                                                             templateName: 'retomar_cotizacion',
                                                             nombre: entidades.nombre_cliente || "Cliente",
@@ -1229,7 +1257,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                         alert("Error al enviar la plantilla.");
                                                     }
                                                 }}
-                                                className="flex-1 py-2 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-400 text-[10px] font-bold hover:bg-purple-500/20 transition-colors flex items-center justify-center gap-1.5"
+                                                className="flex-1 py-2 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-400 text-xs font-bold hover:bg-purple-500/20 transition-colors flex items-center justify-center gap-1.5"
                                                 title="Envía un recordatorio al cliente para que retome una cotización abandonada."
                                             >
                                                 <MessageSquareOff size={12} /> Retomar Conversación
@@ -1247,7 +1275,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                 handleStatusUpdate('ARCHIVADO', false);
                                             }
                                         }}
-                                        className="w-full mt-3 py-1.5 rounded-lg bg-neutral-800/50 border border-neutral-700/50 text-neutral-500 text-[10px] font-medium hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 transition-all flex items-center justify-center gap-1.5"
+                                        className="w-full mt-3 py-1.5 rounded-lg bg-neutral-800/50 border border-neutral-700/50 text-neutral-500 text-xs font-medium hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 transition-all flex items-center justify-center gap-1.5"
                                         title="Archiva esta cotización. Aparecerá en la pestaña Cierres."
                                     >
                                         <Archive size={11} /> Archivar / Descartar

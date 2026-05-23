@@ -94,8 +94,8 @@ router.get('/metrics', async (req, res) => {
 router.get('/cotizaciones', async (req, res) => {
     try {
         // Resolver filtro de sucursal según rol del usuario
-        const role = req.headers['x-user-role'] || 'admin';
-        const headerSucursal = req.headers['x-user-sucursal'];
+        const role = req.user?.role || 'vendedor';
+        const headerSucursal = req.user?.sucursal;
         let sucursal = null;
         if (role === 'vendedor' && headerSucursal) {
             // Vendedor: forzar su propia sucursal, ignorar query param
@@ -153,8 +153,8 @@ router.get('/cotizaciones', async (req, res) => {
 router.get('/cotizaciones/historial', async (req, res) => {
     try {
         // Resolver filtro de sucursal según rol del usuario
-        const role = req.headers['x-user-role'] || 'admin';
-        const headerSucursal = req.headers['x-user-sucursal'];
+        const role = req.user?.role || 'vendedor';
+        const headerSucursal = req.user?.sucursal;
         let sucursal = null;
         if (role === 'vendedor' && headerSucursal) {
             // Vendedor: forzar su propia sucursal, ignorar query param

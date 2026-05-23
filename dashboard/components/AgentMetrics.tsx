@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { Target, Zap, TrendingUp, MessageSquare, Users } from "lucide-react";
 import { BACKEND_URL } from "@/lib/api";
 
@@ -23,7 +23,7 @@ export default function AgentMetrics() {
 
     const fetchMetrics = async () => {
         try {
-            const res = await axios.get(`${BACKEND_URL}/api/dashboard/metrics/agent?t=${Date.now()}`);
+            const res = await api.get(`${BACKEND_URL}/api/dashboard/metrics/agent?t=${Date.now()}`);
             if (res.data.success) {
                 setMetrics(res.data.metrics);
             }

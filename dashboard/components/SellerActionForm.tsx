@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Send, Hash, DollarSign, Car, Package, Trash2, Plus } from "lucide-react";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { BACKEND_URL } from "@/lib/api";
 
 interface Item {
@@ -174,7 +174,7 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
                 repuestos_solicitados: cleanItems(v.repuestos_solicitados)
             }));
 
-            axios.patch(`${BACKEND_URL}/api/dashboard/sessions/${phone}/entidades`, {
+            api.patch(`${BACKEND_URL}/api/dashboard/sessions/${phone}/entidades`, {
                 entidades: {
                     repuestos_solicitados: formVehiculos.length === 0 ? cleanItems(formItems) : null,
                     vehiculos: formVehiculos.length > 0 ? cleanVehiculos : null
@@ -262,7 +262,7 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
                 repuestos_solicitados: cleanItems(v.repuestos_solicitados)
             }));
 
-            await axios.post(`${BACKEND_URL}/api/dashboard/cotizaciones/responder`, {
+            await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/responder`, {
                 phone,
                 items: formVehiculos.length === 0 ? cleanItems(formItems) : null,
                 vehiculos: formVehiculos.length > 0 ? cleanVehiculos : null,

@@ -2,7 +2,7 @@
 
 import { Car, Hash, User, Package, ChevronRight, Search, Bot, MessageSquareOff } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import { api } from "@/lib/api";
 import { BACKEND_URL } from "@/lib/api";
 
 interface Quote {
@@ -66,7 +66,7 @@ function PauseToggle({ phone, paused, onToggled }: { phone: string; paused: bool
         setLoading(true);
         const nuevoEstado = !isPaused;
         try {
-            await axios.patch(`${BACKEND_URL}/api/dashboard/sessions/${phone}/pausa`, { pausado: nuevoEstado });
+            await api.patch(`${BACKEND_URL}/api/dashboard/sessions/${phone}/pausa`, { pausado: nuevoEstado });
             setIsPaused(nuevoEstado);
             onToggled(); // Recargar la tabla
         } catch (err) {
@@ -77,7 +77,7 @@ function PauseToggle({ phone, paused, onToggled }: { phone: string; paused: bool
     };
 
     return (
-        <div className="col-span-1 flex items-center justify-center">
+        <div className="col-span-2 md:col-span-1 flex items-center justify-center">
             <button
                 onClick={toggle}
                 disabled={loading}
@@ -170,13 +170,13 @@ export default function BandejaTable({ quotes, filter, searchQuery, onOpenDetail
         <div className="glass rounded-2xl overflow-hidden border border-white/5">
             {/* Header */}
             <div className="grid grid-cols-12 gap-4 px-6 py-3 border-b border-white/5 bg-white/[0.02]">
-                <span className="col-span-2 text-[9px] font-bold uppercase tracking-widest text-neutral-600">Cliente</span>
-                <span className="col-span-3 text-[9px] font-bold uppercase tracking-widest text-neutral-600">Vehículo</span>
-                <span className="col-span-1 text-[9px] font-bold uppercase tracking-widest text-neutral-600 text-center">Items</span>
-                <span className="col-span-2 text-[9px] font-bold uppercase tracking-widest text-neutral-600 text-center">Estado</span>
-                <span className="col-span-1 text-[9px] font-bold uppercase tracking-widest text-neutral-600 text-center">Tiempo</span>
-                <span className="col-span-1 text-[9px] font-bold uppercase tracking-widest text-neutral-600 text-center">AI</span>
-                <span className="col-span-2 text-[9px] font-bold uppercase tracking-widest text-neutral-600 text-right">Acción</span>
+                <span className="col-span-5 md:col-span-2 text-[9px] font-bold uppercase tracking-widest text-neutral-600">Cliente</span>
+                <span className="hidden md:block md:col-span-3 text-[9px] font-bold uppercase tracking-widest text-neutral-600">Vehículo</span>
+                <span className="hidden md:block md:col-span-1 text-[9px] font-bold uppercase tracking-widest text-neutral-600 text-center">Items</span>
+                <span className="col-span-3 md:col-span-2 text-[9px] font-bold uppercase tracking-widest text-neutral-600 text-center">Estado</span>
+                <span className="hidden md:block md:col-span-1 text-[9px] font-bold uppercase tracking-widest text-neutral-600 text-center">Tiempo</span>
+                <span className="col-span-2 md:col-span-1 text-[9px] font-bold uppercase tracking-widest text-neutral-600 text-center">AI</span>
+                <span className="col-span-2 md:col-span-2 text-[9px] font-bold uppercase tracking-widest text-neutral-600 text-right">Acción</span>
             </div>
 
             {/* Rows */}
@@ -197,7 +197,7 @@ export default function BandejaTable({ quotes, filter, searchQuery, onOpenDetail
                             className={`grid grid-cols-12 gap-4 px-6 py-3.5 items-center hover:bg-white/[0.03] cursor-pointer transition-colors group ${config.action ? 'border-l-2 border-l-accent/30' : ''} ${isActiveLock ? 'opacity-50' : ''}`}
                         >
                             {/* Cliente */}
-                            <div className="col-span-2 flex items-center gap-2 min-w-0">
+                            <div className="col-span-5 md:col-span-2 flex items-center gap-2 min-w-0">
                                 <div className="w-7 h-7 rounded-full bg-accent/10 flex items-center justify-center text-accent shrink-0 relative">
                                     <User size={13} />
                                     {isPaused && (
@@ -232,26 +232,26 @@ export default function BandejaTable({ quotes, filter, searchQuery, onOpenDetail
                             </div>
 
                             {/* Vehículo */}
-                            <div className="col-span-3 flex items-center gap-1.5 min-w-0">
+                            <div className="hidden md:flex md:col-span-3 items-center gap-1.5 min-w-0">
                                 <Car size={12} className="text-neutral-500 shrink-0" />
                                 <span className="text-xs text-neutral-400 truncate">{vehicleLabel}</span>
                             </div>
 
                             {/* Items count */}
-                            <div className="col-span-1 flex items-center justify-center gap-1">
+                            <div className="hidden md:flex md:col-span-1 items-center justify-center gap-1">
                                 <Package size={11} className="text-neutral-600" />
                                 <span className="text-xs text-neutral-400 font-bold">{repCount}</span>
                             </div>
 
                             {/* Estado */}
-                            <div className="col-span-2 flex justify-center">
+                            <div className="col-span-3 md:col-span-2 flex justify-center">
                                 <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-tighter rounded-full border whitespace-nowrap ${config.class}`}>
                                     {config.label}
                                 </span>
                             </div>
 
                             {/* Tiempo transcurrido */}
-                            <div className="col-span-1 flex items-center justify-center">
+                            <div className="hidden md:flex md:col-span-1 items-center justify-center">
                                 <ElapsedBadge since={quote.ultimo_mensaje} />
                             </div>
 
@@ -259,7 +259,7 @@ export default function BandejaTable({ quotes, filter, searchQuery, onOpenDetail
                             <PauseToggle phone={quote.phone} paused={isPaused} onToggled={onRefresh} />
 
                             {/* Acción / Flecha */}
-                            <div className="col-span-2 flex items-center justify-end gap-2">
+                            <div className="col-span-2 md:col-span-2 flex items-center justify-end gap-2">
                                 {config.action ? (
                                     <span className="text-[10px] text-accent font-bold uppercase tracking-widest">
                                         {config.action}

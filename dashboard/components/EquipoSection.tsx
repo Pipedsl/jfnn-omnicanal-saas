@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Users, Loader2, Plus } from "lucide-react";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { BACKEND_URL } from "@/lib/api";
 
 const API = `${BACKEND_URL}/api/dashboard`;
@@ -32,7 +32,7 @@ export default function EquipoSection() {
     setLoading(true);
     setError(null);
     try {
-      const res = await axios.get(`${API}/vendedores?incluir_inactivos=1&t=${Date.now()}`);
+      const res = await api.get(`${API}/vendedores?incluir_inactivos=1&t=${Date.now()}`);
       setVendedores(res.data.vendedores || []);
     } catch (err) {
       console.error("Error cargando vendedores:", err);
@@ -55,7 +55,7 @@ export default function EquipoSection() {
     setSubmitting(true);
     setError(null);
     try {
-      await axios.post(`${API}/vendedores`, { nombre: trimmed, sucursal });
+      await api.post(`${API}/vendedores`, { nombre: trimmed, sucursal });
       onDone();
       await fetchVendedores();
     } catch (err) {
@@ -71,7 +71,7 @@ export default function EquipoSection() {
     setSubmitting(true);
     setError(null);
     try {
-      await axios.patch(`${API}/vendedores/${id}`, { activo });
+      await api.patch(`${API}/vendedores/${id}`, { activo });
       await fetchVendedores();
     } catch (err) {
       console.error("Error actualizando vendedor:", err);

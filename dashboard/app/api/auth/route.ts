@@ -56,6 +56,7 @@ export async function POST(req: NextRequest) {
     const token = await new SignJWT({ role: config.role, sucursal: config.sucursal })
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt()
+      .setExpirationTime('12h')
       .sign(JWT_SECRET);
 
     return NextResponse.json(
