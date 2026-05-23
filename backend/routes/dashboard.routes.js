@@ -1479,12 +1479,24 @@ router.get('/conversaciones/:phone', async (req, res) => {
             session = await sessionsService.getSession(phone);
         } catch (_) { /* no session */ }
 
+        const ultimoEntrante = mensajes
+            .filter(m => m.direccion === 'entrante')
+            .reduce((latest, m) => {
+                const t = new Date(m.created_at).getTime();
+                return t > latest ? t : latest;
+            }, 0);
+
+        const ventana24h = ultimoEntrante > 0
+            ? { ultimo_entrante_at: new Date(ultimoEntrante).toISOString(), expira_at: new Date(ultimoEntrante + 24 * 60 * 60 * 1000).toISOString() }
+            : null;
+
         res.json({
             phone,
             estado: session?.estado || null,
             nombre_cliente: session?.entidades?.nombre_cliente || null,
             sucursal: session?.sucursal || null,
             agente_pausado: session?.entidades?.agente_pausado || false,
+            ventana_24h: ventana24h,
             mensajes: enriched,
         });
     } catch (error) {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import axios from "axios";
-import { MessageCircle, Image, Mic, Video, FileText, ArrowLeft, User, Bot, Clock } from "lucide-react";
+import { MessageCircle, Image, Mic, Video, FileText, ArrowLeft, User, Bot, Clock, Timer, AlertTriangle } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
 
@@ -30,12 +30,18 @@ interface Mensaje {
   created_at: string;
 }
 
+interface Ventana24h {
+  ultimo_entrante_at: string;
+  expira_at: string;
+}
+
 interface ChatData {
   phone: string;
   estado: string | null;
   nombre_cliente: string | null;
   sucursal: string | null;
   agente_pausado: boolean;
+  ventana_24h: Ventana24h | null;
   mensajes: Mensaje[];
 }
 
@@ -59,6 +65,16 @@ function timeAgo(dateStr: string): string {
 
 function formatTime(dateStr: string): string {
   return new Date(dateStr).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" });
+}
+
+function getVentanaStatus(ventana: Ventana24h | null): { label: string; color: "green" | "yellow" | "red"; expired: boolean } {
+  if (!ventana) return { label: "Sin mensajes", color: "red", expired: true };
+  const remaining = new Date(ventana.expira_at).getTime() - Date.now();
+  if (remaining <= 0) return { label: "Expirada", color: "red", expired: true };
+  const hours = Math.floor(remaining / 3600000);
+  const mins = Math.floor((remaining % 3600000) / 60000);
+  if (hours < 4) return { label: `${hours}h ${mins}m`, color: "yellow", expired: false };
+  return { label: `${hours}h ${mins}m`, color: "green", expired: false };
 }
 
 const ESTADO_LABELS: Record<string, string> = {
@@ -91,6 +107,12 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
   const [loadingChat, setLoadingChat] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const prevMsgCountRef = useRef<number>(0);
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => setTick(t => t + 1), 60000);
+    return () => clearInterval(timer);
+  }, []);
 
   const fetchConversaciones = async (isInitial = false) => {
     try {
@@ -252,6 +274,16 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
                       IA Pausada
                     </span>
                   )}
+                  {(() => {
+                    const v = getVentanaStatus(chat?.ventana_24h ?? null);
+                    const colorMap = { green: "text-emerald-400 bg-emerald-500/10", yellow: "text-yellow-400 bg-yellow-500/10", red: "text-red-400 bg-red-500/10" };
+                    return (
+                      <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full flex items-center gap-1 ${colorMap[v.color]}`}>
+                        {v.expired ? <AlertTriangle size={9} /> : <Timer size={9} />}
+                        {v.expired ? "Ventana cerrada" : v.label}
+                      </span>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
