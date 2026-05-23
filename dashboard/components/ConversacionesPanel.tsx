@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import axios from "axios";
-import { MessageCircle, Image, Mic, Video, FileText, ArrowLeft, User, Bot, Clock, Timer, AlertTriangle, Send, ChevronDown } from "lucide-react";
+import { MessageCircle, Image, Mic, Video, FileText, ArrowLeft, User, Bot, Clock, Timer, AlertTriangle, Send, ChevronDown, Plus, X } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
 
@@ -120,6 +120,8 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
   const [sendingPlantilla, setSendingPlantilla] = useState<string | null>(null);
   const [messageText, setMessageText] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [showNewConv, setShowNewConv] = useState(false);
+  const [newPhone, setNewPhone] = useState("");
 
   useEffect(() => {
     const timer = setInterval(() => setTick(t => t + 1), 60000);
@@ -177,6 +179,37 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
       }
     } finally {
       setSendingMessage(false);
+    }
+  };
+
+  const normalizePhone = (input: string): string => {
+    const digits = input.replace(/\D/g, "");
+    if (digits.startsWith("56") && digits.length >= 11) return digits;
+    if (digits.startsWith("9") && digits.length === 9) return `56${digits}`;
+    return digits;
+  };
+
+  const startNewConversation = async (plantilla: PlantillaHSM) => {
+    const phone = normalizePhone(newPhone);
+    if (phone.length < 10) { alert("Número inválido"); return; }
+    setSendingPlantilla(plantilla.id);
+    try {
+      const vendedorNombre = typeof window !== "undefined" ? localStorage.getItem("jfnn_vendedor_nombre") : null;
+      await axios.post(`${API_URL}/api/dashboard/conversaciones/${phone}/plantilla`, {
+        plantilla_id: plantilla.id,
+        params: {},
+        vendedor_nombre: vendedorNombre,
+      });
+      setShowNewConv(false);
+      setNewPhone("");
+      setSelectedPhone(phone);
+      fetchConversaciones(false);
+      fetchChat(phone, true);
+    } catch (err) {
+      console.error("[NuevaConv] Error:", err);
+      alert("Error al enviar plantilla. Verifica el número y que la plantilla esté aprobada en Meta.");
+    } finally {
+      setSendingPlantilla(null);
     }
   };
 
@@ -239,11 +272,18 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
     <div className="flex h-[calc(100vh-320px)] min-h-[500px] glass rounded-2xl overflow-hidden border border-white/5">
       {/* Lista de conversaciones */}
       <div className={`${selectedPhone ? "hidden md:flex" : "flex"} flex-col w-full md:w-96 border-r border-white/5`}>
-        <div className="p-4 border-b border-white/5">
+        <div className="p-4 border-b border-white/5 flex items-center justify-between">
           <h3 className="text-sm font-bold text-neutral-300 flex items-center gap-2">
             <MessageCircle size={16} />
             Conversaciones ({conversaciones.length})
           </h3>
+          <button
+            onClick={() => setShowNewConv(true)}
+            className="p-1.5 rounded-lg bg-accent/10 hover:bg-accent/20 text-accent transition-colors"
+            title="Nueva conversación"
+          >
+            <Plus size={14} />
+          </button>
         </div>
         <div className="flex-1 overflow-y-auto">
           {loadingList ? (
@@ -540,6 +580,54 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
           </>
         )}
       </div>
+
+      {/* New Conversation Modal */}
+      {showNewConv && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setShowNewConv(false)}>
+          <div className="bg-neutral-900 border border-white/10 rounded-2xl w-full max-w-md p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-neutral-200">Nueva conversación</h3>
+              <button onClick={() => setShowNewConv(false)} className="p-1 hover:bg-white/10 rounded-lg"><X size={16} className="text-neutral-400" /></button>
+            </div>
+            <div>
+              <label className="text-xs text-neutral-400 block mb-1">Número de WhatsApp</label>
+              <input
+                type="tel"
+                value={newPhone}
+                onChange={(e) => setNewPhone(e.target.value)}
+                placeholder="+56 9 1234 5678"
+                className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-2.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-accent/30"
+              />
+              {newPhone && (
+                <p className="text-[10px] text-neutral-500 mt-1">Se enviará a: +{normalizePhone(newPhone)}</p>
+              )}
+            </div>
+            <div>
+              <label className="text-xs text-neutral-400 block mb-2">Selecciona una plantilla para iniciar</label>
+              <div className="space-y-2">
+                {plantillas.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => startNewConversation(p)}
+                    disabled={!newPhone.trim() || sendingPlantilla !== null}
+                    className="w-full text-left px-3 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 transition-colors disabled:opacity-30"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-xs font-semibold text-neutral-200">{p.nombre}</p>
+                        <p className="text-[10px] text-neutral-500">{p.descripcion}</p>
+                      </div>
+                      {sendingPlantilla === p.id
+                        ? <div className="w-4 h-4 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+                        : <Send size={12} className="text-neutral-500" />}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
