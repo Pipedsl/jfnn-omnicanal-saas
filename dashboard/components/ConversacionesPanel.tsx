@@ -118,6 +118,8 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
   const [plantillas, setPlantillas] = useState<PlantillaHSM[]>([]);
   const [showPlantillas, setShowPlantillas] = useState(false);
   const [sendingPlantilla, setSendingPlantilla] = useState<string | null>(null);
+  const [messageText, setMessageText] = useState("");
+  const [sendingMessage, setSendingMessage] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setTick(t => t + 1), 60000);
@@ -151,6 +153,30 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
       alert("Error al enviar plantilla. Puede que no esté aprobada en Meta aún.");
     } finally {
       setSendingPlantilla(null);
+    }
+  };
+
+  const sendMessage = async () => {
+    if (!selectedPhone || !messageText.trim() || sendingMessage) return;
+    setSendingMessage(true);
+    try {
+      const vendedorNombre = typeof window !== "undefined" ? localStorage.getItem("jfnn_vendedor_nombre") : null;
+      await axios.post(`${API_URL}/api/dashboard/conversaciones/${selectedPhone}/mensaje`, {
+        texto: messageText.trim(),
+        vendedor_nombre: vendedorNombre,
+      });
+      setMessageText("");
+      fetchChat(selectedPhone, false);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { code?: string } } };
+      if (axiosErr.response?.data?.code === "WINDOW_CLOSED") {
+        alert("Ventana de 24h cerrada. Usa una plantilla HSM para contactar al cliente.");
+      } else {
+        console.error("[Mensaje] Error:", err);
+        alert("Error al enviar mensaje.");
+      }
+    } finally {
+      setSendingMessage(false);
     }
   };
 
@@ -431,8 +457,8 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
               <div ref={chatEndRef} />
             </div>
 
-            {/* Template Toolbar */}
-            <div className="border-t border-white/5 px-4 py-2 bg-white/[0.02]">
+            {/* Message Input + Template Toolbar */}
+            <div className="border-t border-white/5 px-4 py-3 bg-white/[0.02] space-y-2">
               {(() => {
                 const v = getVentanaStatus(chat?.ventana_24h ?? null);
                 if (v.expired) {
@@ -459,31 +485,55 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
                   );
                 }
                 return (
-                  <div className="relative">
-                    <button
-                      onClick={() => setShowPlantillas(!showPlantillas)}
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/5 transition-colors text-xs text-neutral-400"
-                    >
-                      <Send size={12} />
-                      Plantillas HSM
-                      <ChevronDown size={12} className={`transition-transform ${showPlantillas ? "rotate-180" : ""}`} />
-                    </button>
-                    {showPlantillas && (
-                      <div className="absolute bottom-full left-0 mb-2 w-80 bg-neutral-900 border border-white/10 rounded-xl shadow-xl p-2 space-y-1 z-10">
-                        {plantillas.map((p) => (
-                          <button
-                            key={p.id}
-                            onClick={() => sendPlantilla(p)}
-                            disabled={sendingPlantilla !== null}
-                            className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/5 transition-colors disabled:opacity-50"
-                          >
-                            <p className="text-xs font-semibold text-neutral-200">{p.nombre}</p>
-                            <p className="text-[10px] text-neutral-500">{p.descripcion}</p>
-                          </button>
-                        ))}
+                  <>
+                    <div className="flex items-end gap-2">
+                      <div className="relative flex-1">
+                        <textarea
+                          value={messageText}
+                          onChange={(e) => setMessageText(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+                          }}
+                          placeholder="Escribe un mensaje..."
+                          rows={1}
+                          className="w-full resize-none rounded-xl bg-white/5 border border-white/10 px-4 py-2.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-accent/30 focus:ring-1 focus:ring-accent/20"
+                        />
                       </div>
-                    )}
-                  </div>
+                      <button
+                        onClick={sendMessage}
+                        disabled={!messageText.trim() || sendingMessage}
+                        className="flex items-center justify-center w-10 h-10 rounded-xl bg-accent hover:bg-accent/80 disabled:opacity-30 disabled:hover:bg-accent transition-colors"
+                      >
+                        {sendingMessage
+                          ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                          : <Send size={16} className="text-white" />}
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowPlantillas(!showPlantillas)}
+                        className="flex items-center gap-2 px-3 py-1 rounded-lg hover:bg-white/5 transition-colors text-[10px] text-neutral-500"
+                      >
+                        Plantillas HSM
+                        <ChevronDown size={10} className={`transition-transform ${showPlantillas ? "rotate-180" : ""}`} />
+                      </button>
+                      {showPlantillas && (
+                        <div className="absolute bottom-full left-0 mb-2 w-80 bg-neutral-900 border border-white/10 rounded-xl shadow-xl p-2 space-y-1 z-10">
+                          {plantillas.map((p) => (
+                            <button
+                              key={p.id}
+                              onClick={() => sendPlantilla(p)}
+                              disabled={sendingPlantilla !== null}
+                              className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/5 transition-colors disabled:opacity-50"
+                            >
+                              <p className="text-xs font-semibold text-neutral-200">{p.nombre}</p>
+                              <p className="text-[10px] text-neutral-500">{p.descripcion}</p>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </>
                 );
               })()}
             </div>

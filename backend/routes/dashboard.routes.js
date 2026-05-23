@@ -1506,6 +1506,42 @@ router.get('/conversaciones/:phone', async (req, res) => {
 });
 
 /**
+ * POST /api/dashboard/conversaciones/:phone/mensaje
+ * Enviar mensaje libre del vendedor desde el chat + persistir.
+ */
+router.post('/conversaciones/:phone/mensaje', async (req, res) => {
+    try {
+        const { phone } = req.params;
+        const { texto, vendedor_nombre } = req.body;
+
+        if (!texto || !texto.trim()) {
+            return res.status(400).json({ error: 'Falta texto del mensaje' });
+        }
+
+        await whatsappService.sendSellerMessage(phone, texto.trim());
+
+        const session = await sessionsService.getSession(phone).catch(() => null);
+
+        await mensajesService.registrarSaliente({
+            phone,
+            tipo: 'text',
+            contenido: texto.trim(),
+            autor: 'vendedor',
+            autorNombre: vendedor_nombre || null,
+            sucursal: session?.sucursal || null,
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        if (error.code === 'WHATSAPP_WINDOW_CLOSED') {
+            return res.status(403).json({ error: 'Ventana de 24h cerrada. Usa una plantilla HSM.', code: 'WINDOW_CLOSED' });
+        }
+        console.error('[Dashboard] Error enviando mensaje vendedor:', error.message);
+        res.status(500).json({ error: 'Error al enviar mensaje', detalle: error.message });
+    }
+});
+
+/**
  * GET /api/dashboard/plantillas-hsm
  * Catálogo de plantillas HSM disponibles para re-engage.
  * Nota: requiere Business Verification de Meta para funcionar en producción.
