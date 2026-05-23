@@ -8,6 +8,8 @@ const whatsappService = require('../services/whatsapp.service');
 const geminiService = require('../services/gemini.service');
 const db = require('../config/db');
 const vendedoresService = require('../services/vendedores.service');
+const mensajesService = require('../services/mensajes.service');
+const storageService = require('../services/storage.service');
 const { getDireccionSucursal } = require('../utils/sucursales');
 
 const KNOWLEDGE_JSON_PATH = path.join(__dirname, '../data/knowledge.json');
@@ -1334,6 +1336,160 @@ router.post('/cotizaciones/:phone/saldo-pagado-local', async (req, res) => {
     } catch (error) {
         console.error('[Dashboard] Error en saldo-pagado-local:', error);
         res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+/**
+ * REQ-07: Obtener métricas del agente (conversión y eficiencia).
+ * GET /api/dashboard/metrics/agent
+ */
+router.get('/metrics/agent', async (req, res) => {
+    try {
+        // 1. Total de sesiones
+        const totalResult = await db.query('SELECT COUNT(*) as count FROM user_sessions');
+        const totalSesiones = parseInt(totalResult.rows[0].count, 10);
+
+        if (totalSesiones === 0) {
+            return res.status(200).json({
+                success: true,
+                metrics: {
+                    total_sesiones: 0,
+                    conversion_rate: 0,
+                    eficiencia_ia: 0,
+                    funnel: {},
+                    mensajes: { ia: 0, vendedor: 0 }
+                }
+            });
+        }
+
+        // 2. Embudo (Funnel) por estado
+        const funnelResult = await db.query('SELECT estado, COUNT(*) as count FROM user_sessions GROUP BY estado');
+        const funnel = {};
+        funnelResult.rows.forEach(row => {
+            funnel[row.estado] = parseInt(row.count, 10);
+        });
+
+        // 3. Eficiencia (Mensajes IA vs Vendedor)
+        const msgsResult = await db.query('SELECT SUM(mensajes_ia) as ia, SUM(mensajes_vendedor) as vendedor FROM user_sessions');
+        const totalIA = parseInt(msgsResult.rows[0].ia || 0, 10);
+        const totalVendedor = parseInt(msgsResult.rows[0].vendedor || 0, 10);
+        const totalMensajes = totalIA + totalVendedor;
+        const eficienciaIA = totalMensajes > 0 ? (totalIA / totalMensajes) * 100 : 0;
+
+        // 4. Conversión (Sesiones en ABONO_VERIFICADO o ENTREGADO)
+        const convResult = await db.query(
+            `SELECT COUNT(*) as count FROM user_sessions WHERE estado IN ('ABONO_VERIFICADO', 'ENTREGADO')`
+        );
+        const exitosas = parseInt(convResult.rows[0].count, 10);
+        const conversionRate = (exitosas / totalSesiones) * 100;
+
+        res.status(200).json({
+            success: true,
+            metrics: {
+                total_sesiones: totalSesiones,
+                conversion_rate: parseFloat(conversionRate.toFixed(2)),
+                eficiencia_ia: parseFloat(eficienciaIA.toFixed(2)),
+                funnel,
+                mensajes: {
+                    ia: totalIA,
+                    vendedor: totalVendedor,
+                    total: totalMensajes
+                }
+            }
+        });
+    } catch (error) {
+        console.error('[Dashboard] Error en /metrics/agent:', error);
+        res.status(500).json({ error: 'Error interno al calcular métricas' });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// REQ-04 Fase 3 — Endpoints de Conversaciones
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * GET /api/dashboard/conversaciones
+ * Lista conversaciones activas agrupadas por phone.
+ * Query: ?sucursal=Melipilla (opcional, filtro por sucursal)
+ */
+router.get('/conversaciones', async (req, res) => {
+    try {
+        const sucursal = req.query.sucursal || null;
+        const conversaciones = await mensajesService.listarConversacionesActivas({ sucursal });
+
+        const enriched = await Promise.all(conversaciones.map(async (conv) => {
+            let session = null;
+            try {
+                session = await sessionsService.getSession(conv.phone);
+            } catch (_) { /* no session = new contact */ }
+
+            return {
+                phone: conv.phone,
+                sucursal: conv.sucursal || session?.sucursal || null,
+                estado: session?.estado || null,
+                nombre_cliente: session?.entidades?.nombre_cliente || null,
+                marca_modelo: session?.entidades?.marca_modelo || null,
+                ultimo_mensaje_at: conv.ultimo_mensaje_at,
+                ultimo_contenido: conv.ultimo_contenido,
+                total_entrantes: parseInt(conv.total_entrantes, 10) || 0,
+            };
+        }));
+
+        res.json(enriched);
+    } catch (error) {
+        console.error('[Dashboard] Error en /conversaciones:', error);
+        res.status(500).json({ error: 'Error listando conversaciones' });
+    }
+});
+
+/**
+ * GET /api/dashboard/conversaciones/:phone
+ * Timeline de mensajes de una conversación específica.
+ * Query: ?limit=50&before=ISO_TIMESTAMP (paginación scroll infinito)
+ */
+router.get('/conversaciones/:phone', async (req, res) => {
+    try {
+        const { phone } = req.params;
+        const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+        const before = req.query.before || null;
+
+        const mensajes = await mensajesService.listarPorPhone(phone, { limit, before });
+
+        const enriched = await Promise.all(mensajes.map(async (msg) => {
+            let signedUrl = null;
+            if (msg.media_url) {
+                signedUrl = await storageService.getSignedUrl(msg.media_url);
+            }
+            return {
+                id: msg.id,
+                direccion: msg.direccion,
+                tipo: msg.tipo,
+                contenido: msg.contenido,
+                media_url: signedUrl,
+                media_mime: msg.media_mime,
+                transcripcion: msg.transcripcion,
+                autor: msg.autor,
+                autor_nombre: msg.autor_nombre,
+                created_at: msg.created_at,
+            };
+        }));
+
+        let session = null;
+        try {
+            session = await sessionsService.getSession(phone);
+        } catch (_) { /* no session */ }
+
+        res.json({
+            phone,
+            estado: session?.estado || null,
+            nombre_cliente: session?.entidades?.nombre_cliente || null,
+            sucursal: session?.sucursal || null,
+            agente_pausado: session?.entidades?.agente_pausado || false,
+            mensajes: enriched,
+        });
+    } catch (error) {
+        console.error('[Dashboard] Error en /conversaciones/:phone:', error);
+        res.status(500).json({ error: 'Error listando mensajes' });
     }
 });
 

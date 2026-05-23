@@ -194,10 +194,31 @@ const uploadDocument = async (phone, docBuffer, mimeType) => {
     return _upload('documents', phone, docBuffer, mimeType);
 };
 
+const getSignedUrl = async (objectPath, expiresIn = 3600) => {
+    const client = _getClient();
+    if (!client || !objectPath) return null;
+
+    try {
+        const { data, error } = await client.storage
+            .from(BUCKET)
+            .createSignedUrl(objectPath, expiresIn);
+
+        if (error) {
+            console.error(`[Storage] ❌ Error generando signed URL para ${objectPath}:`, error.message);
+            return null;
+        }
+        return data.signedUrl;
+    } catch (err) {
+        console.error(`[Storage] ❌ Excepción en getSignedUrl:`, err.message);
+        return null;
+    }
+};
+
 module.exports = {
     uploadVoucher,
     uploadPartImage,
     uploadAudio,
     uploadVideo,
     uploadDocument,
+    getSignedUrl,
 };
