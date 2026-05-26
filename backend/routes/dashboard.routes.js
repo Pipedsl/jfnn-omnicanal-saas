@@ -1549,11 +1549,11 @@ router.post('/conversaciones/:phone/mensaje', async (req, res) => {
 router.get('/plantillas-hsm', (_req, res) => {
     const plantillas = [
         { id: 'retomar_cotizacion', nombre: 'Retomar cotización', descripcion: 'Re-abrir conversación con el cliente', params: ['nombre'], language: 'es_CL' },
-        { id: 'cotizacion_lista', nombre: 'Cotización lista', descripcion: 'Avisar que la cotización ya tiene precios', params: ['nombre', 'repuesto'], language: 'es' },
-        { id: 'comprobante_pendiente', nombre: 'Comprobante pendiente', descripcion: 'Recordar envío de comprobante de pago', params: ['nombre'], language: 'es' },
-        { id: 'pedido_listo', nombre: 'Pedido listo para retiro', descripcion: 'Avisar que los repuestos están listos', params: ['nombre'], language: 'es' },
-        { id: 'encargo_llegada', nombre: 'Encargo llegó', descripcion: 'Avisar que el repuesto por encargo llegó', params: ['nombre', 'repuesto'], language: 'es' },
-        { id: 'seguimiento_postventa', nombre: 'Seguimiento postventa', descripcion: 'Consultar satisfacción post-compra', params: ['nombre'], language: 'es' },
+        { id: 'cotizacion_lista', nombre: 'Cotización lista', descripcion: 'Avisar que la cotización ya tiene precios', params: ['nombre', 'cantidad'], language: 'es_CL' },
+        { id: 'comprobante_pendiente', nombre: 'Comprobante pendiente', descripcion: 'Recordar envío de comprobante de pago', params: ['nombre'], language: 'es_CL' },
+        { id: 'pedido_listo', nombre: 'Pedido listo para retiro', descripcion: 'Avisar que los repuestos están listos', params: ['nombre', 'sucursal'], language: 'es_CL' },
+        { id: 'encargo_llegada', nombre: 'Encargo llegó', descripcion: 'Avisar que el repuesto por encargo llegó', params: ['nombre', 'sucursal'], language: 'es_CL' },
+        { id: 'seguimiento_postventa', nombre: 'Seguimiento postventa', descripcion: 'Consultar satisfacción post-compra', params: ['nombre'], language: 'es_CL' },
     ];
     res.json(plantillas);
 });
@@ -1573,11 +1573,11 @@ router.post('/conversaciones/:phone/plantilla', async (req, res) => {
 
         const langMap = {
             'retomar_cotizacion': 'es_CL',
-            'cotizacion_lista': 'es',
-            'comprobante_pendiente': 'es',
-            'pedido_listo': 'es',
-            'encargo_llegada': 'es',
-            'seguimiento_postventa': 'es',
+            'cotizacion_lista': 'es_CL',
+            'comprobante_pendiente': 'es_CL',
+            'pedido_listo': 'es_CL',
+            'encargo_llegada': 'es_CL',
+            'seguimiento_postventa': 'es_CL',
         };
         const languageCode = langMap[plantilla_id] || 'es';
 

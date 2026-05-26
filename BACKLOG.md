@@ -51,6 +51,24 @@ Este backlog ha sido actualizado para reflejar el estado actual del proyecto tra
     - **Responsive Tablet:** Asegurar que se vea bien en tablets y todos los tamaños posibles.
 - **Impacto:** Alto para la adopción de la herramienta por parte de los vendedores.
 
+### [REQ-11] Notificaciones al Vendedor — Cliente Escribiendo sin Cotizar
+- **Objetivo:** Alertar al vendedor cuando un cliente está escribiendo y la sesión aún no tiene cotización (estado ESPERANDO_VENDEDOR o anterior).
+- **Contexto:** Los vendedores no siempre están mirando la bandeja. Necesitan un aviso activo (sonido, badge, notificación del navegador) para atender rápido al cliente.
+- **Esfuerzo:** Medio (~3-4 horas).
+- **Impacto:** Alto en tiempo de respuesta y satisfacción del cliente.
+
+### [REQ-12] Bloqueo de Acciones Fuera de Ventana 24h
+- **Objetivo:** Cuando la ventana de 24h de Meta está expirada, impedir que el vendedor envíe mensajes libres o ejecute acciones que dispararían mensajes al cliente. Mostrar un mensaje claro explicando que debe usar una plantilla HSM primero para reabrir la ventana.
+- **Contexto:** Hoy el vendedor puede intentar enviar y el mensaje falla silenciosamente (error 130472 de Meta). Debe ser un bloqueo explícito en la UI con instrucciones claras.
+- **Esfuerzo:** Bajo (~2 horas).
+- **Impacto:** Evita confusión y mensajes perdidos.
+
+### [REQ-13] Marcar Chat como No Leído
+- **Objetivo:** Permitir al vendedor marcar una conversación como "no leída" para recordar que debe revisarla después, igual que en WhatsApp.
+- **Implementación:** Flag `no_leido` en tabla `mensajes` o `user_sessions`, toggle en la UI del chat, indicador visual (punto/badge) en la lista de conversaciones.
+- **Esfuerzo:** Bajo (~2-3 horas).
+- **Impacto:** Medio — mejora el flujo de trabajo del vendedor cuando tiene muchas conversaciones.
+
 ---
 
 ## 🟢 Prioridad 2: Deseable / Deuda Técnica y UI
