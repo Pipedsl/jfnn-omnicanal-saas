@@ -176,7 +176,7 @@ ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.paten
 
         1. **metodo_entrega** (obligatorio): pregunta de manera natural "¿Prefiere retiro en sucursal o envío a domicilio?". Captura como \`metodo_entrega: 'retiro'\` o \`'domicilio'\`.
 
-        2. Si \`metodo_entrega === 'retiro'\`: pregunta "¿En qué sucursal prefiere retirar: Melipilla o San Felipe?". Captura como \`sucursal_retiro: 'Melipilla'\` o \`'San Felipe'\`.
+        2. Si \`metodo_entrega === 'retiro'\`: pregunta "¿En qué sucursal prefiere retirar?". IMPORTANTE: La sucursal San Felipe está temporalmente cerrada para atención presencial — solo opera con delivery a ciudades cercanas (San Felipe, Los Andes, zona). Si el cliente quiere retiro presencial, solo puede ser en Melipilla. Si es de la zona de San Felipe, ofrécele delivery. Captura como \`sucursal_retiro: 'Melipilla'\` o \`'San Felipe'\`.
            Si elige domicilio: NO preguntes sucursal_retiro (queda null).
 
         Solo cuando tengas: vehículo + ≥1 repuesto + metodo_entrega + (sucursal_retiro si retiro), avanza a \`nuevo_estado: ESPERANDO_VENDEDOR\`. Si te falta alguno, sigue en PERFILANDO preguntando lo que falta.
@@ -279,7 +279,7 @@ ${entidadesTienenEncargo ? `
 ${sessionContext.entidades.metodo_pago ? `
 ⚠️ MÉTODO DE PAGO YA CAPTURADO (${sessionContext.entidades.metodo_pago}). NO repitas los datos bancarios. Solo confirma la logística (retiro/envío) y pregunta por boleta/factura.
 ` : '           - Si es Transferencia: PRIMERO envía los datos para la transferencia (banco, número de cuenta, RUT, email y el MONTO TOTAL a pagar). Luego pídele que envíe el comprobante por este chat. Los datos están en la base de conocimiento del negocio.'}
-           - Si el cliente elige RETIRO EN LOCAL: pregúntale '¿En qué sucursal prefiere retirar: Melipilla o San Felipe?' antes de enviar la dirección. Una vez te responda, envía SOLO la dirección de esa sucursal según la base de conocimiento. Captura la respuesta como \`sucursal_retiro\` en las entidades.
+           - Si el cliente elige RETIRO EN LOCAL: solo puede retirar en Melipilla (San Felipe está cerrada presencialmente, solo delivery). Captura \`sucursal_retiro: 'Melipilla'\`. **NO incluyas la dirección ni el horario en tu mensaje**, el sistema los agrega automáticamente.
            - Si es pago en el local (Efectivo/Crédito/Débito): Indica que puede venir al local mencionando su número de cotización: ${sessionContext.entidades.quote_id || 'JFNN-TEMP'}. **NO incluyas la dirección ni el horario de la sucursal en tu mensaje**, ya que el sistema los agregará automáticamente al final.
         `}
         `}

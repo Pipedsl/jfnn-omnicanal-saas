@@ -2,10 +2,15 @@ const SUCURSALES = {
     'Melipilla': {
         direccion: 'Serrano 98, 9580000 Melipilla, Región Metropolitana',
         horario: 'Lunes a Viernes 9:00 a 18:00 hrs',
+        abierta: true,
+        retiroPresencial: true,
     },
     'San Felipe': {
         direccion: 'Maipú 381, 2171543 San Felipe, Región de Valparaíso',
-        horario: 'Lunes a Viernes 9:00 a 18:00 hrs',
+        horario: 'Solo delivery a ciudades cercanas (San Felipe, Los Andes, zona)',
+        abierta: true,
+        retiroPresencial: false,
+        nota: 'Sucursal cerrada para atención presencial. Solo opera delivery. Contacto: Kano.',
     },
 };
 
@@ -16,7 +21,9 @@ const SUCURSALES = {
 function getDireccionSucursal(sucursal) {
     const s = SUCURSALES[sucursal];
     if (!s) return null;
-    return `📍 Sucursal ${sucursal}: ${s.direccion}\n🕐 Horario: ${s.horario}`;
+    let texto = `📍 Sucursal ${sucursal}: ${s.direccion}\n🕐 Horario: ${s.horario}`;
+    if (s.nota) texto += `\n⚠️ ${s.nota}`;
+    return texto;
 }
 
 /**

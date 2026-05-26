@@ -7,6 +7,30 @@
 
 ---
 
+## CONTEXTO OPERACIONAL — Sucursales
+
+### Melipilla (sucursal principal)
+- Local **abierto** con atencion presencial
+- Vendedores: Sergio, Feña, y otros del equipo
+- Es la sucursal donde se implementa manana
+
+### San Felipe (sucursal cerrada temporalmente)
+- Local **cerrado** para atencion presencial
+- **Solo opera delivery** a ciudades cercanas (San Felipe, Los Andes, etc.)
+- Vendedor responsable: **Kano**
+- Kano debe tener acceso al dashboard para:
+  - Responder WhatsApp como apoyo (refuerzo para Melipilla tambien)
+  - Gestionar pedidos de delivery de la zona de San Felipe
+- El agente IA debe derivar a San Felipe solo cuando el cliente es de esa zona y quiere delivery
+- Si un cliente de San Felipe quiere retiro presencial → informar que la sucursal esta temporalmente cerrada y ofrecer delivery
+
+### Implicaciones para el sistema
+- El prompt de Gemini debe saber que San Felipe **no tiene retiro presencial** por ahora
+- Kano debe poder loguearse con la cuenta `vendedor_san_felipe` y ver ambas bandejas (su sucursal + apoyo general)
+- Los mensajes de Kano en el chat deben aparecer con su nombre ("KANO")
+
+---
+
 ## FASE 0 — Preparacion (ANTES de ir al local)
 
 ### 0.1 Materiales necesarios
