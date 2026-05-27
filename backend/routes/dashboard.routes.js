@@ -11,6 +11,7 @@ const vendedoresService = require('../services/vendedores.service');
 const mensajesService = require('../services/mensajes.service');
 const storageService = require('../services/storage.service');
 const { getDireccionSucursal } = require('../utils/sucursales');
+const { cancelDebounce } = require('../controllers/whatsapp.controller');
 
 const KNOWLEDGE_JSON_PATH = path.join(__dirname, '../data/knowledge.json');
 
@@ -239,6 +240,10 @@ router.post('/cotizaciones/responder', async (req, res) => {
         if (!phone || (!items && !vehiculos)) {
             return res.status(400).json({ error: 'Faltan campos obligatorios' });
         }
+
+        // Cancelar cualquier debounce pendiente: evita que la IA responda con contexto
+        // viejo después de que el vendedor envíe la cotización formal.
+        cancelDebounce(phone);
 
         const quoteId = `JFNN-2026-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
         let total = 0;
@@ -1544,6 +1549,10 @@ router.post('/conversaciones/:phone/mensaje', async (req, res) => {
         if (!texto || !texto.trim()) {
             return res.status(400).json({ error: 'Falta texto del mensaje' });
         }
+
+        // Cancelar debounce pendiente: evita que la IA responda con contexto viejo
+        // después del mensaje manual del vendedor.
+        cancelDebounce(phone);
 
         await whatsappService.sendSellerMessage(phone, texto.trim());
 

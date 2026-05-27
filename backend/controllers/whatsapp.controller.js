@@ -95,6 +95,22 @@ const sendAndPersist = async (phone, text, { autor = 'agente_ia', sucursal = nul
     }
 };
 
+/**
+ * Cancela cualquier debounce pendiente para un teléfono. Usado cuando el vendedor
+ * envía una cotización formal o un mensaje manual, para evitar que el agente IA
+ * responda con contexto desactualizado después de la acción del vendedor.
+ */
+const cancelDebounce = (customerPhone) => {
+    const buffer = messageBuffer.get(customerPhone);
+    if (buffer?.timer) {
+        clearTimeout(buffer.timer);
+        messageBuffer.delete(customerPhone);
+        console.log(`[Webhook] 🚫 Debounce cancelado para ${customerPhone} (acción del vendedor)`);
+        return true;
+    }
+    return false;
+};
+
 const processBufferedMessages = async (customerPhone) => {
     try {
         const bufferData = messageBuffer.get(customerPhone);
@@ -1040,5 +1056,6 @@ const receiveMessage = async (req, res) => {
 
 module.exports = {
     verifyWebhook,
-    receiveMessage
+    receiveMessage,
+    cancelDebounce
 };
