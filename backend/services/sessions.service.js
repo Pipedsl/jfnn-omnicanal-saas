@@ -101,19 +101,16 @@ const isSameRepuesto = (nombreA, nombreB) => {
 // ─── derivarSucursal ────────────────────────────────────────────
 /**
  * Deriva la columna sucursal de user_sessions a partir de las entidades de la sesión.
- * - retiro + sucursal_retiro conocida → esa sucursal
- * - domicilio → 'Melipilla' (regla provisional: San Felipe sin cobertura de despacho aún)
- * - sin metodo_entrega → null (aún no se puede determinar)
+ * - retiro + sucursal_retiro = 'San Felipe' → 'San Felipe' (caso excepcional, futuro)
+ * - cualquier otro caso → 'Melipilla' (default: solo Melipilla está operativa).
+ *   San Felipe está temporalmente cerrada — todas las sesiones nuevas caen a Melipilla
+ *   para que aparezcan en la bandeja del vendedor de Melipilla.
  */
 function derivarSucursal(entidades) {
-    if (!entidades) return null;
-    if (entidades.metodo_entrega === 'retiro' && entidades.sucursal_retiro) {
-        return entidades.sucursal_retiro; // 'Melipilla' o 'San Felipe'
+    if (entidades?.metodo_entrega === 'retiro' && entidades?.sucursal_retiro === 'San Felipe') {
+        return 'San Felipe';
     }
-    if (entidades.metodo_entrega === 'domicilio') {
-        return 'Melipilla'; // regla provisional: domicilio → Melipilla mientras San Felipe se estabiliza
-    }
-    return null;
+    return 'Melipilla';
 }
 
 // ─── tieneRepuestosPorEncargo ────────────────────────────────────
