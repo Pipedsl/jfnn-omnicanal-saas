@@ -285,7 +285,8 @@ router.post('/cotizaciones/responder', async (req, res) => {
                 return `📦 ${cant}x ${item.nombre} | $${priceStr} c/u`;
             }
 
-            return `✔️ ${cant}x ${item.nombre} | Cód: ${item.codigo || 'N/A'} | $${priceStr || 0} c/u${cant > 1 ? ` (Total: $${(parseInt(item.precio) * cant).toLocaleString('es-CL')})` : ''}`;
+            // Código del producto es INTERNO — no se envía al cliente.
+            return `✔️ ${cant}x ${item.nombre} | $${priceStr || 0} c/u${cant > 1 ? ` (Total: $${(parseInt(item.precio) * cant).toLocaleString('es-CL')})` : ''}`;
         };
 
         if (vehiculos && vehiculos.length > 0) {
