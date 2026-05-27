@@ -533,7 +533,12 @@ router.post('/sessions/:phone/marcar', async (req, res) => {
 router.post('/sessions/:phone/desmarcar', async (req, res) => {
     try {
         const { phone } = req.params;
-        await sessionsService.updateEntidades(phone, { marca: null });
+        // updateEntidades ignora null por el merge "no sobreescribir" — SQL directo
+        await db.query(
+            `UPDATE user_sessions SET entidades = jsonb_set(entidades, '{marca}', 'null'::jsonb) WHERE phone = $1`,
+            [phone]
+        );
+        sessionsService.invalidateSessionCache?.(phone);
         res.json({ success: true });
     } catch (error) {
         console.error('[Dashboard] Error desmarcando:', error);
@@ -549,7 +554,20 @@ router.post('/sessions/:phone/desmarcar', async (req, res) => {
 router.post('/sessions/:phone/consulta-resuelta', async (req, res) => {
     try {
         const { phone } = req.params;
-        await sessionsService.updateEntidades(phone, { consulta_pendiente: null, agente_pausado: false });
+        // updateEntidades ignora valores null por el merge "no sobreescribir" — usamos SQL
+        // directo para forzar el clear de consulta_pendiente y agente_pausado.
+        await db.query(
+            `UPDATE user_sessions
+             SET entidades = jsonb_set(
+                 jsonb_set(entidades, '{consulta_pendiente}', 'null'::jsonb),
+                 '{agente_pausado}', 'false'::jsonb
+             ),
+             ultimo_mensaje = ultimo_mensaje
+             WHERE phone = $1`,
+            [phone]
+        );
+        // Invalidar cache para que el siguiente getSession traiga los datos frescos
+        sessionsService.invalidateSessionCache?.(phone);
         res.json({ success: true });
     } catch (error) {
         console.error('[Dashboard] Error resolviendo consulta:', error);
