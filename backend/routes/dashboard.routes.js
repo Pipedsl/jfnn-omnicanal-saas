@@ -29,13 +29,15 @@ router.get('/ventas', async (req, res) => {
         const range = allowedRanges.includes(req.query.range) ? req.query.range : '30d';
         const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
 
+        const METRICS_RESET_AT = process.env.METRICS_RESET_AT || '2026-05-27T13:00:00Z';
+        const resetClause = `archivado_en >= '${METRICS_RESET_AT}'::timestamptz`;
         const filtroSql = (() => {
             switch (range) {
-                case 'hoy': return `DATE(archivado_en AT TIME ZONE 'America/Santiago') = DATE(NOW() AT TIME ZONE 'America/Santiago')`;
-                case '7d': return `archivado_en AT TIME ZONE 'America/Santiago' >= (NOW() AT TIME ZONE 'America/Santiago') - INTERVAL '7 days'`;
-                case 'total': return 'TRUE';
+                case 'hoy': return `DATE(archivado_en AT TIME ZONE 'America/Santiago') = DATE(NOW() AT TIME ZONE 'America/Santiago') AND ${resetClause}`;
+                case '7d': return `archivado_en AT TIME ZONE 'America/Santiago' >= (NOW() AT TIME ZONE 'America/Santiago') - INTERVAL '7 days' AND ${resetClause}`;
+                case 'total': return resetClause;
                 case '30d':
-                default: return `archivado_en AT TIME ZONE 'America/Santiago' >= (NOW() AT TIME ZONE 'America/Santiago') - INTERVAL '30 days'`;
+                default: return `archivado_en AT TIME ZONE 'America/Santiago' >= (NOW() AT TIME ZONE 'America/Santiago') - INTERVAL '30 days' AND ${resetClause}`;
             }
         })();
 

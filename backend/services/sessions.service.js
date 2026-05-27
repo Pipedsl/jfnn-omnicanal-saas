@@ -950,19 +950,25 @@ const incrementMessageCounter = async (phone, who) => {
 };
 
 // ─── getDashboardMetrics (Analytics) ──────────────────────────────
+// METRICS_RESET_AT: cutoff global para ocultar data antigua del dashboard.
+// Configurable por env var (ISO timestamp UTC). Default: 2026-05-27 09:00 Chile (= 13:00 UTC).
+// Las métricas solo cuentan eventos posteriores a este momento.
+const METRICS_RESET_AT = process.env.METRICS_RESET_AT || '2026-05-27T13:00:00Z';
+
 // Mapea un rango lógico ('hoy'|'7d'|'30d'|'total') a un fragmento SQL para
-// filtrar por columna timestamp en zona Santiago.
+// filtrar por columna timestamp en zona Santiago. Aplica el cutoff global.
 const rangeToSql = (range, column) => {
+    const resetClause = `${column} >= '${METRICS_RESET_AT}'::timestamptz`;
     switch (range) {
         case '7d':
-            return `${column} AT TIME ZONE 'America/Santiago' >= (NOW() AT TIME ZONE 'America/Santiago') - INTERVAL '7 days'`;
+            return `${column} AT TIME ZONE 'America/Santiago' >= (NOW() AT TIME ZONE 'America/Santiago') - INTERVAL '7 days' AND ${resetClause}`;
         case '30d':
-            return `${column} AT TIME ZONE 'America/Santiago' >= (NOW() AT TIME ZONE 'America/Santiago') - INTERVAL '30 days'`;
+            return `${column} AT TIME ZONE 'America/Santiago' >= (NOW() AT TIME ZONE 'America/Santiago') - INTERVAL '30 days' AND ${resetClause}`;
         case 'total':
-            return 'TRUE';
+            return resetClause;
         case 'hoy':
         default:
-            return `DATE(${column} AT TIME ZONE 'America/Santiago') = DATE(NOW() AT TIME ZONE 'America/Santiago')`;
+            return `DATE(${column} AT TIME ZONE 'America/Santiago') = DATE(NOW() AT TIME ZONE 'America/Santiago') AND ${resetClause}`;
     }
 };
 
