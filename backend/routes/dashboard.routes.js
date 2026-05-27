@@ -1490,12 +1490,11 @@ router.get('/conversaciones/:phone', async (req, res) => {
             session = await sessionsService.getSession(phone);
         } catch (_) { /* no session */ }
 
-        const ultimoEntrante = mensajes
-            .filter(m => m.direccion === 'entrante')
-            .reduce((latest, m) => {
-                const t = new Date(m.created_at).getTime();
-                return t > latest ? t : latest;
-            }, 0);
+        const { rows: ventanaRows } = await db.query(
+            `SELECT created_at FROM mensajes WHERE phone = $1 AND direccion = 'entrante' ORDER BY created_at DESC LIMIT 1`,
+            [phone]
+        );
+        const ultimoEntrante = ventanaRows.length > 0 ? new Date(ventanaRows[0].created_at).getTime() : 0;
 
         const ventana24h = ultimoEntrante > 0
             ? { ultimo_entrante_at: new Date(ultimoEntrante).toISOString(), expira_at: new Date(ultimoEntrante + 24 * 60 * 60 * 1000).toISOString() }

@@ -122,18 +122,22 @@ const listarPorPhone = async (phone, { limit = 50, before = null } = {}) => {
 
         if (before) {
             query = `
-                SELECT * FROM mensajes
-                WHERE phone = $1 AND created_at < $2
-                ORDER BY created_at ASC
-                LIMIT $3
+                SELECT * FROM (
+                    SELECT * FROM mensajes
+                    WHERE phone = $1 AND created_at < $2
+                    ORDER BY created_at DESC
+                    LIMIT $3
+                ) sub ORDER BY created_at ASC
             `;
             params = [phone, before, limit];
         } else {
             query = `
-                SELECT * FROM mensajes
-                WHERE phone = $1
-                ORDER BY created_at ASC
-                LIMIT $2
+                SELECT * FROM (
+                    SELECT * FROM mensajes
+                    WHERE phone = $1
+                    ORDER BY created_at DESC
+                    LIMIT $2
+                ) sub ORDER BY created_at ASC
             `;
             params = [phone, limit];
         }
