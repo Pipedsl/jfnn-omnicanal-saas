@@ -13,6 +13,10 @@ const db = require('./config/db');
 const app = express();
 const port = process.env.PORT || 4000;
 
+// Railway pone el servicio detrás de un reverse proxy y agrega X-Forwarded-For.
+// Confiamos en 1 hop para que express-rate-limit use la IP real del cliente.
+app.set('trust proxy', 1);
+
 app.use(cors({
     origin: [
         'http://localhost:3000',
