@@ -111,14 +111,14 @@ export default function Home() {
       const resPend = await api.get(`${API_URL}/api/dashboard/cotizaciones?t=${Date.now()}${sucursalParam}`);
       const pend: Quote[] = resPend.data || [];
 
+      // Notificar SOLO cuando aparece una cotización NUEVA en la bandeja
+      // (un cliente que no estaba antes). Las notificaciones de "mensaje nuevo"
+      // las maneja el chat panel comparando total_entrantes, no este polling
+      // que ve cambios de cualquier tipo (incluyendo respuestas del agente IA).
       if (prevMsgTimesRef.current.size > 0) {
         for (const q of pend) {
-          const prevTime = prevMsgTimesRef.current.get(q.phone);
-          if (!prevTime) {
-            notifyAll("Nuevo cliente", `${q.entidades?.nombre_cliente || q.phone} está escribiendo`);
-            break;
-          } else if (q.ultimo_mensaje && q.ultimo_mensaje > prevTime) {
-            notifyAll("Mensaje nuevo", `${q.entidades?.nombre_cliente || q.phone} escribió`);
+          if (!prevMsgTimesRef.current.has(q.phone)) {
+            notifyAll("Nueva cotización", `${q.entidades?.nombre_cliente || q.phone} entró a la bandeja`);
             break;
           }
         }

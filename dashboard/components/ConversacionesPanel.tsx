@@ -133,7 +133,10 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
   const [loadingChat, setLoadingChat] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const prevMsgCountRef = useRef<number>(0);
-  const prevConvTimesRef = useRef<Map<string, string>>(new Map());
+  // Trackeamos total_entrantes (no timestamp) porque ultimo_mensaje_at cambia
+  // también cuando la IA o el vendedor responden — eso disparaba falsas alertas.
+  // Solo notificamos cuando aumenta el conteo de mensajes ENTRANTES del cliente.
+  const prevEntrantesRef = useRef<Map<string, number>>(new Map());
   const [, setTick] = useState(0);
   const [plantillas, setPlantillas] = useState<PlantillaHSM[]>([]);
   const [showPlantillas, setShowPlantillas] = useState(false);
@@ -387,16 +390,19 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
       const res = await api.get(`${API_URL}/api/dashboard/conversaciones?${params.toString()}`);
       const list: Conversacion[] = res.data || [];
 
-      if (onNewMessage && prevConvTimesRef.current.size > 0) {
+      // Notificar SOLO cuando aumenta el conteo de mensajes ENTRANTES del cliente.
+      // Antes usábamos ultimo_mensaje_at que también cambia con respuestas IA/vendedor → falsas alertas.
+      if (onNewMessage && prevEntrantesRef.current.size > 0) {
         for (const conv of list) {
-          const prevTime = prevConvTimesRef.current.get(conv.phone);
-          if (prevTime && conv.ultimo_mensaje_at > prevTime && conv.phone !== selectedPhone) {
+          const prevCount = prevEntrantesRef.current.get(conv.phone);
+          const currentCount = Number(conv.total_entrantes) || 0;
+          if (typeof prevCount === 'number' && currentCount > prevCount && conv.phone !== selectedPhone) {
             onNewMessage("Mensaje nuevo", `${conv.nombre_cliente || formatPhone(conv.phone)}: ${conv.ultimo_contenido || "📎 Media"}`);
             break;
           }
         }
       }
-      prevConvTimesRef.current = new Map(list.map(c => [c.phone, c.ultimo_mensaje_at]));
+      prevEntrantesRef.current = new Map(list.map(c => [c.phone, Number(c.total_entrantes) || 0]));
 
       setConversaciones(list);
     } catch (err) {
