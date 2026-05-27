@@ -21,19 +21,21 @@ export function useNotifications() {
         }
     }, []);
 
-    const requestPermission = useCallback(async () => {
-        if (typeof window === "undefined" || !("Notification" in window)) return;
-        const result = await Notification.requestPermission();
-        setPermission(result);
-        return result;
-    }, []);
-
     const playSound = useCallback(() => {
         const audio = getAudio();
         if (!audio) return;
         audio.currentTime = 0;
         audio.play().catch(() => {});
     }, []);
+
+    const requestPermission = useCallback(async () => {
+        if (typeof window === "undefined" || !("Notification" in window)) return;
+        const result = await Notification.requestPermission();
+        setPermission(result);
+        // Reproduce sonido de prueba para desbloquear autoplay policy de Chrome
+        playSound();
+        return result;
+    }, [playSound]);
 
     const notify = useCallback((title: string, body: string) => {
         const now = Date.now();

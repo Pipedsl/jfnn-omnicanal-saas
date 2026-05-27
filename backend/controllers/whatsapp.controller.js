@@ -78,7 +78,7 @@ const verifyWebhook = (req, res) => {
 // -------------------------------------------------------------
 const messageBuffer = new Map();
 // Debounce ajustable por env. Dev/test: 5s. Producción recomendado: 20s (ahorra tokens).
-const DEBOUNCE_TIME_MS = parseInt(process.env.WHATSAPP_DEBOUNCE_MS || '5000', 10);
+const DEBOUNCE_TIME_MS = parseInt(process.env.WHATSAPP_DEBOUNCE_MS || '17000', 10);
 
 const sendAndPersist = async (phone, text, { autor = 'agente_ia', sucursal = null } = {}) => {
     await whatsappService.sendAgentMessage(phone, text);

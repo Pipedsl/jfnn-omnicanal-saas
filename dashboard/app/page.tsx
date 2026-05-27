@@ -43,7 +43,7 @@ export default function Home() {
   // useRef para capturar el `view` y `fetchQuotesAndMetrics` actual sin closures stale
   const viewRef = useRef("pendientes");
   const fetchRef = useRef<(source?: string) => Promise<void>>(null!);
-  const prevPhonesRef = useRef<Set<string>>(new Set());
+  const prevMsgTimesRef = useRef<Map<string, string>>(new Map());
 
   // Eliminado el estado 'metrics' local en favor del componente <DashboardMetrics />
 
@@ -104,15 +104,19 @@ export default function Home() {
       const resPend = await api.get(`${API_URL}/api/dashboard/cotizaciones?t=${Date.now()}${sucursalParam}`);
       const pend: Quote[] = resPend.data || [];
 
-      if (prevPhonesRef.current.size > 0) {
-        const newQuotes = pend.filter(q => !prevPhonesRef.current.has(q.phone));
-        for (const q of newQuotes) {
-          const nombre = q.entidades?.nombre_cliente || q.phone;
-          notify("Nuevo cliente", `${nombre} está escribiendo`);
-          break;
+      if (prevMsgTimesRef.current.size > 0) {
+        for (const q of pend) {
+          const prevTime = prevMsgTimesRef.current.get(q.phone);
+          if (!prevTime) {
+            notify("Nuevo cliente", `${q.entidades?.nombre_cliente || q.phone} está escribiendo`);
+            break;
+          } else if (q.ultimo_mensaje && q.ultimo_mensaje > prevTime) {
+            notify("Mensaje nuevo", `${q.entidades?.nombre_cliente || q.phone} escribió`);
+            break;
+          }
         }
       }
-      prevPhonesRef.current = new Set(pend.map(q => q.phone));
+      prevMsgTimesRef.current = new Map(pend.map(q => [q.phone, q.ultimo_mensaje || '']));
 
       if (viewRef.current === "pendientes") setQuotes(pend);
     } catch (error) {
