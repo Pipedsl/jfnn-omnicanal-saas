@@ -695,14 +695,32 @@ const getHistoricalSessions = async (sucursal = null) => {
 // ─── resetSession ────────────────────────────────────────────────
 const resetSession = async (phone) => {
     try {
+        // Precargar datos persistentes del cliente desde la tabla `clientes`
+        // para que su nombre, historial y vehículos previos sigan disponibles
+        // cuando la IA o el dashboard atienden la próxima conversación.
+        const cliente = await getClientProfile(phone).catch(() => null);
+        const entidadesIniciales = { ...INITIAL_ENTITIES };
+        if (cliente) {
+            entidadesIniciales.nombre_cliente = cliente.nombre || null;
+            entidadesIniciales.email_cliente = cliente.email || null;
+            entidadesIniciales.rut_cliente = cliente.rut || null;
+            entidadesIniciales.es_recurrente = cliente.es_recurrente || (cliente.total_compras || 0) > 0;
+            entidadesIniciales.total_compras = cliente.total_compras || 0;
+            entidadesIniciales.vehiculos_historicos = Array.isArray(cliente.vehiculos_historicos)
+                ? cliente.vehiculos_historicos
+                : (typeof cliente.vehiculos_historicos === 'string'
+                    ? JSON.parse(cliente.vehiculos_historicos || '[]')
+                    : []);
+        }
+
         const { rows } = await db.query(
             `UPDATE user_sessions SET estado = $1, entidades = $2, ultimo_mensaje = NOW()
              WHERE phone = $3 RETURNING *`,
-            [STATES.PERFILANDO, JSON.stringify(INITIAL_ENTITIES), phone]
+            [STATES.PERFILANDO, JSON.stringify(entidadesIniciales), phone]
         );
         sessionCache.delete(phone);
         globalPendingCache = { data: null, timestamp: 0 };
-        console.log(`[Sessions] ♻️  Sesión reseteada para ${phone}.`);
+        console.log(`[Sessions] ♻️  Sesión reseteada para ${phone}${cliente?.nombre ? ' (cliente: ' + cliente.nombre + ')' : ''}.`);
         return rowToSession(rows[0]);
     } catch (err) {
         console.error('[Sessions] ❌ Error en resetSession:', err.message);
