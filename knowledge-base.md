@@ -14,7 +14,7 @@
 ## Horarios de Atención (Sucursal Principal)
 - **Lunes a Viernes:** 9:00 a 13:45 y 15:00 a 18:00 hrs
   - **Cerramos por colación:** 13:45 a 15:00 hrs (NO es horario continuado)
-- **Sábados:** 9:00 a 13:00 hrs
+- **Sábados:** 9:30 a 13:00 hrs
 - **Domingos y Festivos:** Cerrado
 
 > IMPORTANTE: el local NO atiende en horario continuado. Cierra por colación entre 13:45 y 15:00. Si un cliente pregunta "¿es horario continuado?" la respuesta es NO — hay una pausa para colación entre 13:45 y 15:00.

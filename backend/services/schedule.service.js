@@ -76,7 +76,7 @@ async function getEstadoAtencion(now = new Date()) {
     if (weekday === 'Sun') {
         return {
             abierto: false, estado: 'FERIADO',
-            mensaje: 'Hoy es domingo y no atendemos. Nuestro horario es de lunes a viernes de 9:00 a 18:30 (colación de 13:50 a 15:01) y sábados de 9:00 a 13:00. Déjame los datos de tu consulta y el lunes a primera hora te contactamos. 😊'
+            mensaje: 'Hoy es domingo y no atendemos. Nuestro horario es lunes a viernes de 9:00 a 13:45 y de 15:00 a 18:00 (colación 13:45–15:00), sábados de 9:30 a 13:00. Déjame los datos de tu consulta y el lunes a primera hora te contactamos. 😊'
         };
     }
 
@@ -84,21 +84,21 @@ async function getEstadoAtencion(now = new Date()) {
     if (feriados.has(dateStr)) {
         return {
             abierto: false, estado: 'FERIADO',
-            mensaje: 'Hoy es feriado y estamos cerrados. Nuestro horario habitual es de lunes a viernes de 9:00 a 18:30 (colación de 13:50 a 15:01) y sábados de 9:00 a 13:00. Cuéntame qué repuestos necesitas y te respondemos en cuanto retomemos. 🙌'
+            mensaje: 'Hoy es feriado y estamos cerrados. Nuestro horario habitual es lunes a viernes de 9:00 a 13:45 y de 15:00 a 18:00 (colación 13:45–15:00), sábados de 9:30 a 13:00. Cuéntame qué repuestos necesitas y te respondemos en cuanto retomemos. 🙌'
         };
     }
 
-    // Sábado: 9:00-13:00
+    // Sábado: 9:30-13:00 (570 – 780)
     if (weekday === 'Sat') {
-        if (timeMinutes >= 540 && timeMinutes < 780) {
+        if (timeMinutes >= 570 && timeMinutes < 780) {
             return { abierto: true, estado: 'ABIERTO', mensaje: null };
         }
-        const esManana = timeMinutes < 540;
+        const esManana = timeMinutes < 570;
         return {
             abierto: false, estado: 'CERRADO',
             mensaje: esManana
-                ? 'Aún no hemos abierto. Los sábados atendemos de 9:00 a 13:00. Cuéntame qué necesitas y en cuanto abramos te respondemos. 🙌'
-                : 'Ya cerramos por hoy. Los sábados atendemos de 9:00 a 13:00. El lunes desde las 9:00 estamos disponibles. Cuéntame qué necesitas y te contactamos. 😊'
+                ? 'Aún no hemos abierto. Los sábados atendemos de 9:30 a 13:00. Cuéntame qué necesitas y en cuanto abramos te respondemos. 🙌'
+                : 'Ya cerramos por hoy. Los sábados atendemos de 9:30 a 13:00. El lunes desde las 9:00 estamos disponibles. Cuéntame qué necesitas y te contactamos. 😊'
         };
     }
 
@@ -107,7 +107,7 @@ async function getEstadoAtencion(now = new Date()) {
     if (timeMinutes < 540) {
         return {
             abierto: false, estado: 'CERRADO',
-            mensaje: 'Aún no hemos abierto. Nuestro horario es lunes a viernes de 9:00 a 13:45 y de 15:00 a 18:00 (colación 13:45–15:00), sábados de 9:00 a 13:00. Cuéntame qué necesitas y te respondemos al abrir. 🙌'
+            mensaje: 'Aún no hemos abierto. Nuestro horario es lunes a viernes de 9:00 a 13:45 y de 15:00 a 18:00 (colación 13:45–15:00), sábados de 9:30 a 13:00. Cuéntame qué necesitas y te respondemos al abrir. 🙌'
         };
     }
 
@@ -132,7 +132,7 @@ async function getEstadoAtencion(now = new Date()) {
     // Después de 18:00
     return {
         abierto: false, estado: 'CERRADO',
-        mensaje: 'Ya cerramos por hoy. Nuestro horario es lunes a viernes de 9:00 a 13:45 y de 15:00 a 18:00 (colación 13:45–15:00), sábados de 9:00 a 13:00. Cuéntame qué necesitas y mañana a primera hora te respondemos. 😊'
+        mensaje: 'Ya cerramos por hoy. Nuestro horario es lunes a viernes de 9:00 a 13:45 y de 15:00 a 18:00 (colación 13:45–15:00), sábados de 9:30 a 13:00. Cuéntame qué necesitas y mañana a primera hora te respondemos. 😊'
     };
 }
 
