@@ -1902,4 +1902,118 @@ router.post('/conversaciones/:phone/plantilla', async (req, res) => {
     }
 });
 
+/**
+ * POST /api/dashboard/campaign/hsm-masivo
+ * Envía una plantilla HSM aprobada a todos los phones de la tabla `clientes`
+ * (con filtro opcional por sucursal). Útil para reactivar contactos que tienen
+ * el número viejo cacheado tras un cambio de WABA.
+ *
+ * Body: {
+ *   plantilla_id: 'actualizacion_numero_whatsapp' | 'retomar_cotizacion' | ...,
+ *   sucursal?: 'Melipilla' | 'San Felipe',
+ *   limit?: number (default 1000, max 5000)
+ * }
+ *
+ * Devuelve: { enviados, errores, total, detalle: [...] }
+ * Throttle: ~5 mensajes/segundo (Meta acepta más, pero conservador).
+ */
+router.post('/campaign/hsm-masivo', async (req, res) => {
+    try {
+        const { plantilla_id, sucursal, limit } = req.body;
+        if (!plantilla_id) return res.status(400).json({ error: 'Falta plantilla_id' });
+
+        const maxLimit = Math.min(parseInt(limit, 10) || 1000, 5000);
+
+        // Obtener phones de la tabla `clientes`, opcionalmente filtrados por sucursal
+        // (los clientes no tienen sucursal directa, derivamos de su última sesión/pedido).
+        const params = [];
+        let sucursalJoin = '';
+        let sucursalWhere = '';
+        if (sucursal) {
+            params.push(sucursal);
+            sucursalJoin = `
+                LEFT JOIN LATERAL (
+                    SELECT sucursal FROM pedidos p
+                    WHERE p.phone = c.phone AND p.sucursal = $${params.length}
+                    LIMIT 1
+                ) pp ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT sucursal FROM user_sessions s
+                    WHERE s.phone = c.phone AND s.sucursal = $${params.length}
+                    LIMIT 1
+                ) ss ON TRUE
+            `;
+            sucursalWhere = `AND (pp.sucursal IS NOT NULL OR ss.sucursal IS NOT NULL)`;
+        }
+        params.push(maxLimit);
+        const { rows: clientes } = await db.query(
+            `SELECT DISTINCT c.phone, c.nombre
+             FROM clientes c
+             ${sucursalJoin}
+             WHERE c.phone IS NOT NULL ${sucursalWhere}
+             LIMIT $${params.length}`,
+            params
+        );
+
+        console.log(`[Campaña HSM] Iniciando envío de '${plantilla_id}' a ${clientes.length} clientes${sucursal ? ' (' + sucursal + ')' : ''}`);
+
+        // Plantillas y sus param schemas (debe coincidir con el catálogo y lo aprobado en Meta).
+        const langMap = {
+            retomar_cotizacion: 'es_CL',
+            cotizacion_lista: 'es_CL',
+            comprobante_pendiente: 'es_CL',
+            pedido_listo: 'es_CL',
+            encargo_llegada: 'es_CL',
+            seguimiento_postventa: 'es_CL',
+            actualizacion_numero_whatsapp: 'es_CL'
+        };
+        const language = langMap[plantilla_id] || 'es_CL';
+
+        // Throttle de ~5 msg/seg
+        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+        let enviados = 0;
+        let errores = 0;
+        const detalle = [];
+
+        for (const c of clientes) {
+            try {
+                // Param 1 = nombre con coma o vacío. Si no hay nombre, usar "" para template-friendly.
+                const nombreParam = c.nombre ? ` ${c.nombre.split(' ')[0]}` : '';
+                const bodyParams = [{ name: '1', text: nombreParam }];
+                await whatsappService.sendTemplateMessage(c.phone, plantilla_id, language, bodyParams);
+
+                // Persistir en mensajes para tracking
+                try {
+                    await mensajesService.registrarSaliente({
+                        phone: c.phone,
+                        tipo: 'text',
+                        contenido: `[Plantilla HSM: ${plantilla_id}] (campaña masiva)`,
+                        autor: 'vendedor',
+                        autorNombre: 'Sistema (Campaña)',
+                        sucursal: sucursal || 'Melipilla',
+                    });
+                } catch (_) { /* no bloquea */ }
+
+                enviados++;
+                detalle.push({ phone: c.phone, nombre: c.nombre, status: 'ok' });
+                await sleep(200); // ~5 msg/seg
+            } catch (err) {
+                errores++;
+                detalle.push({
+                    phone: c.phone,
+                    nombre: c.nombre,
+                    status: 'error',
+                    error: err.response?.data?.error?.message || err.message
+                });
+            }
+        }
+
+        console.log(`[Campaña HSM] Finalizada: ${enviados} OK, ${errores} errores`);
+        res.json({ total: clientes.length, enviados, errores, detalle });
+    } catch (error) {
+        console.error('[Dashboard] Error en campaña HSM:', error);
+        res.status(500).json({ error: 'Error en campaña', detalle: error.message });
+    }
+});
+
 module.exports = router;

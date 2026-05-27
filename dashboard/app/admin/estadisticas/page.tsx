@@ -204,6 +204,9 @@ export default function EstadisticasAdmin() {
                     </div>
                 </header>
 
+                {/* Campaña HSM masiva */}
+                <CampaignSection />
+
                 {/* Filtros sucursal / vendedor */}
                 <div className="flex items-center gap-6 pb-6">
                     <div className="flex items-center gap-2">
@@ -342,5 +345,110 @@ export default function EstadisticasAdmin() {
                 )}
             </div>
         </main>
+    );
+}
+
+interface CampaignResult {
+    total: number;
+    enviados: number;
+    errores: number;
+    detalle?: { phone: string; nombre?: string | null; status: string; error?: string }[];
+}
+
+function CampaignSection() {
+    const [plantilla, setPlantilla] = useState('actualizacion_numero_whatsapp');
+    const [sucursal, setSucursal] = useState('Melipilla');
+    const [limit, setLimit] = useState('100');
+    const [sending, setSending] = useState(false);
+    const [result, setResult] = useState<CampaignResult | null>(null);
+
+    const enviar = async () => {
+        const max = parseInt(limit, 10) || 0;
+        if (max <= 0 || max > 5000) {
+            alert('Límite debe estar entre 1 y 5000');
+            return;
+        }
+        const ok = confirm(
+            `Vas a enviar la plantilla "${plantilla}" a hasta ${max} clientes` +
+            (sucursal ? ` de ${sucursal}` : '') +
+            `.\n\nMeta cobra por cada mensaje. ¿Confirmar envío?`
+        );
+        if (!ok) return;
+
+        setSending(true);
+        setResult(null);
+        try {
+            const res = await axios.post(`${BACKEND_URL}/api/dashboard/campaign/hsm-masivo`, {
+                plantilla_id: plantilla,
+                sucursal: sucursal || undefined,
+                limit: max
+            });
+            setResult(res.data);
+        } catch (err) {
+            const e = err as { response?: { data?: { error?: string } } };
+            alert('Error: ' + (e.response?.data?.error || 'desconocido'));
+        } finally {
+            setSending(false);
+        }
+    };
+
+    return (
+        <div className="mb-6 p-5 rounded-2xl bg-purple-500/5 border border-purple-500/20">
+            <div className="flex items-center gap-2 mb-3">
+                <span className="text-purple-300 font-bold text-sm">📢 Campaña HSM masiva</span>
+                <span className="text-[10px] text-neutral-500">Reactiva contactos cacheados tras cambio de número</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
+                <div>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 block mb-1">Plantilla</label>
+                    <select
+                        value={plantilla}
+                        onChange={(e) => setPlantilla(e.target.value)}
+                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-neutral-300 focus:border-purple-500/50 focus:outline-none"
+                    >
+                        <option value="actualizacion_numero_whatsapp">actualizacion_numero (cambio de número)</option>
+                        <option value="retomar_cotizacion">retomar_cotizacion</option>
+                        <option value="seguimiento_postventa">seguimiento_postventa</option>
+                    </select>
+                </div>
+                <div>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 block mb-1">Sucursal</label>
+                    <select
+                        value={sucursal}
+                        onChange={(e) => setSucursal(e.target.value)}
+                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-neutral-300 focus:border-purple-500/50 focus:outline-none"
+                    >
+                        <option value="Melipilla">Melipilla</option>
+                        <option value="San Felipe">San Felipe</option>
+                        <option value="">Todas</option>
+                    </select>
+                </div>
+                <div>
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-neutral-500 block mb-1">Límite (max 5000)</label>
+                    <input
+                        type="number"
+                        min="1"
+                        max="5000"
+                        value={limit}
+                        onChange={(e) => setLimit(e.target.value)}
+                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-neutral-300 focus:border-purple-500/50 focus:outline-none"
+                    />
+                </div>
+                <div className="flex items-end">
+                    <button
+                        onClick={enviar}
+                        disabled={sending}
+                        className="w-full py-2 rounded-lg bg-purple-500 hover:bg-purple-600 text-white text-xs font-bold uppercase tracking-wider transition-colors disabled:opacity-50"
+                    >
+                        {sending ? '⏳ Enviando...' : '🚀 Enviar campaña'}
+                    </button>
+                </div>
+            </div>
+            {result && (
+                <div className={`text-xs p-3 rounded-lg ${result.errores > 0 ? 'bg-yellow-500/10 text-yellow-300' : 'bg-emerald-500/10 text-emerald-300'}`}>
+                    ✅ {result.enviados} enviados | ❌ {result.errores} errores | Total: {result.total}
+                </div>
+            )}
+        </div>
     );
 }
