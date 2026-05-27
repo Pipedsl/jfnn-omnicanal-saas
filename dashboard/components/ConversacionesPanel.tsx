@@ -33,7 +33,7 @@ interface Conversacion {
 }
 
 interface Mensaje {
-  id: number;
+  id: number | string; // string para mensajes optimistas pendientes
   direccion: "entrante" | "saliente";
   tipo: "text" | "image" | "audio" | "video" | "document";
   contenido: string | null;
@@ -42,6 +42,8 @@ interface Mensaje {
   transcripcion: string | null;
   autor: "cliente" | "agente_ia" | "vendedor";
   autor_nombre: string | null;
+  // Flag local para UI optimista: 'pending' al crearse, 'sent' al confirmar, 'failed' si error
+  _status?: "pending" | "sent" | "failed";
   created_at: string;
 }
 
@@ -285,26 +287,61 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
 
   const sendMessage = async () => {
     if (!selectedPhone || !messageText.trim() || sendingMessage) return;
+    const texto = messageText.trim();
+    const vendedorNombre = typeof window !== "undefined" ? localStorage.getItem("jfnn_vendedor_nombre") : null;
+    const tempId = `temp_${Date.now()}`;
+
+    // UI optimista: mostrar el mensaje inmediatamente con estado "pending"
+    const optimisticMsg: Mensaje = {
+      id: tempId,
+      direccion: "saliente",
+      tipo: "text",
+      contenido: texto,
+      media_url: null,
+      media_mime: null,
+      transcripcion: null,
+      autor: "vendedor",
+      autor_nombre: vendedorNombre,
+      created_at: new Date().toISOString(),
+      _status: "pending"
+    };
+    setChat(prev => prev ? { ...prev, mensajes: [...prev.mensajes, optimisticMsg] } : prev);
+    setMessageText("");
     setSendingMessage(true);
+
     try {
-      const vendedorNombre = typeof window !== "undefined" ? localStorage.getItem("jfnn_vendedor_nombre") : null;
       await api.post(`${API_URL}/api/dashboard/conversaciones/${selectedPhone}/mensaje`, {
-        texto: messageText.trim(),
+        texto,
         vendedor_nombre: vendedorNombre,
       });
-      setMessageText("");
+      // Marcar como enviado y luego refrescar (el refetch lo reemplazará con el real)
+      setChat(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          mensajes: prev.mensajes.map(m => m.id === tempId ? { ...m, _status: "sent" } : m)
+        };
+      });
       if (chat && !chat.agente_pausado) {
-        await api.patch(`${API_URL}/api/dashboard/sessions/${selectedPhone}/pausa`, { pausado: true }).catch(() => {});
+        api.patch(`${API_URL}/api/dashboard/sessions/${selectedPhone}/pausa`, { pausado: true }).catch(() => {});
         setChat(prev => prev ? { ...prev, agente_pausado: true } : prev);
       }
+      // Refresh en background para reemplazar el optimista con el real
       fetchChat(selectedPhone, false);
     } catch (err: unknown) {
+      // Marcar mensaje como failed
+      setChat(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          mensajes: prev.mensajes.map(m => m.id === tempId ? { ...m, _status: "failed" } : m)
+        };
+      });
       const axiosErr = err as { response?: { data?: { code?: string } } };
       if (axiosErr.response?.data?.code === "WINDOW_CLOSED") {
         alert("Ventana de 24h cerrada. Usa una plantilla HSM para contactar al cliente.");
       } else {
         console.error("[Mensaje] Error:", err);
-        alert("Error al enviar mensaje.");
       }
     } finally {
       setSendingMessage(false);
@@ -406,8 +443,10 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
   }, [chat?.mensajes]);
 
   const handleSelectConv = (phone: string) => {
-    setSelectedPhone(phone);
-    setChat(null);
+    if (phone !== selectedPhone) {
+      setSelectedPhone(phone);
+      setChat(null); // limpia para evitar mostrar chat anterior con datos viejos
+    }
   };
 
   return (
@@ -429,8 +468,16 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
         </div>
         <div className="flex-1 overflow-y-auto">
           {loadingList ? (
-            <div className="flex items-center justify-center h-32">
-              <div className="w-6 h-6 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+            <div className="animate-pulse">
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="px-4 py-3 border-b border-white/5 flex items-start gap-2">
+                  <div className="w-8 h-8 rounded-full bg-white/5 flex-shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3 w-1/2 rounded bg-white/5" />
+                    <div className="h-2 w-2/3 rounded bg-white/5" />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : conversaciones.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-32 text-neutral-600">
@@ -635,8 +682,11 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
               {loadingChat ? (
-                <div className="flex items-center justify-center h-32">
-                  <div className="w-6 h-6 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+                <div className="space-y-3 animate-pulse">
+                  <div className="flex justify-start"><div className="h-12 w-2/3 rounded-2xl bg-white/5" /></div>
+                  <div className="flex justify-end"><div className="h-16 w-3/5 rounded-2xl bg-accent/10" /></div>
+                  <div className="flex justify-start"><div className="h-10 w-1/2 rounded-2xl bg-white/5" /></div>
+                  <div className="flex justify-end"><div className="h-14 w-2/3 rounded-2xl bg-accent/10" /></div>
                 </div>
               ) : chat?.mensajes.length === 0 ? (
                 <div className="flex items-center justify-center h-32 text-neutral-600 text-xs">
@@ -723,10 +773,19 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
                         </div>
                       )}
 
-                      {/* Timestamp */}
+                      {/* Timestamp + status (estilo WhatsApp) */}
                       <div className="flex items-center gap-1 mt-1">
                         <Clock size={9} className="text-neutral-600" />
                         <span className="text-[9px] text-neutral-600">{formatTime(msg.created_at)}</span>
+                        {msg._status === "pending" && (
+                          <span className="text-[9px] text-neutral-600 ml-0.5" title="Enviando...">⏰</span>
+                        )}
+                        {msg._status === "sent" && (
+                          <span className="text-[9px] text-accent ml-0.5" title="Enviado">✓</span>
+                        )}
+                        {msg._status === "failed" && (
+                          <span className="text-[9px] text-red-400 ml-0.5" title="Error al enviar — toca para reintentar">⚠️</span>
+                        )}
                       </div>
                     </div>
                   </div>
