@@ -11,6 +11,7 @@ import DashboardMetrics from "@/components/DashboardMetrics";
 import AgentMetrics from "@/components/AgentMetrics";
 import IdentitySelector from "@/components/IdentitySelector";
 import ConversacionesPanel from "@/components/ConversacionesPanel";
+import NotificationToast, { useToast } from "@/components/NotificationToast";
 import Link from "next/link";
 
 interface Quote {
@@ -40,6 +41,12 @@ export default function Home() {
   const [adminSucursalFilter, setAdminSucursalFilter] = useState<'todas' | 'Melipilla' | 'San Felipe'>('todas');
   const [identitySelectorOpen, setIdentitySelectorOpen] = useState(false);
   const { permission, requestPermission, notify } = useNotifications();
+  const { toasts, addToast, removeToast } = useToast();
+
+  const notifyAll = useCallback((title: string, body: string) => {
+    notify(title, body);
+    addToast(title, body);
+  }, [notify, addToast]);
   // useRef para capturar el `view` y `fetchQuotesAndMetrics` actual sin closures stale
   const viewRef = useRef("pendientes");
   const fetchRef = useRef<(source?: string) => Promise<void>>(null!);
@@ -108,10 +115,10 @@ export default function Home() {
         for (const q of pend) {
           const prevTime = prevMsgTimesRef.current.get(q.phone);
           if (!prevTime) {
-            notify("Nuevo cliente", `${q.entidades?.nombre_cliente || q.phone} está escribiendo`);
+            notifyAll("Nuevo cliente", `${q.entidades?.nombre_cliente || q.phone} está escribiendo`);
             break;
           } else if (q.ultimo_mensaje && q.ultimo_mensaje > prevTime) {
-            notify("Mensaje nuevo", `${q.entidades?.nombre_cliente || q.phone} escribió`);
+            notifyAll("Mensaje nuevo", `${q.entidades?.nombre_cliente || q.phone} escribió`);
             break;
           }
         }
@@ -404,7 +411,7 @@ export default function Home() {
                 userRole === 'vendedor' ? userSucursal :
                 adminSucursalFilter !== 'todas' ? adminSucursalFilter : null
               }
-              onNewMessage={notify}
+              onNewMessage={notifyAll}
             />
           ) : loading && quotes.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 glass rounded-3xl animate-pulse">
@@ -453,6 +460,8 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      <NotificationToast toasts={toasts} onRemove={removeToast} />
 
       {/* Selector de identidad de vendedor */}
       {userRole === 'vendedor' && userSucursal && (
