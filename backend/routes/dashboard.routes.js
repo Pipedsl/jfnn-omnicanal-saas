@@ -1720,30 +1720,25 @@ router.get('/metrics/agent', async (req, res) => {
 router.get('/conversaciones', async (req, res) => {
     try {
         const sucursal = req.query.sucursal || null;
+        // listarConversacionesActivas ya hace JOIN con user_sessions y devuelve todo.
+        // Antes hacíamos N+1 queries (305 getSession adicionales) → lentitud.
         const conversaciones = await mensajesService.listarConversacionesActivas({ sucursal });
 
-        const enriched = await Promise.all(conversaciones.map(async (conv) => {
-            let session = null;
-            try {
-                session = await sessionsService.getSession(conv.phone);
-            } catch (_) { /* no session = new contact */ }
-
-            return {
-                phone: conv.phone,
-                sucursal: conv.sucursal || session?.sucursal || null,
-                estado: session?.estado || null,
-                nombre_cliente: session?.entidades?.nombre_cliente || null,
-                marca_modelo: session?.entidades?.marca_modelo || null,
-                ultimo_mensaje_at: conv.ultimo_mensaje_at,
-                ultimo_contenido: conv.ultimo_contenido,
-                total_entrantes: parseInt(conv.total_entrantes, 10) || 0,
-                agente_pausado: session?.entidades?.agente_pausado === true,
-                consulta_pendiente: session?.entidades?.consulta_pendiente || null,
-                marca: session?.entidades?.marca || null,
-            };
+        const formatted = conversaciones.map(conv => ({
+            phone: conv.phone,
+            sucursal: conv.sucursal || null,
+            estado: conv.estado || null,
+            nombre_cliente: conv.nombre_cliente || null,
+            marca_modelo: conv.marca_modelo || null,
+            ultimo_mensaje_at: conv.ultimo_mensaje_at,
+            ultimo_contenido: conv.ultimo_contenido,
+            total_entrantes: parseInt(conv.total_entrantes, 10) || 0,
+            agente_pausado: conv.agente_pausado === true,
+            consulta_pendiente: conv.consulta_pendiente || null,
+            marca: conv.marca || null,
         }));
 
-        res.json(enriched);
+        res.json(formatted);
     } catch (error) {
         console.error('[Dashboard] Error en /conversaciones:', error);
         res.status(500).json({ error: 'Error listando conversaciones' });

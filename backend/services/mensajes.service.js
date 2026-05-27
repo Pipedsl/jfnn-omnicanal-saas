@@ -160,49 +160,51 @@ const listarPorPhone = async (phone, { limit = 50, before = null } = {}) => {
  */
 const listarConversacionesActivas = async ({ sucursal = null } = {}) => {
     try {
-        let query;
-        let params;
-
+        // Optimización: usamos DISTINCT ON + LEFT JOIN para traer en UNA sola query
+        // toda la metadata del último mensaje + datos de la sesión. Antes hacíamos
+        // N queries adicionales (1 por phone) con getSession() → causaba lentitud
+        // con muchas conversaciones (305+).
+        let whereClause = '';
+        const params = [];
         if (sucursal) {
-            query = `
-                SELECT
-                    m.phone,
-                    MAX(m.sucursal)                              AS sucursal,
-                    MAX(m.created_at)                             AS ultimo_mensaje_at,
-                    (
-                        SELECT contenido FROM mensajes
-                        WHERE phone = m.phone
-                        ORDER BY created_at DESC
-                        LIMIT 1
-                    )                                             AS ultimo_contenido,
-                    COUNT(*) FILTER (WHERE m.direccion = 'entrante') AS total_entrantes
-                FROM mensajes m
-                WHERE m.phone IN (
-                    SELECT DISTINCT phone FROM mensajes WHERE sucursal = $1
-                ) OR m.sucursal IS NULL
-                GROUP BY m.phone
-                ORDER BY ultimo_mensaje_at DESC
-            `;
-            params = [sucursal];
-        } else {
-            query = `
-                SELECT
-                    m.phone,
-                    MAX(m.sucursal)                              AS sucursal,
-                    MAX(m.created_at)                             AS ultimo_mensaje_at,
-                    (
-                        SELECT contenido FROM mensajes
-                        WHERE phone = m.phone
-                        ORDER BY created_at DESC
-                        LIMIT 1
-                    )                                             AS ultimo_contenido,
-                    COUNT(*) FILTER (WHERE m.direccion = 'entrante') AS total_entrantes
-                FROM mensajes m
-                GROUP BY m.phone
-                ORDER BY ultimo_mensaje_at DESC
-            `;
-            params = [];
+            params.push(sucursal);
+            whereClause = `WHERE m.phone IN (SELECT DISTINCT phone FROM mensajes WHERE sucursal = $1)`;
         }
+
+        const query = `
+            WITH agg AS (
+                SELECT
+                    m.phone,
+                    MAX(m.sucursal) AS sucursal_msg,
+                    MAX(m.created_at) AS ultimo_mensaje_at,
+                    COUNT(*) FILTER (WHERE m.direccion = 'entrante') AS total_entrantes
+                FROM mensajes m
+                ${whereClause}
+                GROUP BY m.phone
+            ),
+            ultimo AS (
+                SELECT DISTINCT ON (m.phone) m.phone, m.contenido
+                FROM mensajes m
+                ${whereClause}
+                ORDER BY m.phone, m.created_at DESC
+            )
+            SELECT
+                a.phone,
+                COALESCE(a.sucursal_msg, s.sucursal) AS sucursal,
+                a.ultimo_mensaje_at,
+                u.contenido AS ultimo_contenido,
+                a.total_entrantes,
+                s.estado,
+                s.entidades->>'nombre_cliente' AS nombre_cliente,
+                s.entidades->>'marca_modelo' AS marca_modelo,
+                COALESCE((s.entidades->>'agente_pausado')::boolean, false) AS agente_pausado,
+                s.entidades->'consulta_pendiente' AS consulta_pendiente,
+                s.entidades->'marca' AS marca
+            FROM agg a
+            LEFT JOIN ultimo u ON u.phone = a.phone
+            LEFT JOIN user_sessions s ON s.phone = a.phone
+            ORDER BY a.ultimo_mensaje_at DESC
+        `;
 
         const result = await db.query(query, params);
         return result.rows;
