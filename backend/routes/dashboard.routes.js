@@ -298,6 +298,21 @@ router.post('/cotizaciones/responder', async (req, res) => {
         await whatsappService.sendSellerMessage(phone, message);
         await sessionsService.incrementMessageCounter(phone, 'vendedor');
 
+        // Persistir cotización formal en tabla mensajes para que aparezca en el chat panel
+        try {
+            const sucursalSesion = await sessionsService.getSession(phone).then(s => s?.sucursal || 'Melipilla').catch(() => 'Melipilla');
+            await mensajesService.registrarSaliente({
+                phone,
+                tipo: 'text',
+                contenido: message,
+                autor: 'vendedor',
+                autorNombre: vendedor_nombre || 'Asesor JFNN',
+                sucursal: sucursalSesion,
+            });
+        } catch (persistErr) {
+            console.error(`[Cotización] ⚠️ No se pudo persistir mensaje formal en chat (envío a Meta sí completó):`, persistErr.message);
+        }
+
         // Actualizar sesión: Guardar ID de cotización, total, horario, precios y pasar al flujo de cierre
         const sessionUpdateParams = {
             quote_id: quoteId,
