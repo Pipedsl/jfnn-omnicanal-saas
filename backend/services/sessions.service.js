@@ -50,7 +50,15 @@ const INITIAL_ENTITIES = {
         monto: null, banco_origen: null, fecha_transaccion: null,
         id_transaccion: null, rut_origen: null, nombre_origen: null,
         datos_extraidos_por_ia: true
-    }
+    },
+    // Consulta del cliente que la IA derivó al vendedor (marca específica, plazo exacto, etc.).
+    // Mientras tenga valor, la IA queda pausada y el dashboard muestra badge "❓ Consulta".
+    consulta_pendiente: null, // { texto, momento, item_relacionado } | null
+    // Flag de venta ajustada en el local (cuando el vendedor agrega items extra al cierre).
+    venta_ajustada_en_local: false,
+    // Marca manual del vendedor para hacer seguimiento (tipo "pin" / "no leído" en WhatsApp).
+    // null cuando no está marcada. Cuando está marcada, el badge 🔖 aparece en la lista.
+    marca: null // { vendedor, momento, nota? } | null
 };
 
 // ─── Helpers de deduplicación de repuestos ──────────────────────

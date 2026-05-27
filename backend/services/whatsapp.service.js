@@ -1,5 +1,27 @@
 const axios = require('axios');
 const sessionsService = require('./sessions.service');
+const mensajesService = require('./mensajes.service');
+
+/**
+ * Helper interno: persiste un mensaje saliente en la tabla `mensajes`.
+ * Se llama desde sendSellerMessage/sendAgentMessage para mantener consistencia
+ * entre lo que se envía a Meta y lo visible en el chat panel.
+ */
+const _persistSaliente = async (to, text, { autor, autorNombre }) => {
+    try {
+        const session = await sessionsService.getSession(to).catch(() => null);
+        await mensajesService.registrarSaliente({
+            phone: to,
+            tipo: 'text',
+            contenido: text,
+            autor,
+            autorNombre: autorNombre || null,
+            sucursal: session?.sucursal || 'Melipilla',
+        });
+    } catch (err) {
+        console.error(`[Mensajes] ⚠️ No se pudo persistir saliente para ${to} (envío sí completó):`, err.message);
+    }
+};
 
 /**
  * Servicio para enviar mensajes vía WhatsApp Cloud API (Meta)
@@ -85,22 +107,30 @@ const sendTextMessage = async (to, text) => {
 };
 
 /**
- * Wrapper: envía mensaje atribuyéndolo al agente IA (incrementa contador).
+ * Wrapper: envía mensaje atribuyéndolo al agente IA (incrementa contador y persiste).
  * Usado por el controller de WhatsApp para todas las respuestas automatizadas.
+ * opts.persist=false para evitar persistencia automática (cuando el caller ya persiste manualmente).
  */
-const sendAgentMessage = async (to, text) => {
+const sendAgentMessage = async (to, text, opts = {}) => {
+    const { persist = true } = opts;
     const result = await sendTextMessage(to, text);
     await sessionsService.incrementMessageCounter(to, 'ia');
+    if (persist) await _persistSaliente(to, text, { autor: 'agente_ia', autorNombre: null });
     return result;
 };
 
 /**
- * Wrapper: envía mensaje atribuyéndolo al vendedor humano (incrementa contador).
- * Usado por endpoints del dashboard donde el vendedor escribe manualmente.
+ * Wrapper: envía mensaje atribuyéndolo al vendedor humano (incrementa contador y persiste).
+ * Usado por endpoints del dashboard. Por defecto auto-persiste en la tabla mensajes
+ * para que aparezca en el chat panel.
+ * opts.autorNombre = nombre del vendedor (si null queda como mensaje del sistema).
+ * opts.persist=false para evitar persistencia automática.
  */
-const sendSellerMessage = async (to, text) => {
+const sendSellerMessage = async (to, text, opts = {}) => {
+    const { persist = true, autorNombre = null } = opts;
     const result = await sendTextMessage(to, text);
     await sessionsService.incrementMessageCounter(to, 'vendedor');
+    if (persist) await _persistSaliente(to, text, { autor: 'vendedor', autorNombre: autorNombre || 'Sistema JFNN' });
     return result;
 };
 
@@ -193,6 +223,41 @@ const downloadMedia = async (mediaId) => {
 /**
  * Solicita una reseña en Google Maps al cliente (HU-6)
  */
+/**
+ * Envía una imagen al cliente vía WhatsApp Cloud API.
+ * @param {string} to - phone del destinatario
+ * @param {string} imageUrl - URL pública de la imagen (firmada de Supabase Storage)
+ * @param {string} [caption] - texto opcional debajo de la imagen
+ */
+const sendImageMessage = async (to, imageUrl, caption = null) => {
+    try {
+        const payload = {
+            messaging_product: "whatsapp",
+            recipient_type: "individual",
+            to,
+            type: "image",
+            image: { link: imageUrl, ...(caption ? { caption } : {}) }
+        };
+        const response = await axios.post(
+            `${GRAPH_BASE}/${process.env.WHATSAPP_PHONE_ID}/messages`,
+            payload,
+            { headers: { Authorization: `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' } }
+        );
+        console.log(`✅ [WhatsApp Image] Enviada a ${to} | message_id: ${response.data?.messages?.[0]?.id || '?'}`);
+        return response.data;
+    } catch (error) {
+        const errorData = error.response ? error.response.data : error.message;
+        const errorCode = error.response?.data?.error?.code;
+        if (errorCode === 130472) {
+            const windowError = new Error(WINDOW_CLOSED_ERROR);
+            windowError.code = WINDOW_CLOSED_ERROR;
+            throw windowError;
+        }
+        console.error(`❌ [WhatsApp Image] Error enviando a ${to}:`, errorData);
+        throw error;
+    }
+};
+
 const sendGoogleReviewRequest = async (phone) => {
     const reviewUrl = process.env.GOOGLE_REVIEW_URL;
     if (!reviewUrl) {
@@ -207,6 +272,7 @@ module.exports = {
     sendTextMessage,
     sendAgentMessage,
     sendSellerMessage,
+    sendImageMessage,
     sendTemplateMessage,
     downloadMedia,
     sendGoogleReviewRequest,

@@ -152,8 +152,24 @@ export default function BandejaTable({ quotes, filter, searchQuery, onOpenDetail
             const vehicle = getVehicleLabel(q.entidades).toLowerCase();
             return q.phone.includes(query) || name.includes(query) || quoteId.includes(query) || vehicle.includes(query);
         })
-        // Ordenar: los que necesitan acción primero, luego por antigüedad (más antiguos arriba)
-        .sort((a, b) => new Date(a.created_at || a.ultimo_mensaje || 0).getTime() - new Date(b.created_at || b.ultimo_mensaje || 0).getTime());
+        // Ordenar: prioridad por estado (ESPERANDO_VENDEDOR primero — requiere cotizar),
+        // luego ESPERANDO_APROBACION_ADMIN, luego CONFIRMANDO_COMPRA, resto al final.
+        // Dentro de cada grupo, por antigüedad (más antiguos arriba).
+        .sort((a, b) => {
+            const prioridad = (estado: string): number => {
+                if (estado === 'ESPERANDO_VENDEDOR') return 0;
+                if (estado === 'ESPERANDO_APROBACION_ADMIN') return 1;
+                if (estado === 'CONFIRMANDO_COMPRA') return 2;
+                if (estado === 'ABONO_VERIFICADO') return 3;
+                if (estado === 'PAGO_VERIFICADO') return 4;
+                if (estado === 'ENCARGO_SOLICITADO' || estado === 'ESPERANDO_SALDO') return 5;
+                if (estado === 'ESPERANDO_RETIRO') return 6;
+                return 7;
+            };
+            const diff = prioridad(a.estado) - prioridad(b.estado);
+            if (diff !== 0) return diff;
+            return new Date(a.created_at || a.ultimo_mensaje || 0).getTime() - new Date(b.created_at || b.ultimo_mensaje || 0).getTime();
+        });
 
     if (filtered.length === 0) {
         return (

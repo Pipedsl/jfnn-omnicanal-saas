@@ -157,6 +157,13 @@ const uploadPartImage = async (phone, imageBuffer, mimeType) => {
 };
 
 /**
+ * Sube una imagen enviada por el vendedor (foto de repuesto para mostrar al cliente).
+ */
+const uploadVendorImage = async (phone, imageBuffer, mimeType) => {
+    return _upload('vendor-images', phone, imageBuffer, mimeType);
+};
+
+/**
  * Sube una nota de voz.
  *
  * @param {string} phone
@@ -217,6 +224,7 @@ const getSignedUrl = async (objectPath, expiresIn = 3600) => {
 module.exports = {
     uploadVoucher,
     uploadPartImage,
+    uploadVendorImage,
     uploadAudio,
     uploadVideo,
     uploadDocument,

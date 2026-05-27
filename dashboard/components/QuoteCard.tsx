@@ -868,6 +868,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                         phone={phone}
                                         items={repuestos}
                                         vehiculos={vehiculos}
+                                        estado={estado}
                                         onResponded={() => {
                                             setIsEditing(false);
                                             closeModal();
@@ -1002,6 +1003,17 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                     </button>
                                 </div>
                             )}
+
+                                {/* Ajustar venta final: visible cuando el cliente ya pagó/retiró (compras extras en local) */}
+                                {['PAGO_VERIFICADO', 'ABONO_VERIFICADO', 'ESPERANDO_RETIRO', 'ENTREGADO', 'CICLO_COMPLETO'].includes(estado) && (
+                                    <button
+                                        onClick={() => setIsEditing(true)}
+                                        className="w-full py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold uppercase tracking-widest hover:bg-emerald-500/20 transition-all flex items-center justify-center gap-2"
+                                        title="Agregar items extras que el cliente compró en el local — actualiza el total para KPIs internos. No envía mensaje al cliente."
+                                    >
+                                        💰 Ajustar Venta Final (Compras Extra en Local)
+                                    </button>
+                                )}
 
                                 {(estado === 'PAGO_VERIFICADO' || estado === 'ABONO_VERIFICADO') && !showLogisticsModal && !showEtaModal && (
                                     <button

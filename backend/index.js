@@ -31,6 +31,7 @@ const apiLimiter = rateLimit({
 });
 // Capturar rawBody para que el webhook de Meta pueda validar X-Hub-Signature-256.
 app.use(express.json({
+    limit: '15mb', // permitir imágenes en base64 (~10MB binary → ~14MB base64)
     verify: (req, _res, buf) => { req.rawBody = buf; }
 }));
 

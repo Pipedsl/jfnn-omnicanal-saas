@@ -80,19 +80,10 @@ const messageBuffer = new Map();
 // Debounce ajustable por env. Dev/test: 5s. Producción recomendado: 20s (ahorra tokens).
 const DEBOUNCE_TIME_MS = parseInt(process.env.WHATSAPP_DEBOUNCE_MS || '17000', 10);
 
-const sendAndPersist = async (phone, text, { autor = 'agente_ia', sucursal = null } = {}) => {
+// sendAndPersist mantiene compatibilidad: hoy el wrapper sendAgentMessage ya auto-persiste
+// en la tabla mensajes con autor='agente_ia'. Conservamos la firma para no romper callers.
+const sendAndPersist = async (phone, text /* opts ignorados: autor/sucursal ya los maneja el wrapper */) => {
     await whatsappService.sendAgentMessage(phone, text);
-    try {
-        await mensajesService.registrarSaliente({
-            phone,
-            tipo: 'text',
-            contenido: text,
-            autor,
-            sucursal,
-        });
-    } catch (err) {
-        console.error(`[Mensajes] ❌ Error persistiendo saliente para ${phone} (flujo continúa):`, err.message);
-    }
 };
 
 /**

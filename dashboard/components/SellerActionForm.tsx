@@ -30,6 +30,7 @@ interface SellerActionFormProps {
     vehiculos?: Vehiculo[];
     onResponded: () => void;
     footerActions?: React.ReactNode;
+    estado?: string;
 }
 
 const RenderItemInput = ({ item, isSinStock, onChange, onRemove }: { item: Item, isSinStock: boolean, onChange: (field: keyof Item, val: string | number | null | boolean) => void, onRemove?: () => void }) => (
@@ -131,7 +132,17 @@ const RenderItemInput = ({ item, isSinStock, onChange, onRemove }: { item: Item,
     </div>
 );
 
-export default function SellerActionForm({ phone, items = [], vehiculos = [], onResponded, footerActions }: SellerActionFormProps) {
+export default function SellerActionForm({ phone, items = [], vehiculos = [], onResponded, footerActions, estado }: SellerActionFormProps) {
+    const esRectificacion = estado === 'CONFIRMANDO_COMPRA'
+        || estado === 'ESPERANDO_COMPROBANTE'
+        || estado === 'ESPERANDO_APROBACION_ADMIN';
+    // Ajuste de venta final: estados posteriores a la confirmación de pago.
+    // El vendedor agrega items extras vendidos en el local. NO envía mensaje al cliente.
+    const esAjusteVentaFinal = estado === 'PAGO_VERIFICADO'
+        || estado === 'ABONO_VERIFICADO'
+        || estado === 'ESPERANDO_RETIRO'
+        || estado === 'ENTREGADO'
+        || estado === 'CICLO_COMPLETO';
     const parseItems = (list: Item[]) => {
         return list.map((item) => {
             let precioLimpio = item.precio;
@@ -251,32 +262,149 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
         });
     };
 
+    /**
+     * Valida la consistencia de items antes de enviar.
+     * Bloquea items DISPONIBLE sin precio. Avisa si la nota es negativa pero hay items disponibles.
+     * Retorna true si está OK para enviar.
+     */
+    const validarConsistencia = (todosItems: Item[]): boolean => {
+        const itemsValidos = todosItems.filter(i => i.nombre.trim() !== "");
+        const disponiblesSinPrecio = itemsValidos.filter(i =>
+            (i.disponibilidad || 'DISPONIBLE') === 'DISPONIBLE' &&
+            (!i.precio || Number(i.precio) === 0)
+        );
+
+        if (disponiblesSinPrecio.length > 0) {
+            const nombres = disponiblesSinPrecio.map(i => i.nombre).join(', ');
+            alert(
+                `⚠️ Hay items marcados como DISPONIBLES pero sin precio:\n\n${nombres}\n\n` +
+                `Acciones posibles:\n` +
+                `• Si NO hay stock, márcalos como "Sin stock"\n` +
+                `• Si SÍ hay stock, agrega el precio\n\n` +
+                `No se enviará la cotización hasta corregir esto.`
+            );
+            return false;
+        }
+
+        const notaNegativa = note && /\b(no hay|no disponible|sin stock|agotado|no tenemos)\b/i.test(note);
+        const hayDisponibles = itemsValidos.some(i =>
+            (i.disponibilidad || 'DISPONIBLE') === 'DISPONIBLE' && i.precio && Number(i.precio) > 0
+        );
+        if (notaNegativa && hayDisponibles) {
+            const ok = confirm(
+                `⚠️ Tu nota del asesor sugiere que no hay disponibilidad, pero hay items marcados como DISPONIBLES con precio.\n\n` +
+                `¿Estás seguro que quieres enviar la cotización así? Esto puede confundir al cliente.`
+            );
+            if (!ok) return false;
+        }
+
+        return true;
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        // Filtrar items vacíos (BUG-9: items nuevos sin nombre)
+        const cleanItems = (list: Item[]) => list.filter(item => item.nombre.trim() !== "");
+        const cleanVehiculos = formVehiculos.map(v => ({
+            ...v,
+            repuestos_solicitados: cleanItems(v.repuestos_solicitados)
+        }));
+
+        // Validar consistencia antes de enviar
+        const todos = formVehiculos.length > 0
+            ? cleanVehiculos.flatMap(v => v.repuestos_solicitados)
+            : cleanItems(formItems);
+        if (!validarConsistencia(todos)) return;
+
         setLoading(true);
         try {
-            // Filtrar items vacíos (BUG-9: items nuevos sin nombre)
-            const cleanItems = (list: Item[]) => list.filter(item => item.nombre.trim() !== "");
-            const cleanVehiculos = formVehiculos.map(v => ({
-                ...v,
-                repuestos_solicitados: cleanItems(v.repuestos_solicitados)
-            }));
-
             const vendedorNombre = typeof window !== 'undefined'
                 ? localStorage.getItem('jfnn_vendedor_nombre')
                 : null;
-            await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/responder`, {
+            const itemsPayload = formVehiculos.length === 0 ? cleanItems(formItems) : null;
+            const vehiculosPayload = formVehiculos.length > 0 ? cleanVehiculos : null;
+
+            if (esAjusteVentaFinal) {
+                // Ajuste interno: actualiza items finales y total. NO envía mensaje al cliente.
+                await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/ajustar-venta-final`, {
+                    phone,
+                    items: itemsPayload,
+                    vehiculos: vehiculosPayload
+                });
+            } else {
+                await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/responder`, {
+                    phone,
+                    items: itemsPayload,
+                    vehiculos: vehiculosPayload,
+                    note,
+                    horario_entrega: horarioEntrega,
+                    vendedor_nombre: vendedorNombre || undefined,
+                    rectificacion: esRectificacion
+                });
+            }
+            onResponded();
+        } catch (error) {
+            console.error("Error al guardar:", error);
+            alert(esAjusteVentaFinal ? "Error al guardar la venta final" : "Error al enviar la cotización");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handlePedirInfo = async () => {
+        const instruccion = prompt(
+            "💡 Pedir info adicional al cliente (sin pausar IA).\n\n" +
+            "Escribe en lenguaje natural lo que necesitas saber. Ejemplos:\n" +
+            "  • si la suspensión es delantera o trasera\n" +
+            "  • qué tipo de transmisión (manual/automática)\n" +
+            "  • el kilometraje aproximado del vehículo\n\n" +
+            "La IA reformulará la pregunta y se la enviará al cliente:"
+        );
+        if (!instruccion || !instruccion.trim()) return;
+
+        setLoading(true);
+        try {
+            const res = await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/pedir-info-cliente`, {
                 phone,
-                items: formVehiculos.length === 0 ? cleanItems(formItems) : null,
-                vehiculos: formVehiculos.length > 0 ? cleanVehiculos : null,
-                note,
-                horario_entrega: horarioEntrega,
+                instruccion: instruccion.trim()
+            });
+            alert(`✅ Pregunta enviada al cliente:\n\n"${res.data?.pregunta_enviada || instruccion}"`);
+            onResponded();
+        } catch (error) {
+            console.error("Error pidiendo info:", error);
+            alert("Error al enviar la pregunta al cliente");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleAnular = async () => {
+        const motivo = prompt(
+            "Anular cotización y notificar al cliente.\n\n" +
+            "Esto vaciará los items y mandará un mensaje de disculpa al cliente.\n" +
+            "El estado vuelve a ESPERANDO_VENDEDOR y se pausa la IA.\n\n" +
+            "Motivo (opcional, se incluye en el mensaje):"
+        );
+        if (motivo === null) return; // cancelado
+
+        const ok = confirm("¿Confirmar anulación de cotización?");
+        if (!ok) return;
+
+        setLoading(true);
+        try {
+            const vendedorNombre = typeof window !== 'undefined'
+                ? localStorage.getItem('jfnn_vendedor_nombre')
+                : null;
+            await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/anular`, {
+                phone,
+                motivo: motivo || undefined,
                 vendedor_nombre: vendedorNombre || undefined
             });
             onResponded();
         } catch (error) {
-            console.error("Error al responder:", error);
-            alert("Error al enviar la cotización");
+            console.error("Error al anular:", error);
+            alert("Error al anular la cotización");
         } finally {
             setLoading(false);
         }
@@ -381,18 +509,64 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
                     ) : null;
                 })()}
 
-                <button
-                    type="submit"
-                    disabled={loading || (() => {
-                        const allItems = formVehiculos.length > 0
-                            ? formVehiculos.flatMap(v => v.repuestos_solicitados)
-                            : formItems;
-                        return allItems.some(item => item.pendiente_identificacion);
-                    })()}
-                    className="w-full py-3 rounded-xl bg-accent text-accent-foreground font-bold uppercase tracking-widest text-[10px] hover:bg-accent/90 focus:ring-4 focus:ring-accent/20 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-                >
-                    {loading ? 'Calculando Precios...' : 'Enviar Cotización'}
-                </button>
+                {esRectificacion && (
+                    <div className="w-full py-2 px-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] text-center">
+                        ⚠️ La cotización ya fue enviada al cliente. Al guardar se enviará como <strong>RECTIFICACIÓN</strong> reemplazando la anterior.
+                    </div>
+                )}
+
+                {esAjusteVentaFinal && (
+                    <div className="w-full py-2 px-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] text-center">
+                        💰 <strong>AJUSTE DE VENTA FINAL</strong>: registra lo que el cliente compró REALMENTE en el local (incluye items extras o cambios de marca). NO se envía mensaje al cliente — es solo para KPIs internos.
+                    </div>
+                )}
+
+                {!esAjusteVentaFinal && (
+                    <button
+                        type="button"
+                        onClick={handlePedirInfo}
+                        disabled={loading}
+                        className="w-full py-2 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-[10px] font-bold uppercase tracking-widest hover:bg-cyan-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                        title="Pide más info al cliente vía IA sin pausar el flujo. Útil cuando necesitas un dato extra antes de cotizar."
+                    >
+                        💡 Pedir Info Adicional al Cliente (sin pausar IA)
+                    </button>
+                )}
+
+                <div className="flex gap-2 w-full">
+                    <button
+                        type="submit"
+                        disabled={loading || (() => {
+                            const allItems = formVehiculos.length > 0
+                                ? formVehiculos.flatMap(v => v.repuestos_solicitados)
+                                : formItems;
+                            return allItems.some(item => item.pendiente_identificacion);
+                        })()}
+                        className={`flex-1 py-3 rounded-xl font-bold uppercase tracking-widest text-[10px] focus:ring-4 transition-all disabled:opacity-50 flex items-center justify-center gap-2 ${
+                            esAjusteVentaFinal
+                                ? 'bg-emerald-500 text-black hover:bg-emerald-400 focus:ring-emerald-500/20'
+                                : esRectificacion
+                                    ? 'bg-amber-500 text-black hover:bg-amber-400 focus:ring-amber-500/20'
+                                    : 'bg-accent text-accent-foreground hover:bg-accent/90 focus:ring-accent/20'
+                        }`}
+                    >
+                        {loading
+                            ? (esAjusteVentaFinal ? 'Guardando...' : esRectificacion ? 'Rectificando...' : 'Calculando Precios...')
+                            : (esAjusteVentaFinal ? '💰 Guardar Venta Final' : esRectificacion ? 'Rectificar y Reenviar' : 'Enviar Cotización')}
+                    </button>
+
+                    {esRectificacion && (
+                        <button
+                            type="button"
+                            onClick={handleAnular}
+                            disabled={loading}
+                            className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 font-bold uppercase tracking-widest text-[10px] hover:bg-red-500/20 transition-all disabled:opacity-50"
+                            title="Anular cotización: envía disculpa al cliente y vuelve a ESPERANDO_VENDEDOR"
+                        >
+                            ❌ Anular
+                        </button>
+                    )}
+                </div>
 
                 {footerActions}
             </div>

@@ -1,10 +1,22 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { MessageCircle, Image, Mic, Video, FileText, ArrowLeft, User, Bot, Clock, Timer, AlertTriangle, Send, ChevronDown, Plus, X, PauseCircle, PlayCircle } from "lucide-react";
+import { MessageCircle, Image, Mic, Video, FileText, ArrowLeft, User, Bot, Clock, Timer, AlertTriangle, Send, ChevronDown, Plus, X, PauseCircle, PlayCircle, Bookmark, BookmarkCheck, Paperclip, Ban } from "lucide-react";
 import { api } from "@/lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
+
+interface ConsultaPendiente {
+  texto: string;
+  momento?: string;
+  item_relacionado?: string | null;
+}
+
+interface MarcaConversacion {
+  vendedor: string;
+  momento: string;
+  nota?: string | null;
+}
 
 interface Conversacion {
   phone: string;
@@ -15,6 +27,9 @@ interface Conversacion {
   ultimo_mensaje_at: string;
   ultimo_contenido: string | null;
   total_entrantes: number;
+  agente_pausado: boolean;
+  consulta_pendiente: ConsultaPendiente | null;
+  marca: MarcaConversacion | null;
 }
 
 interface Mensaje {
@@ -48,6 +63,8 @@ interface ChatData {
   nombre_cliente: string | null;
   sucursal: string | null;
   agente_pausado: boolean;
+  consulta_pendiente: ConsultaPendiente | null;
+  marca: MarcaConversacion | null;
   ventana_24h: Ventana24h | null;
   mensajes: Mensaje[];
 }
@@ -123,6 +140,8 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
   const [sendingMessage, setSendingMessage] = useState(false);
   const [showNewConv, setShowNewConv] = useState(false);
   const [newPhone, setNewPhone] = useState("");
+  const [sendingImage, setSendingImage] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const timer = setInterval(() => setTick(t => t + 1), 60000);
@@ -167,6 +186,100 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
       setChat(prev => prev ? { ...prev, agente_pausado: nuevoPausado } : prev);
     } catch (err) {
       console.error("[Pausa] Error:", err);
+    }
+  };
+
+  const resolverConsulta = async () => {
+    if (!selectedPhone) return;
+    try {
+      await api.post(`${API_URL}/api/dashboard/sessions/${selectedPhone}/consulta-resuelta`);
+      setChat(prev => prev ? { ...prev, consulta_pendiente: null, agente_pausado: false } : prev);
+    } catch (err) {
+      console.error("[Consulta] Error resolviendo:", err);
+    }
+  };
+
+  const cancelarRespuestaIA = async () => {
+    if (!selectedPhone) return;
+    try {
+      const res = await api.post(`${API_URL}/api/dashboard/sessions/${selectedPhone}/cancelar-debounce`);
+      if (res.data?.habia_pendiente) {
+        alert("🛑 Respuesta IA pendiente cancelada. La IA no responderá a los últimos mensajes del cliente.");
+      } else {
+        alert("No había respuesta IA pendiente en este momento.");
+      }
+    } catch (err) {
+      console.error("[Cancelar IA] Error:", err);
+    }
+  };
+
+  const handleImageSelect = async (file: File) => {
+    if (!selectedPhone || !file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      alert("Imagen demasiado grande. Máximo 10MB.");
+      return;
+    }
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      alert("Formato no soportado. Usa JPEG, PNG o WebP.");
+      return;
+    }
+    const caption = prompt("Texto opcional para acompañar la imagen (caption):", "");
+    setSendingImage(true);
+    try {
+      // Convertir a base64
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve((reader.result as string).split(',')[1]);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      const vendedorNombre = typeof window !== "undefined" ? localStorage.getItem("jfnn_vendedor_nombre") : null;
+      await api.post(`${API_URL}/api/dashboard/conversaciones/${selectedPhone}/imagen`, {
+        imagen_base64: base64,
+        mime_type: file.type,
+        caption: caption || undefined,
+        vendedor_nombre: vendedorNombre
+      });
+      fetchChat(selectedPhone, false);
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { code?: string; error?: string } } };
+      if (axiosErr.response?.data?.code === 'WINDOW_CLOSED') {
+        alert("Ventana de 24h cerrada. Usa una plantilla HSM primero.");
+      } else {
+        console.error("[Imagen] Error:", err);
+        alert("Error al enviar imagen: " + (axiosErr.response?.data?.error || 'desconocido'));
+      }
+    } finally {
+      setSendingImage(false);
+      if (imageInputRef.current) imageInputRef.current.value = '';
+    }
+  };
+
+  const toggleMarca = async () => {
+    if (!selectedPhone || !chat) return;
+    try {
+      if (chat.marca) {
+        // Desmarcar
+        await api.post(`${API_URL}/api/dashboard/sessions/${selectedPhone}/desmarcar`);
+        setChat(prev => prev ? { ...prev, marca: null } : prev);
+      } else {
+        // Marcar — pedir nota opcional
+        const nota = prompt(
+          "Marcar conversación para seguimiento (tipo pin).\n\nNota opcional (qué estabas hablando, en qué quedó):",
+          ""
+        );
+        if (nota === null) return; // cancelado
+        const vendedor = typeof window !== "undefined"
+          ? localStorage.getItem("jfnn_vendedor_nombre") || "Sistema"
+          : "Sistema";
+        const res = await api.post(`${API_URL}/api/dashboard/sessions/${selectedPhone}/marcar`, {
+          vendedor_nombre: vendedor,
+          nota: nota || undefined
+        });
+        setChat(prev => prev ? { ...prev, marca: res.data.marca } : prev);
+      }
+    } catch (err) {
+      console.error("[Marca] Error:", err);
     }
   };
 
@@ -329,8 +442,16 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
               <button
                 key={conv.phone}
                 onClick={() => handleSelectConv(conv.phone)}
-                className={`w-full text-left px-4 py-3 border-b border-white/5 hover:bg-white/5 transition-colors ${
-                  selectedPhone === conv.phone ? "bg-accent/10 border-l-2 border-l-accent" : ""
+                className={`w-full text-left px-4 py-3 border-b border-white/5 hover:bg-white/5 transition-colors border-l-2 ${
+                  selectedPhone === conv.phone
+                    ? "bg-accent/10 border-l-accent"
+                    : conv.consulta_pendiente
+                      ? "border-l-red-500/60 bg-red-500/[0.04]"
+                      : conv.marca
+                        ? "border-l-purple-500/60 bg-purple-500/[0.03]"
+                        : conv.agente_pausado
+                          ? "border-l-yellow-500/50 bg-yellow-500/[0.02]"
+                          : "border-l-transparent"
                 }`}
               >
                 <div className="flex items-start justify-between mb-1">
@@ -353,15 +474,41 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
                     {timeAgo(conv.ultimo_mensaje_at)}
                   </span>
                 </div>
-                <div className="flex items-center justify-between mt-1 pl-10">
+                <div className="flex items-center justify-between mt-1 pl-10 gap-2">
                   <p className="text-xs text-neutral-500 truncate max-w-[200px]">
                     {conv.ultimo_contenido || "📎 Media"}
                   </p>
-                  {conv.estado && (
-                    <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/5 text-neutral-400 flex-shrink-0 ml-2">
-                      {ESTADO_LABELS[conv.estado] || conv.estado}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    {conv.marca && (
+                      <span
+                        className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30 flex items-center gap-1"
+                        title={`Marcado por ${conv.marca.vendedor}${conv.marca.nota ? ': ' + conv.marca.nota : ''}`}
+                      >
+                        🔖
+                      </span>
+                    )}
+                    {conv.consulta_pendiente && (
+                      <span
+                        className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/40 flex items-center gap-1 animate-pulse"
+                        title={`Consulta del cliente: "${conv.consulta_pendiente.texto}"`}
+                      >
+                        ❓ Consulta
+                      </span>
+                    )}
+                    {!conv.consulta_pendiente && conv.agente_pausado && (
+                      <span
+                        className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-yellow-500/15 text-yellow-400 border border-yellow-500/30 flex items-center gap-1 animate-pulse"
+                        title="IA pausada — requiere atención del vendedor"
+                      >
+                        ⏸ IA
+                      </span>
+                    )}
+                    {conv.estado && (
+                      <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-white/5 text-neutral-400">
+                        {ESTADO_LABELS[conv.estado] || conv.estado}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </button>
             ))
@@ -421,19 +568,69 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
                   })()}
                 </div>
               </div>
-              <button
-                onClick={togglePausa}
-                className={`ml-auto px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors ${
-                  chat?.agente_pausado
-                    ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
-                    : "bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20"
-                }`}
-                title={chat?.agente_pausado ? "Reanudar respuestas automáticas" : "Pausar respuestas automáticas"}
-              >
-                {chat?.agente_pausado ? <PlayCircle size={14} /> : <PauseCircle size={14} />}
-                {chat?.agente_pausado ? "Reanudar IA" : "Pausar IA"}
-              </button>
+              <div className="ml-auto flex items-center gap-2">
+                {!chat?.agente_pausado && (
+                  <button
+                    onClick={cancelarRespuestaIA}
+                    className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-orange-500/10 text-orange-400 hover:bg-orange-500/20 border border-orange-500/30 flex items-center gap-1.5 transition-colors"
+                    title="Cancelar respuesta IA pendiente del cliente — útil si vas a contestar tú"
+                  >
+                    <Ban size={12} />
+                    Stop IA
+                  </button>
+                )}
+                <button
+                  onClick={toggleMarca}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors ${
+                    chat?.marca
+                      ? "bg-purple-500/15 text-purple-300 hover:bg-purple-500/25 border border-purple-500/30"
+                      : "bg-white/5 text-neutral-400 hover:bg-white/10"
+                  }`}
+                  title={chat?.marca
+                    ? `Marcado por ${chat.marca.vendedor}${chat.marca.nota ? ': ' + chat.marca.nota : ''} — click para desmarcar`
+                    : "Marcar conversación para seguimiento (pin)"
+                  }
+                >
+                  {chat?.marca ? <BookmarkCheck size={14} /> : <Bookmark size={14} />}
+                  {chat?.marca ? "Marcado" : "Marcar"}
+                </button>
+                <button
+                  onClick={togglePausa}
+                  className={`px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors ${
+                    chat?.agente_pausado
+                      ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                      : "bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20"
+                  }`}
+                  title={chat?.agente_pausado ? "Reanudar respuestas automáticas" : "Pausar respuestas automáticas"}
+                >
+                  {chat?.agente_pausado ? <PlayCircle size={14} /> : <PauseCircle size={14} />}
+                  {chat?.agente_pausado ? "Reanudar IA" : "Pausar IA"}
+                </button>
+              </div>
             </div>
+
+            {/* Banner consulta pendiente */}
+            {chat?.consulta_pendiente && (
+              <div className="px-4 py-3 bg-red-500/10 border-b border-red-500/30 flex items-start gap-3">
+                <div className="w-7 h-7 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <AlertTriangle size={14} className="text-red-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-red-400 mb-0.5">Consulta del cliente — IA derivó al vendedor</p>
+                  <p className="text-sm text-neutral-200 break-words">&ldquo;{chat.consulta_pendiente.texto}&rdquo;</p>
+                  {chat.consulta_pendiente.item_relacionado && (
+                    <p className="text-[11px] text-neutral-500 mt-1">📦 Sobre: {chat.consulta_pendiente.item_relacionado}</p>
+                  )}
+                </div>
+                <button
+                  onClick={resolverConsulta}
+                  className="px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-[10px] font-bold uppercase tracking-wider hover:bg-emerald-500/25 transition-colors flex-shrink-0"
+                  title="Marca la consulta resuelta y reanuda la IA"
+                >
+                  ✅ Resuelta
+                </button>
+              </div>
+            )}
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
@@ -568,6 +765,26 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
                 return (
                   <>
                     <div className="flex items-end gap-2">
+                      <input
+                        ref={imageInputRef}
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleImageSelect(file);
+                        }}
+                      />
+                      <button
+                        onClick={() => imageInputRef.current?.click()}
+                        disabled={sendingImage || sendingMessage}
+                        className="flex items-center justify-center w-10 h-10 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 disabled:opacity-30 transition-colors"
+                        title="Adjuntar imagen (JPEG/PNG/WebP, max 10MB)"
+                      >
+                        {sendingImage
+                          ? <div className="w-4 h-4 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+                          : <Paperclip size={16} className="text-neutral-400" />}
+                      </button>
                       <div className="relative flex-1">
                         <textarea
                           value={messageText}

@@ -177,7 +177,8 @@ ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.paten
         🚦 Para avanzar a ESPERANDO_VENDEDOR necesitas: vehículo (marca + modelo + año) + ≥1 repuesto. Con eso es SUFICIENTE. NO preguntes método de entrega ni sucursal en esta etapa — eso se define después de la cotización.
 
         - Cuando tengas vehículo + repuesto(s), pregunta: "¿Necesitas algo más o cotizamos con eso?" Si dice que no necesita más, avanza a ESPERANDO_VENDEDOR.
-        - ⚡ REGLA DE AVANCE RÁPIDO: Si el cliente confirma que no necesita nada más ("solo eso", "eso es todo", "nada más", "eso nomás"), cambia estado_cotizacion a "ESPERANDO_VENDEDOR" INMEDIATAMENTE.
+        - ⚡ REGLA DE AVANCE RÁPIDO: Si el cliente confirma que no necesita nada más ("solo eso", "eso es todo", "nada más", "eso nomás", "cotizar solo eso", "cotizar eso"), cambia estado_cotizacion a "ESPERANDO_VENDEDOR" INMEDIATAMENTE.
+        - ⚠️ IMPORTANTE: items con \`pendiente_identificacion: true\` (provenientes de fotos enviadas por el cliente) CUENTAN como repuesto válido para avanzar. El vendedor confirmará la pieza desde el panel — NO bloquees el avance esperando identificación.
         `}
 
         ${estadoAtencion.mensaje ? `
@@ -285,6 +286,29 @@ ${sessionContext.entidades.metodo_pago ? `
         - Si el cliente solo confirma ("sí", "dale", "confirmo", "de acuerdo"), devuelve la MISMA cantidad que ya está en el contexto.
         ${isConfirming && (sessionContext.entidades.repuestos_solicitados || []).some(r => r.cantidad_fijada) ? `⚠️ Cotización vigente (NO CAMBIAR salvo pedido explícito del cliente): ${(sessionContext.entidades.repuestos_solicitados || []).filter(r => r.precio).map(r => `${r.cantidad || 1}x ${r.nombre} | $${r.precio}`).join('; ')}` : ''}
 
+        ## ❓ CONSULTAS QUE REQUIEREN AL VENDEDOR (NUNCA INVENTES INFO):
+        Si el cliente pregunta algo que NO puedes responder con certeza:
+        - Marca/modelo exacto de un repuesto cotizado (OEM, alternativos, fabricante)
+        - Disponibilidad de stock distinta a la ya cotizada
+        - Plazo exacto de entrega o de "encargo a bodega"
+        - Compatibilidad técnica específica entre piezas/años/motores
+        - Equivalencias o reemplazos
+
+        DEBES hacer EXACTAMENTE esto:
+        1. Responder al cliente: "Un momento, consulto con el equipo y te confirmo en breve." (o variaciones cortas y naturales).
+        2. NO avances de estado.
+        3. En el JSON, devuelve:
+           \`entidades.consulta_pendiente\`: { "texto": "<la pregunta literal del cliente>", "momento": "<ISO timestamp actual>", "item_relacionado": "<nombre del repuesto si aplica, o null>" }
+           \`entidades.agente_pausado\`: true
+
+        Esto deja el chat marcado en el dashboard del vendedor con un badge "❓ Consulta pendiente" para que responda manualmente. NUNCA inventes marcas, plazos ni datos técnicos.
+
+        ## ⛔ SANITY CHECK ANTES DE CONFIRMAR (defensa contra errores del vendedor):
+        Antes de confirmar la venta o avanzar el estado, valida la cotización vigente:
+        - Si TODOS los items disponibles tienen \`precio: 0\` o \`precio: null\` (no marcados como SIN_STOCK): NO confirmes. Responde "Disculpa, hubo una inconsistencia en tu cotización. El vendedor te enviará una nueva en unos minutos." y mantén el estado actual sin avanzar.
+        - Si \`total_cotizacion\` es 0 o null pero hay items DISPONIBLE: misma respuesta, no confirmes.
+        - Si detectas estas inconsistencias, NO devuelvas \`accion: 'CONFIRMAR_COMPRA'\` ni \`nuevo_estado: 'ESPERANDO_COMPROBANTE'\` — espera la cotización corregida del vendedor.
+
         ## INSTRUCCIONES MULTIMODALES (VISIÓN Y AUDIO):
         - Si el cliente envía una FOTO DE UN REPUESTO: NO le digas al cliente el nombre de la pieza. Responde brevemente que recibiste su foto y que un asesor la revisará pronto. Pide los datos del auto si te faltan (Año, Patente o VIN).
           ### MEJORA #9 (Eliminar placeholders inútiles):
@@ -345,7 +369,9 @@ ${sessionContext.entidades.metodo_pago ? `
                 "direccion_envio": "dirección o null",
                 "tipo_documento": "boleta | factura | null",
                 "datos_factura": { "rut": null, "razon_social": null, "giro": null },
-                "saludo_dado": "boolean — true si en este turno saludaste con el nombre del cliente. Una vez true, queda persistido en la sesión. NO bajes a false."
+                "saludo_dado": "boolean — true si en este turno saludaste con el nombre del cliente. Una vez true, queda persistido en la sesión. NO bajes a false.",
+                "agente_pausado": "boolean — true SOLO cuando levantas consulta_pendiente. NO cambiar en otros casos.",
+                "consulta_pendiente": "{ texto, momento, item_relacionado } — SOLO cuando el cliente pregunta algo que requiere consultar al vendedor (marca, plazo, compatibilidad). null en caso contrario. NO inventes info."
             }
         }
 
@@ -638,10 +664,66 @@ Mensaje: "${text}"`;
     }
 };
 
+/**
+ * El vendedor escribe en lenguaje natural lo que necesita saber del cliente
+ * ("pregúntale si es delantero o trasero", "necesito saber el motor exacto").
+ * Esta función usa Gemini Flash para reformularlo como pregunta natural al cliente,
+ * manteniendo el tono del agente IA y el contexto del vehículo/repuestos.
+ *
+ * @param {string} instruccion - Lo que el vendedor quiere saber, en lenguaje natural.
+ * @param {object} sessionContext - { entidades, nombre_cliente } para personalizar.
+ * @returns {Promise<string>} Texto listo para enviar al cliente vía WhatsApp.
+ */
+const formularPreguntaAlCliente = async (instruccion, sessionContext) => {
+    try {
+        const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+        const e = sessionContext?.entidades || {};
+        const vehiculo = e.marca_modelo
+            ? `${e.marca_modelo}${e.ano ? ' ' + e.ano : ''}${e.motor ? ' motor ' + e.motor : ''}`
+            : (e.vehiculos?.[0]?.marca_modelo
+                ? `${e.vehiculos[0].marca_modelo}${e.vehiculos[0].ano ? ' ' + e.vehiculos[0].ano : ''}`
+                : null);
+        const repuestos = (e.repuestos_solicitados || []).map(r => r.nombre).filter(Boolean).join(', ')
+            || (e.vehiculos || []).flatMap(v => (v.repuestos_solicitados || []).map(r => r.nombre)).filter(Boolean).join(', ')
+            || '(sin items)';
+
+        const prompt = `Eres el asesor virtual de Repuestos JFNN. Estás en medio de una cotización con un cliente.
+El vendedor humano necesita un dato adicional del cliente ANTES de cotizar y te pide que se lo preguntes naturalmente.
+
+Lo que el vendedor necesita saber:
+"${instruccion}"
+
+Contexto de la conversación:
+- Cliente: ${e.nombre_cliente || 'sin nombre'}
+- Vehículo: ${vehiculo || 'no informado'}
+- Repuestos en cotización: ${repuestos}
+
+Tu tarea: formula UNA pregunta corta, natural y semiformal al cliente para obtener ese dato.
+
+Reglas estrictas:
+- Máximo 2 líneas, sin saludos ni despedidas (la conversación ya está en curso).
+- NO menciones que el vendedor te lo pidió. Eres tú, el asesor, quien pregunta.
+- Si la duda es técnica (delantero/trasero, manual/automático, etc.), explica brevemente qué necesitas saber pero sin condescender.
+- NO devuelvas JSON. SOLO el texto de la pregunta, listo para enviar por WhatsApp.
+
+Pregunta:`;
+
+        const result = await model.generateContent(prompt);
+        const text = (result.response.text() || '').trim();
+        // Limpiar posibles comillas o markdown que el modelo agregue
+        return text.replace(/^["']|["']$/g, '').replace(/^Pregunta:\s*/i, '').trim();
+    } catch (err) {
+        console.error('[Gemini] ❌ Error en formularPreguntaAlCliente:', err.message);
+        // Fallback: enviar la instrucción tal cual (con un prefijo neutro)
+        return instruccion;
+    }
+};
+
 module.exports = {
     generateResponse,
     extractVoucherData,
     classifyIntent,
     identifyPartFromImage,
+    formularPreguntaAlCliente,
     analyzeImage
 };

@@ -235,7 +235,7 @@ router.post('/cotizaciones/:phone/release', async (req, res) => {
  */
 router.post('/cotizaciones/responder', async (req, res) => {
     try {
-        const { phone, items, vehiculos, note, horario_entrega, vendedor_nombre } = req.body;
+        const { phone, items, vehiculos, note, horario_entrega, vendedor_nombre, rectificacion } = req.body;
 
         if (!phone || (!items && !vehiculos)) {
             return res.status(400).json({ error: 'Faltan campos obligatorios' });
@@ -245,7 +245,26 @@ router.post('/cotizaciones/responder', async (req, res) => {
         // viejo después de que el vendedor envíe la cotización formal.
         cancelDebounce(phone);
 
-        const quoteId = `JFNN-2026-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+        // Si es rectificación, mantenemos el quote_id base y agregamos sufijo -V2/-V3.
+        // Esto preserva trazabilidad y deja claro al cliente que reemplaza la anterior.
+        let quoteId;
+        if (rectificacion) {
+            const sessionPrev = await sessionsService.getSession(phone).catch(() => null);
+            const prevId = sessionPrev?.entidades?.quote_id;
+            if (prevId) {
+                const versionMatch = prevId.match(/-V(\d+)$/);
+                if (versionMatch) {
+                    const nextV = parseInt(versionMatch[1], 10) + 1;
+                    quoteId = prevId.replace(/-V\d+$/, `-V${nextV}`);
+                } else {
+                    quoteId = `${prevId}-V2`;
+                }
+            } else {
+                quoteId = `JFNN-2026-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+            }
+        } else {
+            quoteId = `JFNN-2026-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+        }
         let total = 0;
         let detailsText = '';
 
@@ -287,7 +306,10 @@ router.post('/cotizaciones/responder', async (req, res) => {
             ? `\n\n📦 *Sobre los productos marcados con 📦:* No están en stock local. Para confirmarlos, los solicitamos a nuestra bodega central, lo que requiere un abono parcial por transferencia. El saldo lo pagas cuando llegan al local. ⏳`
             : '';
 
-        const message = `*COTIZACIÓN FORMAL - JFNN*\n` +
+        const headerMsg = rectificacion
+            ? `⚠️ *COTIZACIÓN RECTIFICADA - JFNN*\nEsta cotización REEMPLAZA la anterior. Por favor ignora la versión previa.\n\n`
+            : `*COTIZACIÓN FORMAL - JFNN*\n`;
+        const message = `${headerMsg}` +
             `📄 ID: ${quoteId}\n\n` +
             `Estimado cliente, revisamos el stock de lo solicitado:\n\n` +
             `${detailsText}` +
@@ -300,23 +322,10 @@ router.post('/cotizaciones/responder', async (req, res) => {
             `👤 Atentamente: ${vendedor_nombre || 'Asesor JFNN'}\n\n` +
             `¿Deseas confirmar la compra o el encargo de los productos disponibles?`;
 
-        await whatsappService.sendSellerMessage(phone, message);
-        await sessionsService.incrementMessageCounter(phone, 'vendedor');
-
-        // Persistir cotización formal en tabla mensajes para que aparezca en el chat panel
-        try {
-            const sucursalSesion = await sessionsService.getSession(phone).then(s => s?.sucursal || 'Melipilla').catch(() => 'Melipilla');
-            await mensajesService.registrarSaliente({
-                phone,
-                tipo: 'text',
-                contenido: message,
-                autor: 'vendedor',
-                autorNombre: vendedor_nombre || 'Asesor JFNN',
-                sucursal: sucursalSesion,
-            });
-        } catch (persistErr) {
-            console.error(`[Cotización] ⚠️ No se pudo persistir mensaje formal en chat (envío a Meta sí completó):`, persistErr.message);
-        }
+        // sendSellerMessage auto-persiste el mensaje en la tabla mensajes con el autor_nombre indicado.
+        await whatsappService.sendSellerMessage(phone, message, {
+            autorNombre: vendedor_nombre || 'Asesor JFNN'
+        });
 
         // Actualizar sesión: Guardar ID de cotización, total, horario, precios y pasar al flujo de cierre
         const sessionUpdateParams = {
@@ -337,6 +346,261 @@ router.post('/cotizaciones/responder', async (req, res) => {
     } catch (error) {
         console.error('Error respondiendo al cliente:', error);
         res.status(500).json({ error: 'Error al enviar mensaje' });
+    }
+});
+
+/**
+ * POST /api/dashboard/conversaciones/:phone/imagen
+ * Envía una imagen del vendedor al cliente.
+ * Body: { imagen_base64, mime_type, caption?, vendedor_nombre? }
+ * Sube a Supabase Storage, envía vía Meta (image link), persiste en mensajes.
+ */
+router.post('/conversaciones/:phone/imagen', async (req, res) => {
+    try {
+        const { phone } = req.params;
+        const { imagen_base64, mime_type, caption, vendedor_nombre } = req.body;
+        if (!imagen_base64 || !mime_type) {
+            return res.status(400).json({ error: 'Faltan campos: imagen_base64, mime_type' });
+        }
+        if (!['image/jpeg', 'image/png', 'image/webp'].includes(mime_type)) {
+            return res.status(400).json({ error: 'Tipo de imagen no soportado. Usa JPEG, PNG o WebP.' });
+        }
+
+        cancelDebounce(phone);
+
+        // Decodificar base64 (data URL o raw)
+        const b64 = imagen_base64.replace(/^data:image\/\w+;base64,/, '');
+        const buffer = Buffer.from(b64, 'base64');
+        if (buffer.length > 10 * 1024 * 1024) {
+            return res.status(400).json({ error: 'Imagen demasiado grande (max 10MB)' });
+        }
+
+        // Subir a Storage
+        const objectPath = await storageService.uploadVendorImage(phone, buffer, mime_type);
+        if (!objectPath) return res.status(500).json({ error: 'Error subiendo imagen al storage' });
+
+        const signedUrl = await storageService.getSignedUrl(objectPath, 86400);
+        if (!signedUrl) return res.status(500).json({ error: 'Error generando URL firmada' });
+
+        // Enviar al cliente vía Meta
+        await whatsappService.sendImageMessage(phone, signedUrl, caption || null);
+
+        // Persistir en mensajes
+        const session = await sessionsService.getSession(phone).catch(() => null);
+        await mensajesService.registrarSaliente({
+            phone,
+            tipo: 'image',
+            contenido: caption || null,
+            mediaUrl: objectPath,
+            mediaMime: mime_type,
+            autor: 'vendedor',
+            autorNombre: vendedor_nombre || 'Sistema JFNN',
+            sucursal: session?.sucursal || 'Melipilla',
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        if (error.code === 'WHATSAPP_WINDOW_CLOSED') {
+            return res.status(403).json({ error: 'Ventana de 24h cerrada. Usa una plantilla HSM primero.', code: 'WINDOW_CLOSED' });
+        }
+        console.error('[Dashboard] Error enviando imagen:', error.message);
+        res.status(500).json({ error: 'Error al enviar imagen', detalle: error.message });
+    }
+});
+
+/**
+ * POST /api/dashboard/sessions/:phone/cancelar-debounce
+ * Cancela cualquier respuesta IA pendiente en el buffer (debounce).
+ * Útil cuando el vendedor quiere asegurarse de que la IA no responda antes de él.
+ */
+router.post('/sessions/:phone/cancelar-debounce', async (req, res) => {
+    try {
+        const { phone } = req.params;
+        const cancelado = cancelDebounce(phone);
+        res.json({ success: true, habia_pendiente: cancelado });
+    } catch (error) {
+        console.error('[Dashboard] Error cancelando debounce:', error);
+        res.status(500).json({ error: 'Error cancelando' });
+    }
+});
+
+/**
+ * POST /api/dashboard/cotizaciones/pedir-info-cliente
+ * El vendedor escribe en lenguaje natural lo que necesita saber del cliente.
+ * Gemini lo reformula como pregunta natural y se envía como mensaje del agente IA.
+ * La IA queda activa para procesar la respuesta. Cancela debounce pendiente.
+ * Body: { phone, instruccion, vendedor_nombre? }
+ */
+router.post('/cotizaciones/pedir-info-cliente', async (req, res) => {
+    try {
+        const { phone, instruccion } = req.body;
+        if (!phone || !instruccion || !instruccion.trim()) {
+            return res.status(400).json({ error: 'Faltan campos: phone, instruccion' });
+        }
+
+        cancelDebounce(phone);
+
+        const session = await sessionsService.getSession(phone).catch(() => null);
+        if (!session) return res.status(404).json({ error: 'Sesión no encontrada' });
+
+        const pregunta = await geminiService.formularPreguntaAlCliente(instruccion.trim(), session);
+        if (!pregunta) return res.status(500).json({ error: 'No se pudo formular la pregunta' });
+
+        // Enviar como mensaje del agente IA (mantiene voz del bot, no rompe el flujo).
+        await whatsappService.sendAgentMessage(phone, pregunta);
+
+        res.json({ success: true, pregunta_enviada: pregunta });
+    } catch (error) {
+        console.error('[Dashboard] Error pidiendo info al cliente:', error);
+        res.status(500).json({ error: 'Error procesando solicitud' });
+    }
+});
+
+/**
+ * POST /api/dashboard/cotizaciones/ajustar-venta-final
+ * Ajusta los items finales vendidos en el local (sin enviar mensaje al cliente).
+ * Usado cuando el cliente llega al local y compra cosas adicionales o cambia marcas.
+ * Body: { phone, items? | vehiculos?, vendedor_nombre? }
+ * El total se recalcula y se marca entidades.venta_ajustada_en_local = true.
+ * No cambia el estado de la sesión.
+ */
+router.post('/cotizaciones/ajustar-venta-final', async (req, res) => {
+    try {
+        const { phone, items, vehiculos } = req.body;
+        if (!phone || (!items && !vehiculos)) {
+            return res.status(400).json({ error: 'Faltan campos: phone + items o vehiculos' });
+        }
+
+        // Recalcular total con los items finalmente vendidos
+        const parsePrecio = (p) => (p ? parseInt(String(p).replace(/[^\d]/g, '')) || 0 : 0);
+        let total = 0;
+        if (vehiculos && vehiculos.length > 0) {
+            vehiculos.forEach(v => (v.repuestos_solicitados || []).forEach(r => {
+                if ((r.disponibilidad || 'DISPONIBLE') !== 'SIN_STOCK') {
+                    total += parsePrecio(r.precio) * (r.cantidad || 1);
+                }
+            }));
+        } else if (items) {
+            items.forEach(r => {
+                if ((r.disponibilidad || 'DISPONIBLE') !== 'SIN_STOCK') {
+                    total += parsePrecio(r.precio) * (r.cantidad || 1);
+                }
+            });
+        }
+
+        const update = {
+            total_cotizacion: total,
+            venta_ajustada_en_local: true
+        };
+        if (vehiculos && vehiculos.length > 0) update.vehiculos = vehiculos;
+        else if (items) update.repuestos_solicitados = items;
+
+        await sessionsService.patchSellerData(phone, update);
+
+        res.json({ success: true, total });
+    } catch (error) {
+        console.error('[Dashboard] Error ajustando venta final:', error);
+        res.status(500).json({ error: 'Error ajustando venta' });
+    }
+});
+
+/**
+ * POST /api/dashboard/sessions/:phone/marcar
+ * Marca una conversación para seguimiento del vendedor (tipo "pin").
+ * Body: { vendedor_nombre, nota? }
+ */
+router.post('/sessions/:phone/marcar', async (req, res) => {
+    try {
+        const { phone } = req.params;
+        const { vendedor_nombre, nota } = req.body;
+        const marca = {
+            vendedor: vendedor_nombre || 'Sistema',
+            momento: new Date().toISOString(),
+            nota: nota && nota.trim() ? nota.trim().slice(0, 200) : null
+        };
+        await sessionsService.updateEntidades(phone, { marca });
+        res.json({ success: true, marca });
+    } catch (error) {
+        console.error('[Dashboard] Error marcando conversación:', error);
+        res.status(500).json({ error: 'Error al marcar' });
+    }
+});
+
+/**
+ * POST /api/dashboard/sessions/:phone/desmarcar
+ */
+router.post('/sessions/:phone/desmarcar', async (req, res) => {
+    try {
+        const { phone } = req.params;
+        await sessionsService.updateEntidades(phone, { marca: null });
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[Dashboard] Error desmarcando:', error);
+        res.status(500).json({ error: 'Error al desmarcar' });
+    }
+});
+
+/**
+ * POST /api/dashboard/sessions/:phone/consulta-resuelta
+ * Marca una consulta pendiente como resuelta (el vendedor ya respondió al cliente).
+ * Limpia consulta_pendiente y reanuda la IA.
+ */
+router.post('/sessions/:phone/consulta-resuelta', async (req, res) => {
+    try {
+        const { phone } = req.params;
+        await sessionsService.updateEntidades(phone, { consulta_pendiente: null, agente_pausado: false });
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[Dashboard] Error resolviendo consulta:', error);
+        res.status(500).json({ error: 'Error al resolver consulta' });
+    }
+});
+
+/**
+ * POST /api/dashboard/cotizaciones/anular
+ * Anula una cotización ya enviada al cliente. Limpia items, manda mensaje de disculpa,
+ * vuelve la sesión a ESPERANDO_VENDEDOR, pausa la IA y cancela cualquier debounce.
+ */
+router.post('/cotizaciones/anular', async (req, res) => {
+    try {
+        const { phone, motivo, vendedor_nombre } = req.body;
+        if (!phone) return res.status(400).json({ error: 'Falta phone' });
+
+        cancelDebounce(phone);
+
+        const session = await sessionsService.getSession(phone).catch(() => null);
+        const nombreCliente = session?.entidades?.nombre_cliente || '';
+        const quoteIdPrev = session?.entidades?.quote_id || '';
+
+        const motivoMsg = motivo && motivo.trim()
+            ? `\n\nMotivo: ${motivo.trim()}`
+            : '';
+        const message = `⚠️ *Disculpas${nombreCliente ? ', ' + nombreCliente : ''}*\n\n` +
+            `Hubo una inconsistencia con la cotización anterior${quoteIdPrev ? ' (' + quoteIdPrev + ')' : ''}.${motivoMsg}\n\n` +
+            `Por favor ignora ese mensaje. En unos minutos te enviamos una nueva cotización corregida.\n\n` +
+            `Gracias por tu paciencia. 🙏`;
+
+        await whatsappService.sendSellerMessage(phone, message, {
+            autorNombre: vendedor_nombre || 'Asesor JFNN'
+        });
+
+        // Limpiar datos de cotización en entidades y volver a ESPERANDO_VENDEDOR
+        await sessionsService.patchSellerData(phone, {
+            quote_id: null,
+            total_cotizacion: null,
+            horario_entrega: null,
+            repuestos_solicitados: [],
+            vehiculos: session?.entidades?.vehiculos
+                ? session.entidades.vehiculos.map(v => ({ ...v, repuestos_solicitados: [] }))
+                : []
+        });
+        await sessionsService.setEstado(phone, 'ESPERANDO_VENDEDOR');
+        await sessionsService.setAgentePausado(phone, true);
+
+        res.status(200).json({ success: true, mensajeEnviado: true });
+    } catch (error) {
+        console.error('Error anulando cotización:', error);
+        res.status(500).json({ error: 'Error al anular cotización' });
     }
 });
 
@@ -487,13 +751,20 @@ router.patch('/cotizaciones/estado', async (req, res) => {
                 await sessionsService.incrementMessageCounter(phone, 'vendedor');
             }
 
-            // HU-6: Solicitud de reseña en Google Maps al cierre.
+            // HU-6: Solicitud de reseña en Google Maps al cierre + archivado del pedido para KPIs.
             if (estado === 'ENTREGADO') {
                 setTimeout(() => {
                     whatsappService.sendGoogleReviewRequest(phone).catch(err => {
                         console.error('Error enviando solicitud de reseña Google:', err);
                     });
                 }, 5000);
+                // Archivar la sesión a la tabla pedidos para que sume a KPIs (con delay
+                // para no interferir con la reseña ni con un re-engage temprano del cliente).
+                setTimeout(() => {
+                    sessionsService.archiveSession(phone).catch(err => {
+                        console.error(`[Archive] Error archivando sesión ${phone} tras ENTREGADO:`, err);
+                    });
+                }, 60000);
             }
         }
 
@@ -1465,6 +1736,9 @@ router.get('/conversaciones', async (req, res) => {
                 ultimo_mensaje_at: conv.ultimo_mensaje_at,
                 ultimo_contenido: conv.ultimo_contenido,
                 total_entrantes: parseInt(conv.total_entrantes, 10) || 0,
+                agente_pausado: session?.entidades?.agente_pausado === true,
+                consulta_pendiente: session?.entidades?.consulta_pendiente || null,
+                marca: session?.entidades?.marca || null,
             };
         }));
 
@@ -1528,6 +1802,8 @@ router.get('/conversaciones/:phone', async (req, res) => {
             nombre_cliente: session?.entidades?.nombre_cliente || null,
             sucursal: session?.sucursal || null,
             agente_pausado: session?.entidades?.agente_pausado || false,
+            consulta_pendiente: session?.entidades?.consulta_pendiente || null,
+            marca: session?.entidades?.marca || null,
             ventana_24h: ventana24h,
             mensajes: enriched,
         });
@@ -1554,17 +1830,8 @@ router.post('/conversaciones/:phone/mensaje', async (req, res) => {
         // después del mensaje manual del vendedor.
         cancelDebounce(phone);
 
-        await whatsappService.sendSellerMessage(phone, texto.trim());
-
-        const session = await sessionsService.getSession(phone).catch(() => null);
-
-        await mensajesService.registrarSaliente({
-            phone,
-            tipo: 'text',
-            contenido: texto.trim(),
-            autor: 'vendedor',
-            autorNombre: vendedor_nombre || null,
-            sucursal: session?.sucursal || null,
+        await whatsappService.sendSellerMessage(phone, texto.trim(), {
+            autorNombre: vendedor_nombre || 'Sistema JFNN'
         });
 
         res.json({ success: true });
