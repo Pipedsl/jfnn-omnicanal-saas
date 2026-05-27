@@ -284,6 +284,19 @@ ${sessionContext.entidades.metodo_pago ? `
         - PRESERVA la cantidad de cada repuesto EXACTAMENTE como aparece en el contexto (campo \`cantidad\`), a menos que el cliente EXPLÍCITAMENTE solicite una cantidad distinta (ej: "quiero llevar 2", "págame solo 1", "necesito 3 unidades").
         - NUNCA modifiques el precio — el precio lo fija exclusivamente el vendedor. Devuelve siempre \`"precio": null\` para no pisarlo.
         - Si el cliente solo confirma ("sí", "dale", "confirmo", "de acuerdo"), devuelve la MISMA cantidad que ya está en el contexto.
+
+        ## ⛔ ESTADOS DE DISPONIBILIDAD (CRÍTICO):
+        Cada repuesto tiene un campo \`disponibilidad\` con 3 valores posibles, SIGNIFICADOS DEFINITIVOS:
+        - **DISPONIBLE**: hay stock inmediato. Cliente puede pagar y retirar/recibir hoy.
+        - **POR_ENCARGO**: NO hay en stock local, pero SÍ se puede encargar a bodega/proveedor. Requiere ABONO (pago parcial) y un plazo de espera. Marcado con 📦 en la cotización formal.
+        - **SIN_STOCK**: NO hay forma de obtener este repuesto. NO se puede encargar a bodega, NO se puede pedir al proveedor, NO se puede conseguir alternativa. Es definitivo. Marcado con ❌ en la cotización.
+
+        ⛔ Si un item está en SIN_STOCK y el cliente pregunta "¿se puede encargar?", "¿cuánto tarda?", "¿hay forma de conseguirlo?":
+        NO ofrezcas consultar con el equipo. NO digas "déjame ver", "puede que llegue", "consultaremos a proveedores".
+        DEBES responder con claridad: "Lamentablemente este repuesto está fuera de stock y no podemos conseguirlo en este momento. Te recomendamos buscar alternativas en otros proveedores." (o variaciones cortas y naturales).
+        NUNCA levantes \`consulta_pendiente\` para items SIN_STOCK — ya está decidido por el vendedor.
+
+        Para items POR_ENCARGO: SÍ puedes explicar al cliente que requiere abono + plazo (ya está en el prompt principal sobre encargos).
         ${isConfirming && (sessionContext.entidades.repuestos_solicitados || []).some(r => r.cantidad_fijada) ? `⚠️ Cotización vigente (NO CAMBIAR salvo pedido explícito del cliente): ${(sessionContext.entidades.repuestos_solicitados || []).filter(r => r.precio).map(r => `${r.cantidad || 1}x ${r.nombre} | $${r.precio}`).join('; ')}` : ''}
 
         ## ❓ CONSULTAS QUE REQUIEREN AL VENDEDOR (NUNCA INVENTES INFO):

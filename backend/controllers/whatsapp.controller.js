@@ -484,7 +484,7 @@ const processBufferedMessages = async (customerPhone) => {
             session.estado === sessionsService.STATES.ESPERANDO_COMPROBANTE ||
             session.estado === sessionsService.STATES.ESPERANDO_SALDO
         )) {
-            console.log(`[P1] 🧠 Comprobante de pago detectado de ${customerPhone} (Estado: ${session.estado}). Procesando...`);
+            console.log(`[P1] 🧠 Imagen recibida en estado ${session.estado} de ${customerPhone}. Clasificando antes de asumir comprobante...`);
 
             // Extraer nombre del cliente del texto si está disponible y aún no se ha capturado
             if (!session.entidades?.nombre_cliente && userText) {
@@ -497,14 +497,51 @@ const processBufferedMessages = async (customerPhone) => {
                 }
             }
 
-            // Usar la primera imagen del buffer como comprobante
+            // Descargar y CLASIFICAR la imagen antes de asumir que es voucher.
+            // Bug previo: cualquier imagen en CONFIRMANDO_COMPRA se procesaba como comprobante
+            // → fotos de patente, repuestos, capturas, etc. terminaban marcando la sesión
+            // como ESPERANDO_APROBACION_ADMIN con datos basura.
             const voucherMediaId = images[0].message.image?.id;
             const imageData = await whatsappService.downloadMedia(voucherMediaId);
 
             if (!imageData) {
                 console.error(`[P1] ❌ No se pudo descargar la imagen de ${customerPhone}.`);
-                await sendAndPersist(customerPhone, 'Tuvimos un problema al recibir su comprobante. ¿Podía enviarlo nuevamente, por favor?');
+                await sendAndPersist(customerPhone, 'Tuvimos un problema al recibir tu imagen. ¿Podrías enviarla nuevamente, por favor?');
                 return;
+            }
+
+            // Clasificar tipo de imagen: 'padron' | 'parte' | 'otro' (vouchers no se clasifican aquí
+            // pero si la IA no detecta padron/parte y el estado es de pago, asumimos comprobante).
+            let tipoImagen = 'otro';
+            try {
+                const cls = await geminiService.analyzeImage(imageData);
+                tipoImagen = cls?.tipo || 'otro';
+                if (tipoImagen === 'padron' && cls.padron) {
+                    // Es la patente/padrón del vehículo, NO un comprobante. Capturar datos del vehículo.
+                    console.log(`[P1] 📄 Imagen clasificada como PADRÓN, no comprobante. Capturando datos vehículo.`);
+                    const padronUpdate = {};
+                    if (cls.padron.marca_modelo) padronUpdate.marca_modelo = cls.padron.marca_modelo;
+                    if (cls.padron.ano) padronUpdate.ano = String(cls.padron.ano);
+                    if (cls.padron.patente) padronUpdate.patente = cls.padron.patente;
+                    if (cls.padron.vin) padronUpdate.vin = cls.padron.vin;
+                    if (cls.padron.motor) padronUpdate.motor = cls.padron.motor;
+                    if (cls.padron.combustible) padronUpdate.combustible = cls.padron.combustible;
+                    if (Object.keys(padronUpdate).length > 0) {
+                        await sessionsService.updateEntidades(customerPhone, padronUpdate);
+                    }
+                    await sendAndPersist(customerPhone, `📄 Recibí el padrón, gracias. Un asesor revisará tu cotización con estos datos.`);
+                    return;
+                }
+                if (tipoImagen === 'parte') {
+                    // Es foto de repuesto. Avisar y dejar que el vendedor la revise.
+                    console.log(`[P1] 🔧 Imagen clasificada como PARTE/REPUESTO, no comprobante.`);
+                    await sendAndPersist(customerPhone, `🔧 Recibí tu foto. Un asesor la revisará junto a tu cotización.`);
+                    return;
+                }
+                // tipo 'otro' → seguimos al flujo de voucher (el cliente envía algo más raro)
+                // pero validamos que extractVoucherData encuentre datos reales antes de avanzar estado
+            } catch (clsErr) {
+                console.warn(`[P1] ⚠️ Clasificación de imagen falló: ${clsErr.message}. Asumiendo comprobante (fallback).`);
             }
 
             const datosExtraidos = await geminiService.extractVoucherData(imageData);
