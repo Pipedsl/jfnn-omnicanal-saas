@@ -364,9 +364,19 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
     setSendingPlantilla(plantilla.id);
     try {
       const vendedorNombre = typeof window !== "undefined" ? localStorage.getItem("jfnn_vendedor_nombre") : null;
+      // Las plantillas HSM requieren rellenar TODOS los params declarados,
+      // sino Meta rechaza. Como es conversación nueva (sin nombre conocido), usamos
+      // placeholders neutros.
+      const defaultParams: Record<string, string> = {
+        nombre: "",
+        sucursal: "Melipilla",
+        cantidad: "tus repuestos"
+      };
+      const params: Record<string, string> = {};
+      (plantilla.params || []).forEach(p => { params[p] = defaultParams[p] ?? ""; });
       await api.post(`${API_URL}/api/dashboard/conversaciones/${phone}/plantilla`, {
         plantilla_id: plantilla.id,
-        params: {},
+        params,
         vendedor_nombre: vendedorNombre,
       });
       setShowNewConv(false);

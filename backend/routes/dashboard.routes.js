@@ -1915,8 +1915,13 @@ router.post('/conversaciones/:phone/plantilla', async (req, res) => {
 
         res.json({ success: true, messageId: response?.messages?.[0]?.id || 'sent' });
     } catch (error) {
-        console.error('[Dashboard] Error enviando plantilla desde chat:', error.message);
-        res.status(500).json({ error: 'Error al enviar plantilla', detalle: error.message });
+        // Extraer detalle del error de Meta para debug en el dashboard
+        const metaError = error.response?.data?.error;
+        const detalle = metaError
+            ? `Meta error ${metaError.code}: ${metaError.message}${metaError.error_user_msg ? ' — ' + metaError.error_user_msg : ''}`
+            : error.message;
+        console.error('[Dashboard] Error enviando plantilla desde chat:', detalle);
+        res.status(500).json({ error: 'Error al enviar plantilla', detalle });
     }
 });
 
