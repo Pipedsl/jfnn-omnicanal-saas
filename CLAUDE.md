@@ -142,3 +142,24 @@ Routes are mounted in `backend/index.js`:
 - `/api/dashboard` → `dashboard.routes.js`
 
 So `router.get('/cotizaciones')` in dashboard.routes.js is accessed at `/api/dashboard/cotizaciones`.
+
+## WhatsApp Cloud API — Estado operacional
+
+**Estado:** ✅ **Canal WhatsApp ACTIVO desde el 18 mayo 2026** vía Cloud API en modo Live, **tier Limited Access (sin Business Verification)**. Validado end-to-end.
+
+**Documento completo:** `docs/PLAN_OPCION_A_EJECUCION.md` (datos de integración + notas de ejecución). Plan estratégico padre: `docs/PLAN_B_META_RECHAZO.md`.
+
+**Datos de la integración (chip de prueba):**
+- App Meta: `RepuestosOmnicanal` — App ID `2553364111727691`
+- WABA: `repuestos jfnn` — ID `1003088295416438` (⚠️ hay 4 WABAs en el BM; esta es la correcta, minúsculas)
+- Phone ID: `1066882779849103` — número de prueba `+56 9 5082 8842`
+- System User: `jfnnbackendapi` — token permanente (sin expiración) en Railway `WHATSAPP_ACCESS_TOKEN`
+- Webhook: `https://jfnn-backend-production.up.railway.app/api/whatsapp/webhook`
+- Env vars que consume el backend: `WHATSAPP_PHONE_ID`, `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_VERIFY_TOKEN`, `META_APP_SECRET` (opcional en dev)
+
+**Sobre la verificación de negocio Meta:** sigue en revisión (enviada 11 mayo 2026, ver `docs/META_VERIFICACION_GUIA_DEFINITIVA.md`), pero **ya NO es bloqueante**. El modo Limited Access es permanente y legítimo; el flujo customer-initiated de JFNN no toca el límite de 250 conv./24h. Sin riesgo de ban.
+
+**Pendiente futuro (NO urgente):**
+1. Cuando Meta apruebe la verificación → migrar el **número productivo** de JFNN (mismo flujo OTP, backup de chats antes, cambiar `WHATSAPP_PHONE_ID` en Railway).
+2. Auditar y limpiar las 4 WABAs duplicadas del Business Manager.
+3. Configurar `META_APP_SECRET` en Railway (validación de firma X-Hub-Signature-256 — hoy en modo dev permisivo).

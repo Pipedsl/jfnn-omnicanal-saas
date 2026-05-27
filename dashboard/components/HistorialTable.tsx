@@ -102,13 +102,13 @@ export default function HistorialTable({ quotes, filter, searchQuery, onOpenDeta
         <div className="glass rounded-2xl overflow-hidden border border-white/5">
             {/* Header */}
             <div className="grid grid-cols-12 gap-4 px-6 py-3 border-b border-white/5 bg-white/[0.02]">
-                <span className="col-span-1 text-[9px] font-bold uppercase tracking-widest text-neutral-600">ID</span>
-                <span className="col-span-2 text-[9px] font-bold uppercase tracking-widest text-neutral-600">Cliente</span>
-                <span className="col-span-3 text-[9px] font-bold uppercase tracking-widest text-neutral-600">Vehículo</span>
-                <span className="col-span-1 text-[9px] font-bold uppercase tracking-widest text-neutral-600 text-center">Items</span>
-                <span className="col-span-2 text-[9px] font-bold uppercase tracking-widest text-neutral-600 text-right">Monto</span>
-                <span className="col-span-1 text-[9px] font-bold uppercase tracking-widest text-neutral-600 text-center">Estado</span>
-                <span className="col-span-2 text-[9px] font-bold uppercase tracking-widest text-neutral-600 text-right">Fecha</span>
+                <span className="hidden md:block md:col-span-1 text-[9px] font-bold uppercase tracking-widest text-neutral-600">ID</span>
+                <span className="col-span-6 md:col-span-2 text-[9px] font-bold uppercase tracking-widest text-neutral-600">Cliente</span>
+                <span className="hidden md:block md:col-span-3 text-[9px] font-bold uppercase tracking-widest text-neutral-600">Vehículo</span>
+                <span className="hidden md:block md:col-span-1 text-[9px] font-bold uppercase tracking-widest text-neutral-600 text-center">Items</span>
+                <span className="col-span-3 md:col-span-2 text-[9px] font-bold uppercase tracking-widest text-neutral-600 text-right">Monto</span>
+                <span className="col-span-3 md:col-span-1 text-[9px] font-bold uppercase tracking-widest text-neutral-600 text-center">Estado</span>
+                <span className="hidden md:block md:col-span-2 text-[9px] font-bold uppercase tracking-widest text-neutral-600 text-right">Fecha</span>
             </div>
 
             {/* Rows */}
@@ -132,7 +132,7 @@ export default function HistorialTable({ quotes, filter, searchQuery, onOpenDeta
                             className="grid grid-cols-12 gap-4 px-6 py-3.5 items-center hover:bg-white/[0.03] cursor-pointer transition-colors group"
                         >
                             {/* Quote ID */}
-                            <div className="col-span-1 flex items-center gap-1.5">
+                            <div className="hidden md:flex md:col-span-1 items-center gap-1.5">
                                 <Hash size={11} className="text-accent/60" />
                                 <span className="text-[11px] text-accent font-mono font-bold truncate">
                                     {quote.entidades?.quote_id?.replace('JFNN-2026-', '') || '—'}
@@ -140,37 +140,38 @@ export default function HistorialTable({ quotes, filter, searchQuery, onOpenDeta
                             </div>
 
                             {/* Cliente */}
-                            <div className="col-span-2 flex items-center gap-2 min-w-0">
+                            <div className="col-span-6 md:col-span-2 flex items-center gap-2 min-w-0">
                                 <div className="w-7 h-7 rounded-full bg-white/5 flex items-center justify-center text-neutral-500 shrink-0">
                                     <User size={13} />
                                 </div>
                                 <div className="min-w-0">
                                     <p className="text-xs font-bold text-neutral-200 truncate">{quote.entidades?.nombre_cliente || 'Sin nombre'}</p>
                                     <p className="text-[10px] text-neutral-600 font-mono">{quote.phone}</p>
+                                    <p className="text-[10px] text-neutral-500 md:hidden mt-0.5">{fecha} · {hora}</p>
                                 </div>
                             </div>
 
                             {/* Vehículo */}
-                            <div className="col-span-3 flex items-center gap-1.5 min-w-0">
+                            <div className="hidden md:flex md:col-span-3 items-center gap-1.5 min-w-0">
                                 <Car size={12} className="text-neutral-500 shrink-0" />
                                 <span className="text-xs text-neutral-400 truncate">{vehicleLabel}</span>
                             </div>
 
                             {/* Items count */}
-                            <div className="col-span-1 flex items-center justify-center gap-1">
+                            <div className="hidden md:flex md:col-span-1 items-center justify-center gap-1">
                                 <Package size={11} className="text-neutral-600" />
                                 <span className="text-xs text-neutral-400 font-bold">{repCount}</span>
                             </div>
 
                             {/* Monto */}
-                            <div className="col-span-2 text-right">
+                            <div className="col-span-3 md:col-span-2 text-right">
                                 <span className={`text-sm font-bold ${total > 0 ? 'text-green-400' : 'text-neutral-600'}`}>
                                     {total > 0 ? `$${total.toLocaleString('es-CL')}` : '—'}
                                 </span>
                             </div>
 
                             {/* Estado */}
-                            <div className="col-span-1 flex justify-center">
+                            <div className="col-span-3 md:col-span-1 flex justify-center">
                                 <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[9px] font-bold uppercase tracking-tighter rounded-full border ${badge.class}`}>
                                     {badge.icon}
                                     {badge.label}
@@ -178,7 +179,7 @@ export default function HistorialTable({ quotes, filter, searchQuery, onOpenDeta
                             </div>
 
                             {/* Fecha */}
-                            <div className="col-span-2 flex items-center justify-end gap-2">
+                            <div className="hidden md:flex md:col-span-2 items-center justify-end gap-2">
                                 <div className="text-right">
                                     <p className="text-[11px] text-neutral-400">{fecha}</p>
                                     <p className="text-[10px] text-neutral-600">{hora}</p>

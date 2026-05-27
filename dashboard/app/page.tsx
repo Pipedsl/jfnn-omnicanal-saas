@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { api } from "@/lib/api";
-import { LayoutDashboard, RefreshCcw, Bell, Settings, ShieldCheck, Search, LogOut, BarChart3 } from "lucide-react";
+import { LayoutDashboard, RefreshCcw, Bell, BellRing, Settings, ShieldCheck, Search, LogOut, BarChart3 } from "lucide-react";
+import { useNotifications } from "@/hooks/useNotifications";
 import QuoteCard from "@/components/QuoteCard";
 import BandejaTable from "@/components/BandejaTable";
 import HistorialTable from "@/components/HistorialTable";
@@ -38,9 +39,11 @@ export default function Home() {
   const [vendedorNombre, setVendedorNombre] = useState<string>('');
   const [adminSucursalFilter, setAdminSucursalFilter] = useState<'todas' | 'Melipilla' | 'San Felipe'>('todas');
   const [identitySelectorOpen, setIdentitySelectorOpen] = useState(false);
+  const { permission, requestPermission, notify } = useNotifications();
   // useRef para capturar el `view` y `fetchQuotesAndMetrics` actual sin closures stale
   const viewRef = useRef("pendientes");
   const fetchRef = useRef<(source?: string) => Promise<void>>(null!);
+  const prevPhonesRef = useRef<Set<string>>(new Set());
 
   // Eliminado el estado 'metrics' local en favor del componente <DashboardMetrics />
 
@@ -100,6 +103,16 @@ export default function Home() {
       }
       const resPend = await api.get(`${API_URL}/api/dashboard/cotizaciones?t=${Date.now()}${sucursalParam}`);
       const pend: Quote[] = resPend.data || [];
+
+      if (prevPhonesRef.current.size > 0) {
+        const newQuotes = pend.filter(q => !prevPhonesRef.current.has(q.phone));
+        for (const q of newQuotes) {
+          const nombre = q.entidades?.nombre_cliente || q.phone;
+          notify("Nuevo cliente", `${nombre} está escribiendo`);
+          break;
+        }
+      }
+      prevPhonesRef.current = new Set(pend.map(q => q.phone));
 
       if (viewRef.current === "pendientes") setQuotes(pend);
     } catch (error) {
@@ -219,12 +232,16 @@ export default function Home() {
             <Link href="/settings" className="p-2 hover:bg-neutral-800 rounded-lg text-neutral-400 transition-colors" title="Ajustes">
               <Settings size={18} />
             </Link>
-            <div className="relative p-2 hover:bg-neutral-800 rounded-lg text-neutral-400 cursor-pointer">
-              <Bell size={18} />
+            <button
+              onClick={requestPermission}
+              className={`relative p-2 hover:bg-neutral-800 rounded-lg transition-colors cursor-pointer ${permission === 'granted' ? 'text-accent' : 'text-neutral-400'}`}
+              title={permission === 'granted' ? 'Notificaciones activadas' : permission === 'denied' ? 'Notificaciones bloqueadas (revisa permisos del navegador)' : 'Activar notificaciones'}
+            >
+              {permission === 'granted' ? <BellRing size={18} /> : <Bell size={18} />}
               {quotes.length > 0 && (
                 <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-background"></span>
               )}
-            </div>
+            </button>
             <div className="h-8 w-[1px] bg-white/10 mx-2"></div>
             <div className="flex items-center gap-3">
               {userRole === 'vendedor' && vendedorNombre ? (
@@ -383,6 +400,7 @@ export default function Home() {
                 userRole === 'vendedor' ? userSucursal :
                 adminSucursalFilter !== 'todas' ? adminSucursalFilter : null
               }
+              onNewMessage={notify}
             />
           ) : loading && quotes.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 glass rounded-3xl animate-pulse">

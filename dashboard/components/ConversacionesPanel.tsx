@@ -106,7 +106,7 @@ const TIPO_ICON: Record<string, React.ReactNode> = {
   document: <FileText size={14} />,
 };
 
-export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter?: string | null }) {
+export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { sucursalFilter?: string | null; onNewMessage?: (title: string, body: string) => void }) {
   const [conversaciones, setConversaciones] = useState<Conversacion[]>([]);
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
   const [chat, setChat] = useState<ChatData | null>(null);
@@ -114,6 +114,7 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
   const [loadingChat, setLoadingChat] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const prevMsgCountRef = useRef<number>(0);
+  const prevConvTimesRef = useRef<Map<string, string>>(new Map());
   const [, setTick] = useState(0);
   const [plantillas, setPlantillas] = useState<PlantillaHSM[]>([]);
   const [showPlantillas, setShowPlantillas] = useState(false);
@@ -219,7 +220,20 @@ export default function ConversacionesPanel({ sucursalFilter }: { sucursalFilter
       if (sucursalFilter) params.set("sucursal", sucursalFilter);
       params.set("t", String(Date.now()));
       const res = await api.get(`${API_URL}/api/dashboard/conversaciones?${params.toString()}`);
-      setConversaciones(res.data || []);
+      const list: Conversacion[] = res.data || [];
+
+      if (onNewMessage && prevConvTimesRef.current.size > 0) {
+        for (const conv of list) {
+          const prevTime = prevConvTimesRef.current.get(conv.phone);
+          if (prevTime && conv.ultimo_mensaje_at > prevTime && conv.phone !== selectedPhone) {
+            onNewMessage("Mensaje nuevo", `${conv.nombre_cliente || formatPhone(conv.phone)}: ${conv.ultimo_contenido || "📎 Media"}`);
+            break;
+          }
+        }
+      }
+      prevConvTimesRef.current = new Map(list.map(c => [c.phone, c.ultimo_mensaje_at]));
+
+      setConversaciones(list);
     } catch (err) {
       console.error("[Conversaciones] Error fetching list:", err);
     } finally {
