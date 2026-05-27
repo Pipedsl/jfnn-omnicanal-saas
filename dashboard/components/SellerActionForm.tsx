@@ -262,12 +262,16 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
                 repuestos_solicitados: cleanItems(v.repuestos_solicitados)
             }));
 
+            const vendedorNombre = typeof window !== 'undefined'
+                ? localStorage.getItem('jfnn_vendedor_nombre')
+                : null;
             await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/responder`, {
                 phone,
                 items: formVehiculos.length === 0 ? cleanItems(formItems) : null,
                 vehiculos: formVehiculos.length > 0 ? cleanVehiculos : null,
                 note,
-                horario_entrega: horarioEntrega
+                horario_entrega: horarioEntrega,
+                vendedor_nombre: vendedorNombre || undefined
             });
             onResponded();
         } catch (error) {
