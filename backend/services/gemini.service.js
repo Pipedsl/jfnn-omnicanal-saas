@@ -539,12 +539,13 @@ const analyzeImage = async (imageData) => {
 
 Analiza la imagen y clasifícala en UNO de estos tipos:
 1. "padron" — Documento oficial del Registro Civil chileno: "Permiso de Circulación" (municipal) o "Certificado de Anotaciones Vigentes" (Registro de Vehículos Motorizados). Contiene datos del vehículo y propietario. La palabra "PADRÓN" NO siempre aparece literalmente.
-2. "parte" — Una pieza o repuesto automotriz (filtro, pastilla, correa, bomba, disco, bujía, etc.).
-3. "otro" — Cualquier otra imagen (persona, captura de chat, paisaje, etc.).
+2. "placa_patente" — Foto de la PLACA PATENTE física del auto (la matrícula metálica con letras/números, normalmente blanca o amarilla, sujeta al frente o atrás del vehículo, formato chileno típico: 2 letras + 4 dígitos o 4 letras + 2 dígitos, ej "FDKL53", "BRXS20"). La foto muestra el auto o solo la placa.
+3. "parte" — Una pieza o repuesto automotriz (filtro, pastilla, correa, bomba, disco, bujía, empaquetadura, kit distribución, etc.).
+4. "otro" — Cualquier otra imagen (persona, captura de chat, paisaje, comprobante de pago, etc.).
 
 Responde SOLO con JSON válido:
 {
-    "tipo": "padron" | "parte" | "otro",
+    "tipo": "padron" | "placa_patente" | "parte" | "otro",
     "padron": {
         "marca_modelo": "Marca + Modelo del vehículo (ej: 'Toyota Hilux') o null",
         "ano": "año del vehículo como string o null",
@@ -554,13 +555,18 @@ Responde SOLO con JSON válido:
         "combustible": "bencina | diesel | hibrido | electrico | null",
         "nombre_propietario": "nombre completo del propietario tal como aparece en el documento, o null",
         "rut_propietario": "RUT en formato XX.XXX.XXX-X o null"
+    },
+    "placa_patente": {
+        "patente": "patente chilena leída de la placa en MAYÚSCULAS sin guiones ni espacios (ej: 'FDKL53', 'BRXS20'). Ignora cualquier guion o espacio del medio."
     }
 }
 
 Reglas DURAS:
-- Si tipo != "padron", devuelve "padron": null.
+- Si tipo == "padron": llena "padron" con lo que veas, "placa_patente": null.
+- Si tipo == "placa_patente": llena "placa_patente.patente" leyendo la matrícula. "padron": null.
+- Si tipo == "parte" u "otro": ambos null.
 - NO inventes datos. Si un campo no está visible con claridad, devuélvelo null.
-- Si solo ves una parte del documento y no distingues patente ni VIN, igual puedes clasificar como "padron" y devolver lo que sí veas.`;
+- Para "placa_patente": acepta fotos donde solo se ve la placa, o donde se ve el auto y la placa está enfocada/legible. Si la placa no es legible, clasifica como "parte" u "otro" según corresponda.`;
 
         const parts = [
             { text: prompt },

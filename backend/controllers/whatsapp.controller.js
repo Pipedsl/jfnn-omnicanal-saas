@@ -295,7 +295,44 @@ const processBufferedMessages = async (customerPhone) => {
             }));
             const validImages = classified.filter(Boolean);
             const padrones = validImages.filter(x => x.analysis.tipo === 'padron' && x.analysis.padron);
-            const partes = validImages.filter(x => x.analysis.tipo !== 'padron');
+            const placasPatente = validImages.filter(x => x.analysis.tipo === 'placa_patente' && x.analysis.placa_patente?.patente);
+            const partes = validImages.filter(x => x.analysis.tipo !== 'padron' && x.analysis.tipo !== 'placa_patente');
+
+            // ── FASE 2A.5: PROCESAR PLACAS PATENTE (foto de la matrícula del auto) ──
+            // Capturar la patente leída por OCR y guardarla en entidades. No requiere
+            // identificación de repuesto ni datos del propietario.
+            for (const pp of placasPatente) {
+                const patenteRaw = pp.analysis.placa_patente.patente.toUpperCase().replace(/[-\s]/g, '');
+                // Validación formato chileno: 2-4 letras + 2-4 dígitos
+                if (/^[A-Z]{2,4}\d{2,4}$/.test(patenteRaw)) {
+                    const session = await sessionsService.getSession(customerPhone);
+                    // Si ya hay vehículo en root sin patente, asignarla allí
+                    if (session.entidades?.marca_modelo && !session.entidades.patente) {
+                        await sessionsService.updateEntidades(customerPhone, { patente: patenteRaw });
+                    } else if (Array.isArray(session.entidades?.vehiculos) && session.entidades.vehiculos.length > 0) {
+                        // Multi-vehículo: asignar al primero que no tenga patente
+                        const vehiculos = [...session.entidades.vehiculos];
+                        const idx = vehiculos.findIndex(v => !v.patente);
+                        if (idx >= 0) {
+                            vehiculos[idx] = { ...vehiculos[idx], patente: patenteRaw };
+                            await sessionsService.updateEntidades(customerPhone, { vehiculos });
+                        }
+                    } else {
+                        // No hay vehículo aún — guardar al root
+                        await sessionsService.updateEntidades(customerPhone, { patente: patenteRaw });
+                    }
+                    console.log(`[ImageID] 🏁 Placa patente capturada: ${patenteRaw} para ${customerPhone}`);
+                    // Subir imagen a storage
+                    try {
+                        const placaPath = await storageService.uploadPartImage(customerPhone, pp.imageData.buffer, pp.imageData.mimeType);
+                        if (placaPath && pp.waMessageId) {
+                            await mensajesService.actualizarMedia(pp.waMessageId, { mediaUrl: placaPath, mediaMime: pp.imageData.mimeType });
+                        }
+                    } catch (e) { console.error(`[ImageID] ❌ Error guardando placa:`, e.message); }
+                } else {
+                    console.warn(`[ImageID] ⚠️ Placa patente con formato inválido: "${patenteRaw}" — ignorando`);
+                }
+            }
 
             // ── FASE 2A: PROCESAR PADRONES ──
             // REQ-04 Fase 2: subir imágenes de padrón a Storage
@@ -450,25 +487,40 @@ const processBufferedMessages = async (customerPhone) => {
                 return;
             }
 
+            // Caso solo PLACA PATENTE (sin partes ni padrón) → confirmar y avanzar si hay vehículo
+            if (placasPatente.length > 0 && partesResults.length === 0 && !padronDatos) {
+                const sessionRefr = await sessionsService.getSession(customerPhone);
+                const patenteRefr = sessionRefr.entidades?.patente
+                    || (Array.isArray(sessionRefr.entidades?.vehiculos) && sessionRefr.entidades.vehiculos.find(v => v.patente)?.patente);
+                const msg = patenteRefr
+                    ? `🏁 Recibí la patente ${patenteRefr}. Ya quedó registrada en tu cotización.`
+                    : `🏁 Recibí la foto de la patente. La revisaremos.`;
+                await new Promise(r => setTimeout(r, 1200));
+                await sendAndPersist(customerPhone, msg);
+                return;
+            }
+
             // Caso solo partes → mensaje original según estado
             const e = session.entidades;
             const tieneVehiculo = (e.ano && (e.patente || e.vin)) ||
                 (Array.isArray(e.vehiculos) && e.vehiculos.some(v => v.ano && (v.patente || v.vin)));
             const nFotos = partesResults.length;
+            // Mencionar la patente capturada si la hubo en este mismo lote
+            const patenteCapturadaMsg = placasPatente.length > 0 ? ' Recibí también la patente.' : '';
 
             if (session.estado === sessionsService.STATES.PERFILANDO) {
                 if (tieneVehiculo) {
                     await sessionsService.setEstado(customerPhone, sessionsService.STATES.ESPERANDO_VENDEDOR);
-                    const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''}. Un asesor las revisará y te cotizará en breve. 🔧`;
+                    const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''}.${patenteCapturadaMsg} Un asesor las revisará y te cotizará en breve. 🔧`;
                     await new Promise(r => setTimeout(r, 1500));
                     await sendAndPersist(customerPhone, msg);
                 } else {
-                    const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''}. Para cotizar necesito también los datos del auto: marca, año y patente. ¿Me los puedes enviar?`;
+                    const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''}.${patenteCapturadaMsg} Para cotizar necesito también los datos del auto: marca, año${placasPatente.length === 0 ? ' y patente' : ''}. ¿Me los puedes enviar?`;
                     await new Promise(r => setTimeout(r, 1500));
                     await sendAndPersist(customerPhone, msg);
                 }
             } else {
-                const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''} adicional${nFotos > 1 ? 'es' : ''}. El asesor las revisará junto a la cotización. 🔧`;
+                const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''} adicional${nFotos > 1 ? 'es' : ''}.${patenteCapturadaMsg} El asesor las revisará junto a la cotización. 🔧`;
                 await new Promise(r => setTimeout(r, 1500));
                 await sendAndPersist(customerPhone, msg);
             }
@@ -531,6 +583,17 @@ const processBufferedMessages = async (customerPhone) => {
                     }
                     await sendAndPersist(customerPhone, `📄 Recibí el padrón, gracias. Un asesor revisará tu cotización con estos datos.`);
                     return;
+                }
+                if (tipoImagen === 'placa_patente' && cls.placa_patente?.patente) {
+                    // Es foto de la placa patente. Capturar y confirmar.
+                    const patenteRaw = cls.placa_patente.patente.toUpperCase().replace(/[-\s]/g, '');
+                    if (/^[A-Z]{2,4}\d{2,4}$/.test(patenteRaw)) {
+                        await sessionsService.updateEntidades(customerPhone, { patente: patenteRaw });
+                        await sendAndPersist(customerPhone, `🏁 Recibí la patente ${patenteRaw}. Quedó registrada.`);
+                        return;
+                    }
+                    // Formato inválido — caer al flujo de parte
+                    console.warn(`[P1] ⚠️ Placa patente con formato inválido: "${patenteRaw}"`);
                 }
                 if (tipoImagen === 'parte') {
                     // Es foto de repuesto. Avisar y dejar que el vendedor la revise.
