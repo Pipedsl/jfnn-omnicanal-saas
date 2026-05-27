@@ -1840,6 +1840,9 @@ router.get('/conversaciones/:phone', async (req, res) => {
             agente_pausado: session?.entidades?.agente_pausado || false,
             consulta_pendiente: session?.entidades?.consulta_pendiente || null,
             marca: session?.entidades?.marca || null,
+            // Datos del vehículo + repuestos para que el chat panel pueda lanzar
+            // el SellerActionForm directamente (cotización formal desde el chat).
+            entidades: session?.entidades || null,
             ventana_24h: ventana24h,
             mensajes: enriched,
         });

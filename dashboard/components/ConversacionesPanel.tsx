@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { MessageCircle, Image, Mic, Video, FileText, ArrowLeft, User, Bot, Clock, Timer, AlertTriangle, Send, ChevronDown, Plus, X, PauseCircle, PlayCircle, Bookmark, BookmarkCheck, Paperclip, Ban } from "lucide-react";
+import { MessageCircle, Image, Mic, Video, FileText, ArrowLeft, User, Bot, Clock, Timer, AlertTriangle, Send, ChevronDown, Plus, X, PauseCircle, PlayCircle, Bookmark, BookmarkCheck, Paperclip, Ban, FileSpreadsheet } from "lucide-react";
 import { api } from "@/lib/api";
+import SellerActionForm from "./SellerActionForm";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
 
@@ -59,6 +60,9 @@ interface PlantillaHSM {
   params: string[];
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type EntidadesSesion = any;
+
 interface ChatData {
   phone: string;
   estado: string | null;
@@ -67,6 +71,7 @@ interface ChatData {
   agente_pausado: boolean;
   consulta_pendiente: ConsultaPendiente | null;
   marca: MarcaConversacion | null;
+  entidades: EntidadesSesion | null;
   ventana_24h: Ventana24h | null;
   mensajes: Mensaje[];
 }
@@ -147,6 +152,7 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
   const [newPhone, setNewPhone] = useState("");
   const [sendingImage, setSendingImage] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const [showCotizarModal, setShowCotizarModal] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setTick(t => t + 1), 60000);
@@ -632,6 +638,14 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
                 </div>
               </div>
               <div className="ml-auto flex items-center gap-2">
+                <button
+                  onClick={() => setShowCotizarModal(true)}
+                  className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-accent/15 text-accent hover:bg-accent/25 border border-accent/30 flex items-center gap-1.5 transition-colors"
+                  title="Enviar cotización formal al cliente desde aquí (no requiere salir del chat)"
+                >
+                  <FileSpreadsheet size={12} />
+                  Cotizar
+                </button>
                 {!chat?.agente_pausado && (
                   <button
                     onClick={cancelarRespuestaIA}
@@ -915,6 +929,39 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
       </div>
 
       {/* New Conversation Modal */}
+      {/* Modal: Cotizar desde el chat (SellerActionForm en overlay) */}
+      {showCotizarModal && selectedPhone && (
+        <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4" onClick={() => setShowCotizarModal(false)}>
+          <div
+            className="bg-neutral-950 border border-white/10 rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/10">
+              <div>
+                <h3 className="text-sm font-bold text-neutral-100">📋 Cotizar a {chat?.nombre_cliente || formatPhone(selectedPhone)}</h3>
+                <p className="text-[10px] text-neutral-500 mt-0.5">La cotización formal se enviará al cliente. La sesión pasará a CONFIRMANDO.</p>
+              </div>
+              <button onClick={() => setShowCotizarModal(false)} className="p-1.5 hover:bg-white/10 rounded-lg">
+                <X size={16} className="text-neutral-400" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              <SellerActionForm
+                phone={selectedPhone}
+                items={chat?.entidades?.repuestos_solicitados || []}
+                vehiculos={chat?.entidades?.vehiculos || []}
+                estado={chat?.estado || undefined}
+                onResponded={() => {
+                  setShowCotizarModal(false);
+                  fetchChat(selectedPhone, false);
+                  fetchConversaciones(false);
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {showNewConv && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setShowNewConv(false)}>
           <div className="bg-neutral-900 border border-white/10 rounded-2xl w-full max-w-md p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
