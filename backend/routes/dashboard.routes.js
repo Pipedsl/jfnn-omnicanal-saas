@@ -299,13 +299,35 @@ router.post('/cotizaciones/responder', async (req, res) => {
             detailsText = items.map(parseItem).join('\n');
         }
 
-        // Detectar si hay encargo en items o vehiculos
-        const hayEncargoEnItems = (items || []).some(i => i.disponibilidad === 'POR_ENCARGO') ||
-            (vehiculos || []).some(v => (v.repuestos_solicitados || []).some(r => r.disponibilidad === 'POR_ENCARGO'));
+        // Conteo de items por disponibilidad — usado para el cierre contextual del mensaje
+        const todosItemsFlat = (items || []).concat(
+            (vehiculos || []).flatMap(v => v.repuestos_solicitados || [])
+        );
+        const totalItems = todosItemsFlat.length;
+        const itemsSinStock = todosItemsFlat.filter(i => i.disponibilidad === 'SIN_STOCK').length;
+        const itemsPorEncargo = todosItemsFlat.filter(i => i.disponibilidad === 'POR_ENCARGO').length;
+        const itemsDisponibles = todosItemsFlat.filter(i => (i.disponibilidad || 'DISPONIBLE') === 'DISPONIBLE').length;
+        const todosSinStock = totalItems > 0 && itemsSinStock === totalItems;
+        const hayEncargoEnItems = itemsPorEncargo > 0;
 
         const notaEncargo = hayEncargoEnItems
             ? `\n\n📦 *Sobre los productos marcados con 📦:* No están en stock local. Para confirmarlos, los solicitamos a nuestra bodega central, lo que requiere un abono parcial por transferencia. El saldo lo pagas cuando llegan al local. ⏳`
             : '';
+
+        // Cierre contextual según disponibilidad de items
+        let cierreMensaje;
+        if (todosSinStock) {
+            cierreMensaje = `Lamentablemente no tenemos stock de ninguno de los items solicitados en este momento y no podemos encargarlos. Te recomendamos buscar en otros proveedores. Si necesitas algo más adelante, no dudes en escribirnos.`;
+        } else if (itemsPorEncargo > 0 && itemsDisponibles > 0) {
+            cierreMensaje = `¿Deseas confirmar la compra de los productos disponibles ✔️ y/o el encargo de los marcados con 📦?`;
+        } else if (itemsPorEncargo > 0 && itemsDisponibles === 0) {
+            cierreMensaje = `Los productos solicitados solo están disponibles por encargo 📦. ¿Deseas confirmar el encargo con el abono correspondiente?`;
+        } else if (itemsSinStock > 0 && itemsDisponibles > 0) {
+            cierreMensaje = `Algunos items están agotados. ¿Deseas confirmar la compra de los disponibles?`;
+        } else {
+            // Todos disponibles
+            cierreMensaje = `¿Deseas confirmar la compra?`;
+        }
 
         const headerMsg = rectificacion
             ? `⚠️ *COTIZACIÓN RECTIFICADA - JFNN*\nEsta cotización REEMPLAZA la anterior. Por favor ignora la versión previa.\n\n`
@@ -321,7 +343,7 @@ router.post('/cotizaciones/responder', async (req, res) => {
             `--- \n` +
             `🏢 Origen: Venta Online / WhatsApp\n` +
             `👤 Atentamente: ${vendedor_nombre || 'Asesor JFNN'}\n\n` +
-            `¿Deseas confirmar la compra o el encargo de los productos disponibles?`;
+            cierreMensaje;
 
         // sendSellerMessage auto-persiste el mensaje en la tabla mensajes con el autor_nombre indicado.
         await whatsappService.sendSellerMessage(phone, message, {
