@@ -39,17 +39,24 @@ router.get('/ventas', async (req, res) => {
             }
         })();
 
+        const sucursal = req.query.sucursal || null;
+        const vendedor = req.query.vendedor || null;
+        const params = [limit];
+        let extraFilter = '';
+        if (sucursal) { params.push(sucursal); extraFilter += ` AND sucursal = $${params.length}`; }
+        if (vendedor) { params.push(vendedor); extraFilter += ` AND vendedor_nombre = $${params.length}`; }
+
         const { rows } = await db.query(
             `SELECT id, phone, quote_id, estado_final, marca_modelo, ano, total_cotizacion,
                     mensajes_ia_total, mensajes_vendedor_total,
-                    archivado_en, created_at,
+                    archivado_en, created_at, vendedor_nombre, sucursal,
                     EXTRACT(EPOCH FROM (archivado_en - created_at))/60 AS duracion_min
              FROM pedidos
              WHERE ${filtroSql}
-               AND estado_final IN ('ENTREGADO', 'PAGO_VERIFICADO')
+               AND estado_final IN ('ENTREGADO', 'PAGO_VERIFICADO')${extraFilter}
              ORDER BY archivado_en DESC
              LIMIT $1`,
-            [limit]
+            params
         );
 
         res.status(200).json({
@@ -67,7 +74,9 @@ router.get('/ventas', async (req, res) => {
                 mensajes_vendedor: r.mensajes_vendedor_total || 0,
                 duracion_min: Math.round(parseFloat(r.duracion_min) || 0),
                 archivado_en: r.archivado_en,
-                created_at: r.created_at
+                created_at: r.created_at,
+                vendedor_nombre: r.vendedor_nombre || null,
+                sucursal: r.sucursal || null
             }))
         });
     } catch (error) {
@@ -80,7 +89,9 @@ router.get('/metrics', async (req, res) => {
     try {
         const allowedRanges = ['hoy', '7d', '30d', 'total'];
         const range = allowedRanges.includes(req.query.range) ? req.query.range : 'hoy';
-        const metrics = await sessionsService.getDashboardMetrics(range);
+        const sucursal = req.query.sucursal || null;
+        const vendedor = req.query.vendedor || null;
+        const metrics = await sessionsService.getDashboardMetrics(range, { sucursal, vendedor });
         res.status(200).json(metrics);
     } catch (error) {
         console.error('Error obteniendo métricas:', error);
@@ -221,7 +232,7 @@ router.post('/cotizaciones/:phone/release', async (req, res) => {
  */
 router.post('/cotizaciones/responder', async (req, res) => {
     try {
-        const { phone, items, vehiculos, note, horario_entrega } = req.body;
+        const { phone, items, vehiculos, note, horario_entrega, vendedor_nombre } = req.body;
 
         if (!phone || (!items && !vehiculos)) {
             return res.status(400).json({ error: 'Faltan campos obligatorios' });
@@ -279,7 +290,7 @@ router.post('/cotizaciones/responder', async (req, res) => {
             `${note ? `📝 Nota del asesor: ${note}\n\n` : ''}` +
             `--- \n` +
             `🏢 Origen: Venta Online / WhatsApp\n` +
-            `👤 Atentamente: Asesor JFNN\n\n` +
+            `👤 Atentamente: ${vendedor_nombre || 'Asesor JFNN'}\n\n` +
             `¿Deseas confirmar la compra o el encargo de los productos disponibles?`;
 
         await whatsappService.sendSellerMessage(phone, message);

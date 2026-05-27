@@ -291,7 +291,7 @@ export default function Home() {
 
       <div className="max-w-7xl mx-auto px-6">
         {/* KPI Panel (hidden in chat view) */}
-        {view !== 'conversaciones' && (
+        {view !== 'conversaciones' && userRole === 'admin' && (
           <>
             <DashboardMetrics />
             <AgentMetrics />

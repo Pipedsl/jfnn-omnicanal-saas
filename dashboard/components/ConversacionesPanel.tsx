@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { MessageCircle, Image, Mic, Video, FileText, ArrowLeft, User, Bot, Clock, Timer, AlertTriangle, Send, ChevronDown, Plus, X } from "lucide-react";
+import { MessageCircle, Image, Mic, Video, FileText, ArrowLeft, User, Bot, Clock, Timer, AlertTriangle, Send, ChevronDown, Plus, X, PauseCircle, PlayCircle } from "lucide-react";
 import { api } from "@/lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
@@ -159,6 +159,17 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
     }
   };
 
+  const togglePausa = async () => {
+    if (!selectedPhone || !chat) return;
+    const nuevoPausado = !chat.agente_pausado;
+    try {
+      await api.patch(`${API_URL}/api/dashboard/sessions/${selectedPhone}/pausa`, { pausado: nuevoPausado });
+      setChat(prev => prev ? { ...prev, agente_pausado: nuevoPausado } : prev);
+    } catch (err) {
+      console.error("[Pausa] Error:", err);
+    }
+  };
+
   const sendMessage = async () => {
     if (!selectedPhone || !messageText.trim() || sendingMessage) return;
     setSendingMessage(true);
@@ -169,6 +180,10 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
         vendedor_nombre: vendedorNombre,
       });
       setMessageText("");
+      if (chat && !chat.agente_pausado) {
+        await api.patch(`${API_URL}/api/dashboard/sessions/${selectedPhone}/pausa`, { pausado: true }).catch(() => {});
+        setChat(prev => prev ? { ...prev, agente_pausado: true } : prev);
+      }
       fetchChat(selectedPhone, false);
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { code?: string } } };
@@ -406,6 +421,18 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
                   })()}
                 </div>
               </div>
+              <button
+                onClick={togglePausa}
+                className={`ml-auto px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 transition-colors ${
+                  chat?.agente_pausado
+                    ? "bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                    : "bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20"
+                }`}
+                title={chat?.agente_pausado ? "Reanudar respuestas automáticas" : "Pausar respuestas automáticas"}
+              >
+                {chat?.agente_pausado ? <PlayCircle size={14} /> : <PauseCircle size={14} />}
+                {chat?.agente_pausado ? "Reanudar IA" : "Pausar IA"}
+              </button>
             </div>
 
             {/* Messages */}

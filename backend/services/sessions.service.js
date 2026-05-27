@@ -969,12 +969,23 @@ const rangeToSql = (range, column) => {
     }
 };
 
-const getDashboardMetrics = async (range = 'hoy') => {
+const getDashboardMetrics = async (range = 'hoy', filters = {}) => {
     try {
         const tiempoRespuestaSeg = parseInt(process.env.IA_TIEMPO_RESPUESTA_SEG || '30', 10);
 
         const filtroPedidos = rangeToSql(range, 'archivado_en');
         const filtroSesionesCreadas = rangeToSql(range, 'created_at');
+
+        // Filtros opcionales de sucursal/vendedor (parametrizados)
+        const pedidosParams = [];
+        let pedidosExtra = '';
+        if (filters.sucursal) { pedidosParams.push(filters.sucursal); pedidosExtra += ` AND sucursal = $${pedidosParams.length}`; }
+        if (filters.vendedor) { pedidosParams.push(filters.vendedor); pedidosExtra += ` AND vendedor_nombre = $${pedidosParams.length}`; }
+
+        const sesionesParams = [];
+        let sesionesExtra = '';
+        if (filters.sucursal) { sesionesParams.push(filters.sucursal); sesionesExtra += ` AND sucursal = $${sesionesParams.length}`; }
+        if (filters.vendedor) { sesionesParams.push(filters.vendedor); sesionesExtra += ` AND lock_vendedor = $${sesionesParams.length}`; }
 
         // 1. Ventas en el rango (cerradas)
         const ventasResult = await db.query(`
@@ -986,37 +997,40 @@ const getDashboardMetrics = async (range = 'hoy') => {
                 COALESCE(AVG(EXTRACT(EPOCH FROM (archivado_en - created_at))) / 60, 0) AS mins_promedio_cierre
             FROM pedidos
             WHERE ${filtroPedidos}
-              AND estado_final IN ('ENTREGADO', 'PAGO_VERIFICADO')
-        `);
+              AND estado_final IN ('ENTREGADO', 'PAGO_VERIFICADO')${pedidosExtra}
+        `, pedidosParams);
 
         // 2. Sesiones activas (snapshot actual)
-        const activasResult = await db.query(`SELECT COUNT(*) AS sesiones_activas FROM user_sessions`);
+        const activasResult = await db.query(`SELECT COUNT(*) AS sesiones_activas FROM user_sessions WHERE TRUE${sesionesExtra}`, sesionesParams);
 
         // 3. Tiempo promedio de espera del vendedor (snapshot actual)
         const tiempoEsperaResult = await db.query(`
             SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (NOW() - ultimo_mensaje))) / 60, 0) AS mins_espera
             FROM user_sessions
-            WHERE estado = 'ESPERANDO_VENDEDOR'
-        `);
+            WHERE estado = 'ESPERANDO_VENDEDOR'${sesionesExtra}
+        `, sesionesParams);
 
         // 4. Conversaciones iniciadas en el rango (sesiones + pedidos creados)
+        const iniciadasParams = [...sesionesParams, ...pedidosParams];
+        const sesParamOffset = sesionesParams.length;
+        const pedidosExtraOffset = pedidosExtra.replace(/\$(\d+)/g, (_, n) => `$${parseInt(n) + sesParamOffset}`);
         const iniciadasResult = await db.query(`
             SELECT
-                (SELECT COUNT(*) FROM user_sessions WHERE ${rangeToSql(range, 'created_at')}) +
-                (SELECT COUNT(*) FROM pedidos WHERE ${filtroSesionesCreadas}) AS total_iniciadas
-        `);
+                (SELECT COUNT(*) FROM user_sessions WHERE ${rangeToSql(range, 'created_at')}${sesionesExtra}) +
+                (SELECT COUNT(*) FROM pedidos WHERE ${filtroSesionesCreadas}${pedidosExtraOffset}) AS total_iniciadas
+        `, iniciadasParams);
 
         // 5. Mensajes IA en sesiones activas creadas en el rango
         const sesionesIaResult = await db.query(`
             SELECT COALESCE(SUM(mensajes_ia), 0) AS mensajes_ia_sesiones
             FROM user_sessions
-            WHERE ${rangeToSql(range, 'created_at')}
-        `);
+            WHERE ${rangeToSql(range, 'created_at')}${sesionesExtra}
+        `, sesionesParams);
 
         // 6. Sesiones en ESPERANDO_VENDEDOR (snapshot actual)
         const esperandoVendedorResult = await db.query(`
-            SELECT COUNT(*)::int AS cantidad_esperando FROM user_sessions WHERE estado = 'ESPERANDO_VENDEDOR'
-        `);
+            SELECT COUNT(*)::int AS cantidad_esperando FROM user_sessions WHERE estado = 'ESPERANDO_VENDEDOR'${sesionesExtra}
+        `, sesionesParams);
 
         const cantidadVentas = parseInt(ventasResult.rows[0].cantidad_ventas, 10);
         const totalVendido = parseInt(ventasResult.rows[0].total_vendido, 10);

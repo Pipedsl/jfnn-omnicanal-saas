@@ -43,6 +43,14 @@ interface Venta {
     mensajes_vendedor: number;
     duracion_min: number;
     archivado_en: string;
+    vendedor_nombre: string | null;
+    sucursal: string | null;
+}
+
+interface Vendedor {
+    id: number;
+    nombre: string;
+    sucursal: string;
 }
 
 const RANGE_LABELS: Record<Range, string> = {
@@ -68,13 +76,26 @@ export default function EstadisticasAdmin() {
     const [metrics, setMetrics] = useState<MetricsData | null>(null);
     const [ventas, setVentas] = useState<Venta[]>([]);
     const [loading, setLoading] = useState(true);
+    const [sucursalFilter, setSucursalFilter] = useState('');
+    const [vendedorFilter, setVendedorFilter] = useState('');
+    const [vendedores, setVendedores] = useState<Vendedor[]>([]);
+
+    useEffect(() => {
+        axios.get(`${BACKEND_URL}/api/dashboard/vendedores?incluir_inactivos=0&t=${Date.now()}`)
+            .then(res => setVendedores(res.data.vendedores || []))
+            .catch(err => console.error('Error cargando vendedores:', err));
+    }, []);
 
     const fetchAll = useCallback(async () => {
         setLoading(true);
         try {
+            const params = new URLSearchParams({ range, t: String(Date.now()) });
+            if (sucursalFilter) params.set('sucursal', sucursalFilter);
+            if (vendedorFilter) params.set('vendedor', vendedorFilter);
+            const qs = params.toString();
             const [metricsRes, ventasRes] = await Promise.all([
-                axios.get(`${BACKEND_URL}/api/dashboard/metrics?range=${range}&t=${Date.now()}`),
-                axios.get(`${BACKEND_URL}/api/dashboard/ventas?range=${range}&limit=20&t=${Date.now()}`),
+                axios.get(`${BACKEND_URL}/api/dashboard/metrics?${qs}`),
+                axios.get(`${BACKEND_URL}/api/dashboard/ventas?${qs}&limit=20`),
             ]);
             setMetrics(metricsRes.data);
             setVentas(ventasRes.data.ventas || []);
@@ -83,7 +104,7 @@ export default function EstadisticasAdmin() {
         } finally {
             setLoading(false);
         }
-    }, [range]);
+    }, [range, sucursalFilter, vendedorFilter]);
 
     useEffect(() => {
         fetchAll();
@@ -183,6 +204,38 @@ export default function EstadisticasAdmin() {
                     </div>
                 </header>
 
+                {/* Filtros sucursal / vendedor */}
+                <div className="flex items-center gap-6 pb-6">
+                    <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">Sucursal:</span>
+                        <select
+                            value={sucursalFilter}
+                            onChange={(e) => { setSucursalFilter(e.target.value); setVendedorFilter(''); }}
+                            className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-neutral-300 focus:border-accent/30 focus:outline-none"
+                        >
+                            <option value="">Todas</option>
+                            <option value="Melipilla">Melipilla</option>
+                            <option value="San Felipe">San Felipe</option>
+                        </select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-500">Vendedor:</span>
+                        <select
+                            value={vendedorFilter}
+                            onChange={(e) => setVendedorFilter(e.target.value)}
+                            className="bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-neutral-300 focus:border-accent/30 focus:outline-none"
+                        >
+                            <option value="">Todos</option>
+                            {vendedores
+                                .filter(v => !sucursalFilter || v.sucursal === sucursalFilter)
+                                .map(v => (
+                                    <option key={v.id} value={v.nombre}>{v.nombre} ({v.sucursal})</option>
+                                ))
+                            }
+                        </select>
+                    </div>
+                </div>
+
                 {loading && !metrics ? (
                     <div className="flex flex-col items-center justify-center h-64 glass rounded-3xl animate-pulse">
                         <div className="w-12 h-12 border-4 border-accent/20 border-t-accent rounded-full animate-spin mb-4"></div>
@@ -234,6 +287,8 @@ export default function EstadisticasAdmin() {
                                                 <th className="text-left px-4 py-3">Fecha</th>
                                                 <th className="text-left px-4 py-3">Cliente</th>
                                                 <th className="text-left px-4 py-3">Vehículo</th>
+                                                <th className="text-left px-4 py-3">Sucursal</th>
+                                                <th className="text-left px-4 py-3">Vendedor</th>
                                                 <th className="text-right px-4 py-3">Monto</th>
                                                 <th className="text-right px-4 py-3">Duración</th>
                                                 <th className="text-right px-4 py-3">Msgs IA</th>
@@ -257,6 +312,12 @@ export default function EstadisticasAdmin() {
                                                         {v.ano && (
                                                             <span className="text-neutral-600">{v.ano}</span>
                                                         )}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-neutral-400 text-xs">
+                                                        {v.sucursal || "—"}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-neutral-300 text-xs">
+                                                        {v.vendedor_nombre || "—"}
                                                     </td>
                                                     <td className="px-4 py-3 text-right font-bold text-green-400">
                                                         {formatMoney(v.total_cotizacion)}
