@@ -107,32 +107,32 @@ async function getEstadoAtencion(now = new Date()) {
     if (timeMinutes < 540) {
         return {
             abierto: false, estado: 'CERRADO',
-            mensaje: 'Aún no hemos abierto. Nuestro horario es de lunes a viernes de 9:00 a 18:30 (colación de 13:50 a 15:01) y sábados de 9:00 a 13:00. Cuéntame qué necesitas y te respondemos al abrir. 🙌'
+            mensaje: 'Aún no hemos abierto. Nuestro horario es lunes a viernes de 9:00 a 13:45 y de 15:00 a 18:00 (colación 13:45–15:00), sábados de 9:00 a 13:00. Cuéntame qué necesitas y te respondemos al abrir. 🙌'
         };
     }
 
-    // Mañana: 9:00-13:50
-    if (timeMinutes < 830) {
+    // Mañana: 9:00-13:45 (540 – 825)
+    if (timeMinutes < 825) {
         return { abierto: true, estado: 'ABIERTO', mensaje: null };
     }
 
-    // Colación: 13:50-15:01
-    if (timeMinutes < 901) {
+    // Colación: 13:45-15:00 (825 – 900)
+    if (timeMinutes < 900) {
         return {
             abierto: false, estado: 'COLACION',
-            mensaje: 'Estamos en horario de colación 🍽️. Nuestros asesores regresan a las 15:01. Mientras tanto, cuéntame qué repuestos necesitas y lo dejamos todo listo para cuando vuelvan.'
+            mensaje: 'Estamos en horario de colación 🍽️. Nuestros asesores regresan a las 15:00. Mientras tanto, cuéntame qué repuestos necesitas y lo dejamos todo listo para cuando vuelvan.'
         };
     }
 
-    // Tarde: 15:01-18:30
-    if (timeMinutes < 1110) {
+    // Tarde: 15:00-18:00 (900 – 1080)
+    if (timeMinutes < 1080) {
         return { abierto: true, estado: 'ABIERTO', mensaje: null };
     }
 
-    // Después de 18:30
+    // Después de 18:00
     return {
         abierto: false, estado: 'CERRADO',
-        mensaje: 'Ya cerramos por hoy. Nuestro horario es de lunes a viernes de 9:00 a 18:30 (colación de 13:50 a 15:01) y sábados de 9:00 a 13:00. Cuéntame qué necesitas y mañana a primera hora te respondemos. 😊'
+        mensaje: 'Ya cerramos por hoy. Nuestro horario es lunes a viernes de 9:00 a 13:45 y de 15:00 a 18:00 (colación 13:45–15:00), sábados de 9:00 a 13:00. Cuéntame qué necesitas y mañana a primera hora te respondemos. 😊'
     };
 }
 

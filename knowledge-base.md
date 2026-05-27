@@ -12,9 +12,12 @@
 - **Slogan:** El repuesto que necesitas, al precio justo.
 
 ## Horarios de Atención (Sucursal Principal)
-- **Lunes a Viernes:** 9:00 AM – 6:30 PM (colación: 1:50 PM – 3:01 PM)
-- **Sábados:** 9:00 AM – 1:00 PM
+- **Lunes a Viernes:** 9:00 a 13:45 y 15:00 a 18:00 hrs
+  - **Cerramos por colación:** 13:45 a 15:00 hrs (NO es horario continuado)
+- **Sábados:** 9:00 a 13:00 hrs
 - **Domingos y Festivos:** Cerrado
+
+> IMPORTANTE: el local NO atiende en horario continuado. Cierra por colación entre 13:45 y 15:00. Si un cliente pregunta "¿es horario continuado?" la respuesta es NO — hay una pausa para colación entre 13:45 y 15:00.
 
 > El canal de WhatsApp puede recibir mensajes 24/7 pero las respuestas manuales del equipo son dentro del horario anterior.
 
@@ -24,7 +27,7 @@ JFNN Repuestos opera DOS sucursales con el mismo número de WhatsApp:
 
 - **Sucursal Melipilla:** Serrano 98, 9580000 Melipilla, Región Metropolitana
 - **Sucursal San Felipe:** Maipú 381, 2171543 San Felipe, Región de Valparaíso
-- **Horario retiro (ambas):** Lunes a Viernes 9:00–18:00 hrs
+- **Horario retiro (ambas):** Lunes a Viernes 9:00 a 13:45 y 15:00 a 18:00 hrs (colación 13:45–15:00, NO continuado)
 
 **Regla obligatoria para retiro en local:**
 Cuando el cliente elige retirar en local, SIEMPRE pregunta primero "¿En qué sucursal prefiere retirar: Melipilla o San Felipe?". Solo envía la dirección de la sucursal elegida; nunca envíes ambas direcciones a la vez. Captura la elección del cliente como entidad `sucursal_retiro` ('Melipilla' o 'San Felipe').
