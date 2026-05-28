@@ -60,6 +60,8 @@ const _getClient = () => {
  * @param {string} mimeType    - MIME type (ej: 'image/jpeg', 'audio/ogg')
  * @returns {Promise<string|null>} Path interno del objeto (ej: 'comprobantes/56912345678_1716000000.jpg') o null
  */
+const _sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
 const _upload = async (subfolder, phone, buffer, mimeType) => {
     const client = _getClient();
     if (!client) return null;
@@ -70,31 +72,34 @@ const _upload = async (subfolder, phone, buffer, mimeType) => {
         return null;
     }
 
-    try {
-        const sanitizedPhone = phone.replace(/[^0-9]/g, '');
-        const ext = _mimeToExt(mimeType);
-        const fileName = `${sanitizedPhone}_${Date.now()}.${ext}`;
-        const objectPath = `${subfolder}/${fileName}`;
+    const sanitizedPhone = phone.replace(/[^0-9]/g, '');
+    const ext = _mimeToExt(mimeType);
+    const fileName = `${sanitizedPhone}_${Date.now()}.${ext}`;
+    const objectPath = `${subfolder}/${fileName}`;
 
-        const { error } = await client.storage
-            .from(BUCKET)
-            .upload(objectPath, buffer, {
-                contentType: mimeType || 'application/octet-stream',
-                upsert: false,
-            });
+    // Retry con backoff: Supabase Storage devuelve Gateway Timeout intermitente.
+    const maxIntentos = 3;
+    for (let intento = 1; intento <= maxIntentos; intento++) {
+        try {
+            const { error } = await client.storage
+                .from(BUCKET)
+                .upload(objectPath, buffer, {
+                    contentType: mimeType || 'application/octet-stream',
+                    upsert: true, // upsert true para que un reintento no falle por "ya existe"
+                });
 
-        if (error) {
-            console.error(`[Storage] ❌ Error subiendo a ${BUCKET}/${objectPath}:`, error.message);
-            return null;
+            if (!error) {
+                console.log(`[Storage] ✅ Subido: ${BUCKET}/${objectPath}${intento > 1 ? ` (intento ${intento})` : ''}`);
+                return objectPath;
+            }
+            console.error(`[Storage] ⚠️ Intento ${intento}/${maxIntentos} subiendo ${objectPath}:`, error.message);
+        } catch (err) {
+            console.error(`[Storage] ⚠️ Excepción intento ${intento}/${maxIntentos} (${subfolder}):`, err.message);
         }
-
-        console.log(`[Storage] ✅ Subido: ${BUCKET}/${objectPath}`);
-        return objectPath;
-
-    } catch (err) {
-        console.error(`[Storage] ❌ Excepción en _upload (${subfolder}):`, err.message);
-        return null;
+        if (intento < maxIntentos) await _sleep(intento * 800); // 800ms, 1600ms
     }
+    console.error(`[Storage] ❌ Falló subida tras ${maxIntentos} intentos: ${objectPath}`);
+    return null;
 };
 
 /**
@@ -205,20 +210,22 @@ const getSignedUrl = async (objectPath, expiresIn = 3600) => {
     const client = _getClient();
     if (!client || !objectPath) return null;
 
-    try {
-        const { data, error } = await client.storage
-            .from(BUCKET)
-            .createSignedUrl(objectPath, expiresIn);
+    // Retry: Supabase devuelve Gateway Timeout intermitente al firmar URLs.
+    const maxIntentos = 2;
+    for (let intento = 1; intento <= maxIntentos; intento++) {
+        try {
+            const { data, error } = await client.storage
+                .from(BUCKET)
+                .createSignedUrl(objectPath, expiresIn);
 
-        if (error) {
-            console.error(`[Storage] ❌ Error generando signed URL para ${objectPath}:`, error.message);
-            return null;
+            if (!error && data?.signedUrl) return data.signedUrl;
+            if (error) console.error(`[Storage] ⚠️ Intento ${intento}/${maxIntentos} firmando ${objectPath}:`, error.message);
+        } catch (err) {
+            console.error(`[Storage] ⚠️ Excepción intento ${intento}/${maxIntentos} en getSignedUrl:`, err.message);
         }
-        return data.signedUrl;
-    } catch (err) {
-        console.error(`[Storage] ❌ Excepción en getSignedUrl:`, err.message);
-        return null;
+        if (intento < maxIntentos) await _sleep(500);
     }
+    return null;
 };
 
 module.exports = {

@@ -982,8 +982,8 @@ const processBufferedMessages = async (customerPhone) => {
             const vehiculosHasMinData = Array.isArray(e.vehiculos) && e.vehiculos.some(v => v.ano && v.marca_modelo);
 
             const hasMinData = (rootHasMinData || vehiculosHasMinData) && hasRepuestos;
-            // finalMessage puede ser string o array — convertir a string para revisar
-            const finalMessageStr = Array.isArray(finalMessage) ? finalMessage.join(" ") : finalMessage;
+            // finalMessage puede ser string, array, null o undefined — normalizar a string
+            const finalMessageStr = Array.isArray(finalMessage) ? finalMessage.join(" ") : (finalMessage || "");
             const isAsking = finalMessageStr.includes("?") || finalMessageStr.toLowerCase().includes("qué tipo");
             // Si Gemini explícitamente sugiere ESPERANDO_VENDEDOR, confiar en esa decisión
             // aunque haya un "?" de cortesía ("¿algo más?") al final del mensaje.
