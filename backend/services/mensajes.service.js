@@ -34,6 +34,7 @@ const registrarEntrante = async ({
     mediaUrl = null,
     mediaMime = null,
     waMessageId = null,
+    mediaId = null,
     sucursal = null,
     transcripcion = null,
 }) => {
@@ -51,10 +52,10 @@ const registrarEntrante = async ({
 
         const result = await db.query(
             `INSERT INTO mensajes
-                (phone, direccion, tipo, contenido, media_url, media_mime, transcripcion, autor, sucursal, wa_message_id)
-             VALUES ($1, 'entrante', $2, $3, $4, $5, $6, 'cliente', $7, $8)
+                (phone, direccion, tipo, contenido, media_url, media_mime, transcripcion, autor, sucursal, wa_message_id, media_id)
+             VALUES ($1, 'entrante', $2, $3, $4, $5, $6, 'cliente', $7, $8, $9)
              RETURNING *`,
-            [phone, tipo, contenido, mediaUrl, mediaMime, transcripcion, sucursal, waMessageId]
+            [phone, tipo, contenido, mediaUrl, mediaMime, transcripcion, sucursal, waMessageId, mediaId]
         );
 
         console.log(`[Mensajes] ✅ Entrante registrado id=${result.rows[0].id} phone=${phone} tipo=${tipo}`);

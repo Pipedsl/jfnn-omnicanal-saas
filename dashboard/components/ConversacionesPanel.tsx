@@ -45,6 +45,8 @@ interface Mensaje {
   autor_nombre: string | null;
   // Flag local para UI optimista: 'pending' al crearse, 'sent' al confirmar, 'failed' si error
   _status?: "pending" | "sent" | "failed";
+  // Si la imagen falló al subir pero el media_id sigue vigente en Meta, se puede reintentar
+  media_recuperable?: boolean;
   created_at: string;
 }
 
@@ -221,6 +223,20 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
       }
     } catch (err) {
       console.error("[Cancelar IA] Error:", err);
+    }
+  };
+
+  const reprocesarMedia = async (mensajeId: number | string) => {
+    try {
+      const res = await api.post(`${API_URL}/api/dashboard/mensajes/${mensajeId}/reprocesar-media`);
+      if (res.data?.media_url || res.data?.ya_tenia) {
+        if (selectedPhone) fetchChat(selectedPhone, false);
+      } else {
+        alert("No se pudo recuperar la imagen.");
+      }
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { error?: string } } };
+      alert("No se pudo recuperar: " + (e.response?.data?.error || "error desconocido"));
     }
   };
 
@@ -797,9 +813,20 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
 
                       {/* Media type badge when no media_url */}
                       {msg.tipo !== "text" && !msg.media_url && !msg.contenido && (
-                        <div className="flex items-center gap-1.5 text-neutral-500">
-                          {TIPO_ICON[msg.tipo]}
-                          <span className="text-xs capitalize">{msg.tipo}</span>
+                        <div className="flex flex-col gap-1.5">
+                          <div className="flex items-center gap-1.5 text-neutral-500">
+                            {TIPO_ICON[msg.tipo]}
+                            <span className="text-xs capitalize">{msg.tipo}</span>
+                          </div>
+                          {msg.media_recuperable && (
+                            <button
+                              onClick={() => reprocesarMedia(msg.id)}
+                              className="text-[10px] font-bold px-2 py-1 rounded-lg bg-accent/15 text-accent hover:bg-accent/25 border border-accent/30 transition-colors flex items-center gap-1 w-fit"
+                              title="Re-descargar la imagen desde WhatsApp (disponible ~14 días)"
+                            >
+                              🔄 Recuperar imagen
+                            </button>
+                          )}
                         </div>
                       )}
 

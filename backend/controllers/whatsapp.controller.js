@@ -1104,11 +1104,19 @@ const receiveMessage = async (req, res) => {
 
             const contenido = userText || null;
             const waMessageId = message.id || null;
+            // Guardar el media_id de Meta para poder re-descargar la imagen si la subida
+            // a Storage falla en el momento (red de seguridad ante timeouts de Supabase).
+            const mediaId = hasImage ? (message.image?.id || null)
+                : hasAudio ? audioMediaId
+                : hasVideo ? videoMediaId
+                : hasDocument ? documentMediaId
+                : null;
             await mensajesService.registrarEntrante({
                 phone: customerPhone,
                 tipo: tipoMensaje,
                 contenido,
                 waMessageId,
+                mediaId,
                 // sucursal aún no está derivada en este punto — se resolverá cuando
                 // processBufferedMessages consulte la sesión. Se deja null.
                 sucursal: null,

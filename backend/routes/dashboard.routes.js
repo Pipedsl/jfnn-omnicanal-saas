@@ -1814,6 +1814,8 @@ router.get('/conversaciones/:phone', async (req, res) => {
                 autor: msg.autor,
                 autor_nombre: msg.autor_nombre,
                 created_at: msg.created_at,
+                // Para mostrar botón "🔄 Reintentar" cuando media_url falló pero hay media_id recuperable
+                media_recuperable: !signedUrl && !!msg.media_id && msg.tipo === 'image',
             };
         }));
 
@@ -2061,6 +2063,42 @@ router.post('/campaign/hsm-masivo', async (req, res) => {
     } catch (error) {
         console.error('[Dashboard] Error en campaña HSM:', error);
         res.status(500).json({ error: 'Error en campaña', detalle: error.message });
+    }
+});
+
+/**
+ * POST /api/dashboard/mensajes/:id/reprocesar-media
+ * Re-descarga una imagen desde Meta (usando media_id guardado) y la sube a Storage.
+ * Para recuperar imágenes que quedaron con media_url null por timeout de Storage.
+ */
+router.post('/mensajes/:id/reprocesar-media', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { rows } = await db.query('SELECT id, phone, media_id, media_url, tipo FROM mensajes WHERE id = $1', [id]);
+        const msg = rows[0];
+        if (!msg) return res.status(404).json({ error: 'Mensaje no encontrado' });
+        if (msg.media_url) return res.json({ success: true, ya_tenia: true, media_url: msg.media_url });
+        if (!msg.media_id) return res.status(400).json({ error: 'Este mensaje no tiene media_id (imagen antigua, no recuperable)' });
+
+        // Re-descargar de Meta
+        const imageData = await whatsappService.downloadMedia(msg.media_id);
+        if (!imageData) {
+            return res.status(502).json({ error: 'No se pudo descargar de Meta. El media_id puede haber expirado (>14 días).' });
+        }
+
+        // Subir a storage
+        const subfolder = msg.tipo === 'image' ? 'part-images' : 'media';
+        const objectPath = await storageService.uploadPartImage(msg.phone, imageData.buffer, imageData.mimeType);
+        if (!objectPath) {
+            return res.status(502).json({ error: 'Falló la subida a Storage. Reintenta en un momento.' });
+        }
+
+        await db.query('UPDATE mensajes SET media_url = $1, media_mime = $2 WHERE id = $3', [objectPath, imageData.mimeType, id]);
+        const signedUrl = await storageService.getSignedUrl(objectPath, 86400);
+        res.json({ success: true, media_url: signedUrl });
+    } catch (error) {
+        console.error('[Dashboard] Error reprocesando media:', error.message);
+        res.status(500).json({ error: 'Error reprocesando imagen', detalle: error.message });
     }
 });
 
