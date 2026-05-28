@@ -1760,9 +1760,11 @@ router.get('/metrics/agent', async (req, res) => {
 router.get('/conversaciones', async (req, res) => {
     try {
         const sucursal = req.query.sucursal || null;
+        const q = req.query.q || null;
         // listarConversacionesActivas ya hace JOIN con user_sessions y devuelve todo.
         // Antes hacíamos N+1 queries (305 getSession adicionales) → lentitud.
-        const conversaciones = await mensajesService.listarConversacionesActivas({ sucursal });
+        // Con `q` busca por número, nombre del cliente o palabra clave en mensajes.
+        const conversaciones = await mensajesService.listarConversacionesActivas({ sucursal, q });
 
         const formatted = conversaciones.map(conv => ({
             phone: conv.phone,

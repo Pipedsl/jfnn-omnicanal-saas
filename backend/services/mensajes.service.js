@@ -159,18 +159,35 @@ const listarPorPhone = async (phone, { limit = 50, before = null } = {}) => {
  * @param {string|null} [options.sucursal] - Filtrar por sucursal; null devuelve todas
  * @returns {Promise<object[]>}
  */
-const listarConversacionesActivas = async ({ sucursal = null } = {}) => {
+const listarConversacionesActivas = async ({ sucursal = null, q = null } = {}) => {
     try {
         // Optimización: usamos DISTINCT ON + LEFT JOIN para traer en UNA sola query
         // toda la metadata del último mensaje + datos de la sesión. Antes hacíamos
         // N queries adicionales (1 por phone) con getSession() → causaba lentitud
         // con muchas conversaciones (305+).
-        let whereClause = '';
+        const conds = [];
         const params = [];
         if (sucursal) {
             params.push(sucursal);
-            whereClause = `WHERE m.phone IN (SELECT DISTINCT phone FROM mensajes WHERE sucursal = $1)`;
+            conds.push(`m.phone IN (SELECT DISTINCT phone FROM mensajes WHERE sucursal = $${params.length})`);
         }
+        // Búsqueda por número, nombre del cliente o palabra clave en mensajes
+        if (q && q.trim()) {
+            const term = `%${q.trim()}%`;
+            params.push(term);
+            const pIdx = params.length;
+            conds.push(`m.phone IN (
+                SELECT DISTINCT mm.phone FROM mensajes mm
+                LEFT JOIN user_sessions ss ON ss.phone = mm.phone
+                WHERE mm.phone ILIKE $${pIdx}
+                   OR mm.contenido ILIKE $${pIdx}
+                   OR mm.transcripcion ILIKE $${pIdx}
+                   OR ss.entidades->>'nombre_cliente' ILIKE $${pIdx}
+            )`);
+        }
+        const whereClause = conds.length > 0 ? 'WHERE ' + conds.join(' AND ') : '';
+        // Cuando hay búsqueda, limitar resultados; sin búsqueda, traer todo (con LIMIT defensivo)
+        const limitClause = q && q.trim() ? 'LIMIT 50' : 'LIMIT 500';
 
         const query = `
             WITH agg AS (
@@ -205,6 +222,7 @@ const listarConversacionesActivas = async ({ sucursal = null } = {}) => {
             LEFT JOIN ultimo u ON u.phone = a.phone
             LEFT JOIN user_sessions s ON s.phone = a.phone
             ORDER BY a.ultimo_mensaje_at DESC
+            ${limitClause}
         `;
 
         const result = await db.query(query, params);

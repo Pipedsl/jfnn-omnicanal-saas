@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { MessageCircle, Image, Mic, Video, FileText, ArrowLeft, User, Bot, Clock, Timer, AlertTriangle, Send, ChevronDown, Plus, X, PauseCircle, PlayCircle, Bookmark, BookmarkCheck, Paperclip, Ban, FileSpreadsheet } from "lucide-react";
+import { MessageCircle, Image, Mic, Video, FileText, ArrowLeft, User, Bot, Clock, Timer, AlertTriangle, Send, ChevronDown, Plus, X, PauseCircle, PlayCircle, Bookmark, BookmarkCheck, Paperclip, Ban, FileSpreadsheet, Search } from "lucide-react";
 import { api } from "@/lib/api";
 import SellerActionForm from "./SellerActionForm";
 
@@ -152,6 +152,8 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
   const [sendingMessage, setSendingMessage] = useState(false);
   const [showNewConv, setShowNewConv] = useState(false);
   const [newPhone, setNewPhone] = useState("");
+  const [busqueda, setBusqueda] = useState("");
+  const busquedaRef = useRef("");
   const [sendingImage, setSendingImage] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [showCotizarModal, setShowCotizarModal] = useState(false);
@@ -418,6 +420,7 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
     try {
       const params = new URLSearchParams();
       if (sucursalFilter) params.set("sucursal", sucursalFilter);
+      if (busquedaRef.current.trim()) params.set("q", busquedaRef.current.trim());
       params.set("t", String(Date.now()));
       const res = await api.get(`${API_URL}/api/dashboard/conversaciones?${params.toString()}`);
       const list: Conversacion[] = res.data || [];
@@ -463,6 +466,14 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sucursalFilter]);
 
+  // Búsqueda con debounce: al cambiar `busqueda`, esperar 350ms y refrescar la lista
+  useEffect(() => {
+    busquedaRef.current = busqueda;
+    const t = setTimeout(() => fetchConversaciones(true), 350);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busqueda]);
+
   useEffect(() => {
     if (selectedPhone) {
       fetchChat(selectedPhone, true);
@@ -491,18 +502,40 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
     <div className="flex h-[calc(100vh-320px)] min-h-[500px] glass rounded-2xl overflow-hidden border border-white/5">
       {/* Lista de conversaciones */}
       <div className={`${selectedPhone ? "hidden md:flex" : "flex"} flex-col w-full md:w-96 border-r border-white/5`}>
-        <div className="p-4 border-b border-white/5 flex items-center justify-between">
-          <h3 className="text-sm font-bold text-neutral-300 flex items-center gap-2">
-            <MessageCircle size={16} />
-            Conversaciones ({conversaciones.length})
-          </h3>
-          <button
-            onClick={() => setShowNewConv(true)}
-            className="p-1.5 rounded-lg bg-accent/10 hover:bg-accent/20 text-accent transition-colors"
-            title="Nueva conversación"
-          >
-            <Plus size={14} />
-          </button>
+        <div className="p-4 border-b border-white/5 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-neutral-300 flex items-center gap-2">
+              <MessageCircle size={16} />
+              Conversaciones ({conversaciones.length})
+            </h3>
+            <button
+              onClick={() => setShowNewConv(true)}
+              className="p-1.5 rounded-lg bg-accent/10 hover:bg-accent/20 text-accent transition-colors"
+              title="Nueva conversación"
+            >
+              <Plus size={14} />
+            </button>
+          </div>
+          {/* Buscador: por número, nombre o palabra clave en los mensajes */}
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
+            <input
+              type="text"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Buscar por número, nombre o palabra..."
+              className="w-full pl-9 pr-8 py-2 rounded-lg bg-white/5 border border-white/10 text-xs text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-accent/30"
+            />
+            {busqueda && (
+              <button
+                onClick={() => setBusqueda("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 hover:bg-white/10 rounded"
+                title="Limpiar"
+              >
+                <X size={12} className="text-neutral-500" />
+              </button>
+            )}
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto">
           {loadingList ? (
