@@ -361,6 +361,7 @@ function CampaignSection() {
     const [limit, setLimit] = useState('100');
     const [sending, setSending] = useState(false);
     const [result, setResult] = useState<CampaignResult | null>(null);
+    const [reenviar, setReenviar] = useState(false);
 
     const enviar = async () => {
         const max = parseInt(limit, 10) || 0;
@@ -371,7 +372,8 @@ function CampaignSection() {
         const ok = confirm(
             `Vas a enviar la plantilla "${plantilla}" a hasta ${max} clientes` +
             (sucursal ? ` de ${sucursal}` : '') +
-            `.\n\nMeta cobra por cada mensaje. ¿Confirmar envío?`
+            (reenviar ? `\n\n⚠️ REENVIAR ACTIVADO: incluye clientes que YA recibieron la campaña.` : `\n\nSolo a clientes que NO han recibido la campaña antes.`) +
+            `\n\nMeta cobra por cada mensaje. ¿Confirmar envío?`
         );
         if (!ok) return;
 
@@ -381,7 +383,8 @@ function CampaignSection() {
             const res = await api.post(`${BACKEND_URL}/api/dashboard/campaign/hsm-masivo`, {
                 plantilla_id: plantilla,
                 sucursal: sucursal || undefined,
-                limit: max
+                limit: max,
+                reenviar_a_contactados: reenviar
             }, { timeout: 300000 }); // 5 min — el envío masivo con throttle puede tardar
             setResult(res.data);
         } catch (err) {
@@ -444,9 +447,22 @@ function CampaignSection() {
                     </button>
                 </div>
             </div>
+            <label className="flex items-center gap-2 mb-2 cursor-pointer select-none">
+                <input
+                    type="checkbox"
+                    checked={reenviar}
+                    onChange={(e) => setReenviar(e.target.checked)}
+                    className="accent-purple-500"
+                />
+                <span className="text-[11px] text-neutral-400">
+                    Reenviar también a clientes que <strong>ya recibieron</strong> la campaña
+                    <span className="text-neutral-600"> (por defecto solo se envía a quienes NO la han recibido)</span>
+                </span>
+            </label>
             {result && (
                 <div className={`text-xs p-3 rounded-lg ${result.errores > 0 ? 'bg-yellow-500/10 text-yellow-300' : 'bg-emerald-500/10 text-emerald-300'}`}>
-                    ✅ {result.enviados} enviados | ❌ {result.errores} errores | Total: {result.total}
+                    ✅ {result.enviados} enviados | ❌ {result.errores} errores | Total candidatos: {result.total}
+                    {result.total === 0 && ' — No quedan clientes pendientes (todos ya recibieron la campaña).'}
                 </div>
             )}
         </div>

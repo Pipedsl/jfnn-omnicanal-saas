@@ -1969,10 +1969,13 @@ router.post('/conversaciones/:phone/plantilla', async (req, res) => {
  */
 router.post('/campaign/hsm-masivo', async (req, res) => {
     try {
-        const { plantilla_id, sucursal, limit } = req.body;
+        const { plantilla_id, sucursal, limit, reenviar_a_contactados } = req.body;
         if (!plantilla_id) return res.status(400).json({ error: 'Falta plantilla_id' });
 
         const maxLimit = Math.min(parseInt(limit, 10) || 1000, 5000);
+        // Por defecto NO reenviar a quienes ya recibieron la campaña (idempotente).
+        // Solo se reenvía si el admin lo pide explícitamente.
+        const incluirYaContactados = reenviar_a_contactados === true;
 
         // Obtener phones de la tabla `clientes`, opcionalmente filtrados por sucursal
         // (los clientes no tienen sucursal directa, derivamos de su última sesión/pedido).
@@ -1995,12 +1998,15 @@ router.post('/campaign/hsm-masivo', async (req, res) => {
             `;
             sucursalWhere = `AND (pp.sucursal IS NOT NULL OR ss.sucursal IS NOT NULL)`;
         }
+        // Excluir clientes que YA recibieron la campaña (a menos que se pida reenviar)
+        const noContactadosWhere = incluirYaContactados ? '' : 'AND c.campana_reactivacion_at IS NULL';
         params.push(maxLimit);
         const { rows: clientes } = await db.query(
             `SELECT DISTINCT c.phone, c.nombre
              FROM clientes c
              ${sucursalJoin}
-             WHERE c.phone IS NOT NULL ${sucursalWhere}
+             WHERE c.phone IS NOT NULL ${sucursalWhere} ${noContactadosWhere}
+             ORDER BY c.phone
              LIMIT $${params.length}`,
             params
         );
@@ -2042,6 +2048,11 @@ router.post('/campaign/hsm-masivo', async (req, res) => {
                         autorNombre: 'Sistema (Campaña)',
                         sucursal: sucursal || 'Melipilla',
                     });
+                } catch (_) { /* no bloquea */ }
+
+                // Marcar cliente como contactado para no reenviarle en próximas tandas
+                try {
+                    await db.query('UPDATE clientes SET campana_reactivacion_at = NOW() WHERE phone = $1', [c.phone]);
                 } catch (_) { /* no bloquea */ }
 
                 enviados++;
