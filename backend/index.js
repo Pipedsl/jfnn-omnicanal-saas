@@ -8,6 +8,7 @@ const whatsappRoutes = require('./routes/whatsapp.routes');
 const dashboardRoutes = require('./routes/dashboard.routes');
 const { verifyJWT } = require('./middleware/auth.middleware');
 const sessionsService = require('./services/sessions.service');
+const { flushAllBuffers, recoverUnansweredSessions } = require('./controllers/whatsapp.controller');
 const db = require('./config/db');
 
 const app = express();
@@ -83,9 +84,17 @@ app.get('/', (req, res) => {
     res.json({ message: 'JFNN Omnicanal API is running' });
 });
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
     console.log(`Server is running context: http://localhost:${port}`);
     console.log('WhatsApp Webhook endpoint: /api/whatsapp/webhook');
+
+    // ─── Recuperación de mensajes sin responder (buffer perdido en redeploy) ───
+    // El buffer de debounce vive en memoria; un redeploy/crash lo pierde y el agente
+    // nunca responde. Al iniciar, reprocesamos conversaciones cuyo último mensaje es
+    // del cliente y quedó sin respuesta. Corre antes que el auto-archive.
+    setTimeout(() => {
+        recoverUnansweredSessions();
+    }, 15_000);
 
     // ─── Auto-Archivado de Sesiones Abandonadas ────────────────
     const ARCHIVE_HOURS = parseInt(process.env.AUTO_ARCHIVE_HOURS) || 48;
@@ -103,3 +112,27 @@ app.listen(port, () => {
 
     console.log(`[AutoArchive] ⏰ Programado cada 4h (umbral: ${ARCHIVE_HOURS}h de inactividad)`);
 });
+
+// ─── Graceful shutdown: vaciar buffers de debounce antes de morir ───
+// Railway envía SIGTERM antes de detener el contenedor en cada redeploy. Procesamos los
+// buffers pendientes (best-effort, con tope de tiempo) para no perder mensajes en vuelo.
+let shuttingDown = false;
+const gracefulShutdown = async (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[Shutdown] ⚠️ ${signal} recibido. Cerrando con flush de buffers...`);
+    server.close(() => console.log('[Shutdown] 🔌 Servidor HTTP dejó de aceptar conexiones.'));
+    try {
+        // Tope de 8s para no exceder el período de gracia de Railway.
+        await Promise.race([
+            flushAllBuffers(),
+            new Promise((resolve) => setTimeout(resolve, 8000)),
+        ]);
+    } catch (err) {
+        console.error('[Shutdown] ❌ Error en flush:', err.message);
+    }
+    console.log('[Shutdown] 👋 Saliendo.');
+    process.exit(0);
+};
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));

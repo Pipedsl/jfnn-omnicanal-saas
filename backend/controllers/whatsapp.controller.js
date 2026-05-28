@@ -1185,8 +1185,115 @@ const receiveMessage = async (req, res) => {
     }
 };
 
+/**
+ * Procesa inmediatamente TODOS los buffers de debounce pendientes.
+ * Usado en graceful shutdown (SIGTERM): Railway detiene el contenedor en cada redeploy
+ * y el buffer vive solo en memoria → sin esto, los mensajes en la ventana de 17s se
+ * pierden y el agente nunca responde.
+ */
+const flushAllBuffers = async () => {
+    const phones = Array.from(messageBuffer.keys());
+    if (phones.length === 0) return;
+    console.log(`[Shutdown] 🚿 Flushing ${phones.length} buffer(s) pendiente(s) antes de salir...`);
+    for (const phone of phones) {
+        const buffer = messageBuffer.get(phone);
+        if (buffer?.timer) clearTimeout(buffer.timer);
+        try {
+            await processBufferedMessages(phone);
+        } catch (err) {
+            console.error(`[Shutdown] ❌ Error flusheando ${phone}:`, err.message);
+        }
+    }
+};
+
+/**
+ * Barrido de recuperación al iniciar: detecta conversaciones cuyo ÚLTIMO mensaje es del
+ * cliente (entrante) SIN respuesta posterior del sistema, y las reprocesa. Cubre buffers
+ * perdidos por redeploy/crash/OOM (red de seguridad de la Defensa 1).
+ *
+ * Solo reprocesa mensajes de TEXTO (no rehidrata media binaria). Filtros de seguridad:
+ * estado conversacional activo, no pausado, no terminal, dentro de la ventana de tiempo.
+ */
+const recoverUnansweredSessions = async (windowMin = parseInt(process.env.RECOVERY_WINDOW_MIN || '45', 10)) => {
+    try {
+        // Phones cuyo último mensaje es entrante, sin saliente posterior, dentro de ventana.
+        const { rows } = await db.query(
+            `WITH ultimo AS (
+                 SELECT DISTINCT ON (phone) phone, direccion, created_at
+                 FROM mensajes
+                 ORDER BY phone, created_at DESC
+             )
+             SELECT u.phone
+             FROM ultimo u
+             WHERE u.direccion = 'entrante'
+               AND u.created_at > NOW() - ($1 || ' minutes')::interval`,
+            [String(windowMin)]
+        );
+
+        if (rows.length === 0) {
+            console.log('[Recovery] ✅ Sin conversaciones pendientes de recuperar.');
+            return;
+        }
+
+        const ESTADOS_ACTIVOS = ['PERFILANDO', 'ESPERANDO_VENDEDOR', 'CONFIRMANDO_COMPRA', 'ESPERANDO_COMPROBANTE'];
+        let recuperados = 0;
+
+        for (const { phone } of rows) {
+            try {
+                if (messageBuffer.has(phone)) continue; // ya hay un lote vivo
+
+                const session = await sessionsService.getSession(phone);
+                if (!session) continue;
+                if (!ESTADOS_ACTIVOS.includes(session.estado)) continue;
+                if (session.entidades?.agente_pausado === true) continue;
+
+                // Traer los mensajes entrantes de TEXTO desde el último saliente.
+                const { rows: msgs } = await db.query(
+                    `SELECT contenido, tipo, created_at
+                     FROM mensajes
+                     WHERE phone = $1
+                       AND created_at > COALESCE(
+                           (SELECT MAX(created_at) FROM mensajes WHERE phone = $1 AND direccion = 'saliente'),
+                           'epoch'::timestamptz)
+                       AND direccion = 'entrante'
+                     ORDER BY created_at ASC`,
+                    [phone]
+                );
+
+                const textos = msgs.filter(m => m.tipo === 'text' && (m.contenido || '').trim());
+                if (textos.length === 0) {
+                    console.warn(`[Recovery] ⏭️ ${phone} sin texto reprocesable (solo media). Revisar manual.`);
+                    continue;
+                }
+
+                // Reconstruir un buffer mínimo de texto y procesarlo por el pipeline normal.
+                const reconstructed = textos.map(m => ({
+                    userText: m.contenido,
+                    hasImage: false, hasAudio: false, hasVideo: false, hasDocument: false,
+                    audioMediaId: null, videoMediaId: null, documentMediaId: null,
+                    message: { from: phone, type: 'text', text: { body: m.contenido } },
+                    timestamp: Date.now(),
+                }));
+                messageBuffer.set(phone, { messages: reconstructed, timer: null });
+                console.log(`[Recovery] ♻️ Reprocesando ${phone} (${textos.length} msg de texto sin responder, estado=${session.estado})`);
+                await processBufferedMessages(phone);
+                recuperados++;
+            } catch (errPhone) {
+                console.error(`[Recovery] ❌ Error recuperando ${phone}:`, errPhone.message);
+                messageBuffer.delete(phone);
+            }
+        }
+
+        console.log(`[Recovery] ✅ Barrido completo. Recuperados: ${recuperados}/${rows.length} (ventana ${windowMin} min).`);
+    } catch (err) {
+        console.error('[Recovery] ❌ Error en barrido de recuperación:', err.message);
+    }
+};
+
 module.exports = {
     verifyWebhook,
     receiveMessage,
-    cancelDebounce
+    cancelDebounce,
+    flushAllBuffers,
+    recoverUnansweredSessions
 };
