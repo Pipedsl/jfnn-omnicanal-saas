@@ -1969,13 +1969,16 @@ router.post('/conversaciones/:phone/plantilla', async (req, res) => {
  */
 router.post('/campaign/hsm-masivo', async (req, res) => {
     try {
-        const { plantilla_id, sucursal, limit, reenviar_a_contactados } = req.body;
+        const { plantilla_id, sucursal, limit, reenviar_a_contactados, inactivos_desde } = req.body;
         if (!plantilla_id) return res.status(400).json({ error: 'Falta plantilla_id' });
 
         const maxLimit = Math.min(parseInt(limit, 10) || 1000, 5000);
         // Por defecto NO reenviar a quienes ya recibieron la campaña (idempotente).
         // Solo se reenvía si el admin lo pide explícitamente.
         const incluirYaContactados = reenviar_a_contactados === true;
+        // Opcional: excluir clientes que escribieron desde esta fecha (ya tienen contacto activo,
+        // su caché de WhatsApp ya funciona — no necesitan la reactivación).
+        const inactivosDesde = inactivos_desde && /^\d{4}-\d{2}-\d{2}/.test(inactivos_desde) ? inactivos_desde : null;
 
         // Obtener phones de la tabla `clientes`, opcionalmente filtrados por sucursal
         // (los clientes no tienen sucursal directa, derivamos de su última sesión/pedido).
@@ -2007,12 +2010,23 @@ router.post('/campaign/hsm-masivo', async (req, res) => {
         }
         // Excluir clientes que YA recibieron la campaña (a menos que se pida reenviar)
         const noContactadosWhere = incluirYaContactados ? '' : 'AND c.campana_reactivacion_at IS NULL';
+
+        // Excluir clientes que escribieron desde la fecha indicada (ya activos, no necesitan reactivación)
+        let inactivosWhere = '';
+        if (inactivosDesde) {
+            params.push(inactivosDesde);
+            inactivosWhere = `AND NOT EXISTS (
+                SELECT 1 FROM mensajes m
+                WHERE m.phone = c.phone AND m.direccion = 'entrante' AND m.created_at >= $${params.length}::timestamptz
+            )`;
+        }
+
         params.push(maxLimit);
         const { rows: clientes } = await db.query(
             `SELECT DISTINCT c.phone, c.nombre
              FROM clientes c
              ${sucursalJoin}
-             WHERE c.phone IS NOT NULL ${sucursalWhere} ${noContactadosWhere}
+             WHERE c.phone IS NOT NULL ${sucursalWhere} ${noContactadosWhere} ${inactivosWhere}
              ORDER BY c.phone
              LIMIT $${params.length}`,
             params

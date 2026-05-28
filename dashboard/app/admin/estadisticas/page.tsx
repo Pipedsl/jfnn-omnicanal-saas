@@ -362,6 +362,7 @@ function CampaignSection() {
     const [sending, setSending] = useState(false);
     const [result, setResult] = useState<CampaignResult | null>(null);
     const [reenviar, setReenviar] = useState(false);
+    const [inactivosDesde, setInactivosDesde] = useState('2026-05-26'); // martes por defecto
 
     const enviar = async () => {
         const max = parseInt(limit, 10) || 0;
@@ -384,7 +385,8 @@ function CampaignSection() {
                 plantilla_id: plantilla,
                 sucursal: sucursal || undefined,
                 limit: max,
-                reenviar_a_contactados: reenviar
+                reenviar_a_contactados: reenviar,
+                inactivos_desde: inactivosDesde || undefined
             }, { timeout: 300000 }); // 5 min — el envío masivo con throttle puede tardar
             setResult(res.data);
         } catch (err) {
@@ -446,6 +448,16 @@ function CampaignSection() {
                         {sending ? '⏳ Enviando...' : '🚀 Enviar campaña'}
                     </button>
                 </div>
+            </div>
+            <div className="flex items-center gap-2 mb-2">
+                <span className="text-[11px] text-neutral-400">Solo clientes SIN actividad desde:</span>
+                <input
+                    type="date"
+                    value={inactivosDesde}
+                    onChange={(e) => setInactivosDesde(e.target.value)}
+                    className="bg-white/5 border border-white/10 rounded-lg px-2 py-1 text-xs text-neutral-300 focus:border-purple-500/50 focus:outline-none"
+                />
+                <span className="text-[10px] text-neutral-600">(excluye a quienes ya escribieron desde esa fecha — su caché ya funciona)</span>
             </div>
             <label className="flex items-center gap-2 mb-2 cursor-pointer select-none">
                 <input
