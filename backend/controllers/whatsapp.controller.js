@@ -284,6 +284,8 @@ const processBufferedMessages = async (customerPhone) => {
             const classified = await Promise.all(images.map(async (imgMsg) => {
                 const mediaId = imgMsg.message.image?.id;
                 const waMessageId = imgMsg.message?.id || null;
+                // El cliente puede escribir el nombre de la pieza en el caption de la foto
+                const caption = imgMsg.message.image?.caption || '';
                 if (!mediaId) return null;
                 const imageData = await whatsappService.downloadMedia(mediaId);
                 if (!imageData) {
@@ -291,7 +293,7 @@ const processBufferedMessages = async (customerPhone) => {
                     return null;
                 }
                 const analysis = await geminiService.analyzeImage(imageData);
-                return { imageData, analysis, waMessageId };
+                return { imageData, analysis, waMessageId, caption };
             }));
             const validImages = classified.filter(Boolean);
             const padrones = validImages.filter(x => x.analysis.tipo === 'padron' && x.analysis.padron);
@@ -418,10 +420,11 @@ const processBufferedMessages = async (customerPhone) => {
                     ? `${session.entidades.marca_modelo}${session.entidades.ano ? ' ' + session.entidades.ano : ''}`
                     : '';
 
-                const resultados = await Promise.all(partes.map(async ({ imageData, waMessageId }) => {
+                const resultados = await Promise.all(partes.map(async ({ imageData, waMessageId, caption }) => {
                     const [imagePath, identificacion] = await Promise.all([
                         storageService.uploadPartImage(customerPhone, imageData.buffer, imageData.mimeType),
-                        geminiService.identifyPartFromImage(imageData, contextoVehiculo)
+                        // Pasar el caption del cliente como hint principal para identificar la pieza
+                        geminiService.identifyPartFromImage(imageData, contextoVehiculo, caption)
                     ]);
                     // REQ-04 Fase 2: actualizar media_url en el registro mensajes ya creado
                     if (imagePath && waMessageId) {
@@ -434,22 +437,27 @@ const processBufferedMessages = async (customerPhone) => {
                             console.error(`[Mensajes] ❌ Error actualizando media_url de imagen (flujo continúa):`, mediaUpdateErr.message);
                         }
                     }
-                    return { imagePath, identificacion };
+                    return { imagePath, identificacion, caption };
                 }));
 
                 for (const r of resultados.filter(Boolean)) {
                     partesResults.push(r);
+                    // El nombre prioriza el caption del cliente (él sabe qué pieza es).
+                    // Si hay caption, el nombre es confiable → no queda pendiente de identificación.
+                    const captionLimpio = (r.caption || '').trim();
+                    const nombreFinal = captionLimpio || r.identificacion.nombre_sugerido || 'Pieza sin identificar';
+                    const necesitaIdentificacion = !captionLimpio && (!r.identificacion.nombre_sugerido || r.identificacion.nombre_sugerido === 'Pieza sin identificar');
                     await sessionsService.updateEntidades(customerPhone, {
                         repuestos_solicitados: [{
-                            nombre: r.identificacion.nombre_sugerido || 'Pieza sin identificar',
+                            nombre: nombreFinal,
                             cantidad: 1,
                             precio: null,
                             estado: 'pendiente',
-                            pendiente_identificacion: true,
+                            pendiente_identificacion: necesitaIdentificacion,
                             imagen_url: r.imagePath,
                             identificacion_ia: r.identificacion.descripcion,
                             confianza_ia: r.identificacion.confianza,
-                            notas_ia: null
+                            notas_ia: captionLimpio ? `Cliente describió: "${captionLimpio}"` : null
                         }]
                     });
                 }
@@ -980,20 +988,25 @@ const processBufferedMessages = async (customerPhone) => {
             const hasRepuestosVehiculos = Array.isArray(e.vehiculos) && e.vehiculos.some(v => Array.isArray(v.repuestos_solicitados) && v.repuestos_solicitados.length > 0);
             const hasRepuestos = hasRepuestosRoot || hasRepuestosVehiculos;
 
-            // Validar metadata mínima del auto: marca + año es suficiente para piezas no-críticas.
-            // La decisión de pedir patente/VIN ya la toma Gemini según el tipo de pieza (modo suave/bloqueante).
-            const rootHasMinData = e.ano && e.marca_modelo;
-            const vehiculosHasMinData = Array.isArray(e.vehiculos) && e.vehiculos.some(v => v.ano && v.marca_modelo);
+            // Filosofía: FACILITAR el flujo, no trabar. Con marca + repuesto basta para
+            // pasarle el caso al vendedor — él pide lo que falte (año, patente, etc.).
+            // El año NO es obligatorio; VIN/patente sirven igual de identificador.
+            const tieneIdentificador = (v) => !!(v?.marca_modelo); // marca/modelo es lo mínimo
+            const rootHasMinData = tieneIdentificador(e);
+            const vehiculosHasMinData = Array.isArray(e.vehiculos) && e.vehiculos.some(tieneIdentificador);
 
             const hasMinData = (rootHasMinData || vehiculosHasMinData) && hasRepuestos;
             // finalMessage puede ser string, array, null o undefined — normalizar a string
             const finalMessageStr = Array.isArray(finalMessage) ? finalMessage.join(" ") : (finalMessage || "");
             const isAsking = finalMessageStr.includes("?") || finalMessageStr.toLowerCase().includes("qué tipo");
             // Si Gemini explícitamente sugiere ESPERANDO_VENDEDOR, confiar en esa decisión
-            // aunque haya un "?" de cortesía ("¿algo más?") al final del mensaje.
+            // aunque falte algún dato o haya un "?" de cortesía ("¿algo más?") al final.
             const geminiSugiereTraspasar = aiJson.estado === 'ESPERANDO_VENDEDOR';
 
-            if (hasMinData && (!isAsking || geminiSugiereTraspasar)) {
+            // Avanzar si: hay datos mínimos (marca + repuesto) Y no está preguntando,
+            // O si Gemini explícitamente decidió traspasar (confiamos en su criterio).
+            // Con geminiSugiereTraspasar igual exigimos al menos un repuesto para no avanzar vacío.
+            if ((hasMinData && !isAsking) || (geminiSugiereTraspasar && hasRepuestos)) {
                 await sessionsService.setEstado(customerPhone, 'ESPERANDO_VENDEDOR');
                 // Siempre usar el mensaje de Gemini — ya está contextualizado con el horario
                 printShadowQuote(customerPhone, session.entidades);

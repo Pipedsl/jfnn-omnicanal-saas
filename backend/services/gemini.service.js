@@ -199,10 +199,11 @@ ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.paten
         - ⛔ PROHIBIDO pedir patente para: filtros, bujías, pastillas de freno, discos de freno, aceite, correas accesorios, escobillas, bombillas, radiadores, termostatos, tapas de radiador, sensores, mangueras, válvulas PCV, retenes, empaquetaduras, amortiguadores comunes.
         - NO menciones "VIN" al cliente en modo suave — intimida. Solo "patente" si es estrictamente necesario.
 
-        🚦 Para avanzar a ESPERANDO_VENDEDOR necesitas: vehículo (marca + modelo + año) + ≥1 repuesto. Con eso es SUFICIENTE. NO preguntes método de entrega ni sucursal en esta etapa — eso se define después de la cotización.
+        🚦 Para avanzar a ESPERANDO_VENDEDOR necesitas: marca/modelo del vehículo + ≥1 repuesto. El AÑO NO es obligatorio — si el cliente dio VIN/chasis, patente o motor, eso le sirve al vendedor para identificar. FACILITA el flujo: el vendedor pedirá lo que falte. NO preguntes método de entrega ni sucursal en esta etapa.
 
-        - Cuando tengas vehículo + repuesto(s), pregunta: "¿Necesitas algo más o cotizamos con eso?" Si dice que no necesita más, avanza a ESPERANDO_VENDEDOR.
+        - Cuando tengas marca + repuesto(s), pregunta: "¿Necesitas algo más o cotizamos con eso?" Si dice que no necesita más, avanza a ESPERANDO_VENDEDOR.
         - ⚡ REGLA DE AVANCE RÁPIDO: Si el cliente confirma que no necesita nada más ("solo eso", "eso es todo", "nada más", "eso nomás", "cotizar solo eso", "cotizar eso"), cambia estado_cotizacion a "ESPERANDO_VENDEDOR" INMEDIATAMENTE.
+        - 🔴 COHERENCIA OBLIGATORIA: si tu mensaje al cliente dice que vas a cotizar / que el asesor revisará / "te enviamos la cotización en breve" / "buscaremos las opciones", DEBES devolver \`estado_cotizacion: "ESPERANDO_VENDEDOR"\` en el JSON. NUNCA digas que vas a cotizar y dejes el estado en PERFILANDO — eso deja al cliente perdido y el vendedor no lo ve.
         - ⚠️ IMPORTANTE: items con \`pendiente_identificacion: true\` (provenientes de fotos enviadas por el cliente) CUENTAN como repuesto válido para avanzar. El vendedor confirmará la pieza desde el panel — NO bloquees el avance esperando identificación.
         `}
 
@@ -544,17 +545,23 @@ ${sessionContext.entidades.metodo_pago ? `
  * Usado para el flujo de identificación de repuestos por foto del cliente.
  * @param {Object} imageData - { buffer: Buffer, mimeType: string }
  * @param {string} contextoVehiculo - Descripción del vehículo para mejorar la identificación
+ * @param {string} captionCliente - Texto que el cliente escribió junto a la foto (hint principal)
  * @returns {Promise<{nombre_sugerido, descripcion, confianza, es_repuesto}>}
  */
-const identifyPartFromImage = async (imageData, contextoVehiculo = '') => {
+const identifyPartFromImage = async (imageData, contextoVehiculo = '', captionCliente = '') => {
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+        const caption = (captionCliente || '').trim();
+        const nombreInstruccion = caption
+            ? `usa el texto del cliente ("${caption}") como nombre, normalizado técnicamente si aplica`
+            : `nombre técnico corto de la pieza (ej: 'Bomba de agua', 'Filtro de aceite', 'Pastilla de freno delantera'). Si no reconoces la pieza, devuelve 'Pieza sin identificar'.`;
         const prompt = `Eres un experto en repuestos y mecánica automotriz. Analiza la imagen enviada y determina qué pieza o componente automotriz es.
 ${contextoVehiculo ? `Contexto del vehículo del cliente: ${contextoVehiculo}` : ''}
+${caption ? `⚠️ EL CLIENTE ESCRIBIÓ JUNTO A LA FOTO: "${caption}". USA ESTE TEXTO COMO EL NOMBRE/PISTA PRINCIPAL de la pieza. El cliente sabe qué necesita. Solo corrige el nombre si la imagen muestra CLARAMENTE algo distinto.` : ''}
 
 Responde ÚNICAMENTE con un JSON válido con esta estructura:
 {
-    "nombre_sugerido": "nombre técnico corto de la pieza (ej: 'Bomba de agua', 'Filtro de aceite', 'Pastilla de freno delantera', 'Correa de distribución'). Si no reconoces la pieza, devuelve 'Pieza sin identificar'.",
+    "nombre_sugerido": "${nombreInstruccion}",
     "descripcion": "descripción breve de lo que ves en la imagen (1-2 frases técnicas)",
     "confianza": número del 1 al 10 donde 10 = completamente seguro,
     "es_repuesto": true si es claramente una pieza automotriz, false si no
