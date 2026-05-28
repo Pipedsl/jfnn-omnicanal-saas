@@ -171,18 +171,25 @@ const listarConversacionesActivas = async ({ sucursal = null, q = null } = {}) =
             params.push(sucursal);
             conds.push(`m.phone IN (SELECT DISTINCT phone FROM mensajes WHERE sucursal = $${params.length})`);
         }
-        // Búsqueda por número, nombre del cliente o palabra clave en mensajes
+        // Búsqueda por número, nombre del cliente o palabra clave en mensajes.
+        // Accent-insensitive: clientes/vendedores tipean sin tildes ("direccion" vs
+        // "dirección"). translate() normaliza acentos en ambos lados sin necesidad de la
+        // extensión unaccent. Así la búsqueda por palabra clave encuentra el texto del
+        // chat sin importar tildes ni mayúsculas.
         if (q && q.trim()) {
             const term = `%${q.trim()}%`;
             params.push(term);
             const pIdx = params.length;
+            // unaccent casero vía translate: minúsculas + quita tildes/ñ/ü.
+            const norm = (col) => `translate(lower(${col}), 'áéíóúüñ', 'aeiouun')`;
+            const t = norm(`$${pIdx}`);
             conds.push(`m.phone IN (
                 SELECT DISTINCT mm.phone FROM mensajes mm
                 LEFT JOIN user_sessions ss ON ss.phone = mm.phone
                 WHERE mm.phone ILIKE $${pIdx}
-                   OR mm.contenido ILIKE $${pIdx}
-                   OR mm.transcripcion ILIKE $${pIdx}
-                   OR ss.entidades->>'nombre_cliente' ILIKE $${pIdx}
+                   OR ${norm('mm.contenido')} LIKE ${t}
+                   OR ${norm('mm.transcripcion')} LIKE ${t}
+                   OR ${norm(`ss.entidades->>'nombre_cliente'`)} LIKE ${t}
             )`);
         }
         const whereClause = conds.length > 0 ? 'WHERE ' + conds.join(' AND ') : '';
