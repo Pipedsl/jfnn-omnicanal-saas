@@ -1035,15 +1035,20 @@ const processBufferedMessages = async (customerPhone) => {
         }
 
         // 6. Simular 'Typing Delay' y enviar respuesta(s)
-        // Si finalMessage es array, enviar cada mensaje por separado con delay
-        const messagesToSend = Array.isArray(finalMessage) ? finalMessage : [finalMessage];
+        // Si finalMessage es array, enviar cada mensaje por separado con delay.
+        // Filtrar mensajes vacíos/null para evitar crash en msg.length (bug recurrente
+        // cuando Gemini no devuelve mensaje_cliente).
+        const messagesToSend = (Array.isArray(finalMessage) ? finalMessage : [finalMessage])
+            .filter(m => m && typeof m === 'string' && m.trim());
         for (const msg of messagesToSend) {
             const delayMs = Math.min(msg.length * 25, 3500);
             await new Promise(resolve => setTimeout(resolve, delayMs));
             // 7. Enviar respuesta vía WhatsApp
             await sendAndPersist(customerPhone, msg);
         }
-        await sessionsService.incrementMessageCounter(customerPhone, 'ia');
+        if (messagesToSend.length > 0) {
+            await sessionsService.incrementMessageCounter(customerPhone, 'ia');
+        }
 
     } catch (error) {
         console.error(`[Debounce] Error procesando lote para ${customerPhone}:`, error);
