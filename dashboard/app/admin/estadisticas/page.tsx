@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import axios from "axios";
+import { api } from "@/lib/api";
 import Link from "next/link";
 import {
     ArrowLeft,
@@ -81,7 +81,7 @@ export default function EstadisticasAdmin() {
     const [vendedores, setVendedores] = useState<Vendedor[]>([]);
 
     useEffect(() => {
-        axios.get(`${BACKEND_URL}/api/dashboard/vendedores?incluir_inactivos=0&t=${Date.now()}`)
+        api.get(`${BACKEND_URL}/api/dashboard/vendedores?incluir_inactivos=0&t=${Date.now()}`)
             .then(res => setVendedores(res.data.vendedores || []))
             .catch(err => console.error('Error cargando vendedores:', err));
     }, []);
@@ -94,8 +94,8 @@ export default function EstadisticasAdmin() {
             if (vendedorFilter) params.set('vendedor', vendedorFilter);
             const qs = params.toString();
             const [metricsRes, ventasRes] = await Promise.all([
-                axios.get(`${BACKEND_URL}/api/dashboard/metrics?${qs}`),
-                axios.get(`${BACKEND_URL}/api/dashboard/ventas?${qs}&limit=20`),
+                api.get(`${BACKEND_URL}/api/dashboard/metrics?${qs}`),
+                api.get(`${BACKEND_URL}/api/dashboard/ventas?${qs}&limit=20`),
             ]);
             setMetrics(metricsRes.data);
             setVentas(ventasRes.data.ventas || []);
@@ -378,11 +378,11 @@ function CampaignSection() {
         setSending(true);
         setResult(null);
         try {
-            const res = await axios.post(`${BACKEND_URL}/api/dashboard/campaign/hsm-masivo`, {
+            const res = await api.post(`${BACKEND_URL}/api/dashboard/campaign/hsm-masivo`, {
                 plantilla_id: plantilla,
                 sucursal: sucursal || undefined,
                 limit: max
-            });
+            }, { timeout: 300000 }); // 5 min — el envío masivo con throttle puede tardar
             setResult(res.data);
         } catch (err) {
             const e = err as { response?: { data?: { error?: string } } };
