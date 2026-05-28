@@ -983,7 +983,7 @@ router.get('/pending-approvals', async (req, res) => {
     try {
         const sessions = await sessionsService.getPendingApprovalSessions();
 
-        const formatted = sessions.map(s => {
+        const formatted = await Promise.all(sessions.map(async s => {
             const e = s.entidades || {};
 
             // Normalizar precios de cada repuesto para garantizar que son números limpios
@@ -996,6 +996,14 @@ router.get('/pending-approvals', async (req, res) => {
             const totalCotizacion = repuestosNormalizados.reduce((acc, r) => {
                 return acc + ((r.precio || 0) * (r.cantidad || 1));
             }, 0);
+
+            // Firmar el comprobante para que el admin pueda verlo (bucket privado).
+            // Si ya es URL absoluta (http) o un path local (/uploads), se deja como está.
+            let comprobanteUrl = e.comprobante_url || null;
+            if (comprobanteUrl && !/^https?:\/\//.test(comprobanteUrl) && !comprobanteUrl.startsWith('/')) {
+                const signed = await storageService.getSignedUrl(comprobanteUrl, 86400);
+                if (signed) comprobanteUrl = signed;
+            }
 
             return {
                 phone: s.phone,
@@ -1017,10 +1025,10 @@ router.get('/pending-approvals', async (req, res) => {
                 horario_entrega: e.horario_entrega || null,
                 direccion_envio: e.direccion_envio || null,
                 tipo_documento: e.tipo_documento || null,
-                comprobante_url: e.comprobante_url || null,
+                comprobante_url: comprobanteUrl,
                 pago_pendiente: e.pago_pendiente || null,
             };
-        });
+        }));
 
         res.status(200).json({ total: formatted.length, aprobaciones_pendientes: formatted });
     } catch (error) {
