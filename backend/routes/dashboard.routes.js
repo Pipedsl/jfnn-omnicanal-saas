@@ -1984,6 +1984,8 @@ router.post('/campaign/hsm-masivo', async (req, res) => {
         let sucursalWhere = '';
         if (sucursal) {
             params.push(sucursal);
+            // Buscar sucursal en pedidos, user_sessions Y mensajes (los importados del
+            // backup solo tienen sucursal en mensajes, no en pedidos/sessions).
             sucursalJoin = `
                 LEFT JOIN LATERAL (
                     SELECT sucursal FROM pedidos p
@@ -1995,8 +1997,13 @@ router.post('/campaign/hsm-masivo', async (req, res) => {
                     WHERE s.phone = c.phone AND s.sucursal = $${params.length}
                     LIMIT 1
                 ) ss ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT sucursal FROM mensajes mm
+                    WHERE mm.phone = c.phone AND mm.sucursal = $${params.length}
+                    LIMIT 1
+                ) ms ON TRUE
             `;
-            sucursalWhere = `AND (pp.sucursal IS NOT NULL OR ss.sucursal IS NOT NULL)`;
+            sucursalWhere = `AND (pp.sucursal IS NOT NULL OR ss.sucursal IS NOT NULL OR ms.sucursal IS NOT NULL)`;
         }
         // Excluir clientes que YA recibieron la campaña (a menos que se pida reenviar)
         const noContactadosWhere = incluirYaContactados ? '' : 'AND c.campana_reactivacion_at IS NULL';
