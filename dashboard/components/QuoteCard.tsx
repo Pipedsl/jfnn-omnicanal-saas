@@ -983,14 +983,23 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                     <button
                                         onClick={async () => {
                                             const tipoPago = hayEncargo ? 'el abono' : 'el total';
-                                            if (!confirm(`¿Confirmas que el cliente pagó ${tipoPago} en efectivo en el local?`)) return;
+                                            // Pago TOTAL en local sin envío a domicilio = venta cerrada (paga y retira).
+                                            // Cerramos directo a ENTREGADO para que se archive y cuente en KPIs.
+                                            const cierraVenta = !hayEncargo && !esEnvio;
+                                            const confirmMsg = cierraVenta
+                                                ? `¿Confirmas que el cliente pagó el total en efectivo y retiró el producto? La venta se cerrará y quedará registrada.`
+                                                : `¿Confirmas que el cliente pagó ${tipoPago} en efectivo en el local?`;
+                                            if (!confirm(confirmMsg)) return;
                                             setLoadingPago(true);
                                             try {
-                                                const nuevoEstado = hayEncargo ? 'ABONO_VERIFICADO' : 'PAGO_VERIFICADO';
+                                                // Encargo → abono; envío a domicilio → queda en PAGO_VERIFICADO para despachar;
+                                                // resto (retiro/local) → ENTREGADO (cierra + archiva + KPIs + reseña).
+                                                const nuevoEstado = hayEncargo ? 'ABONO_VERIFICADO' : (esEnvio ? 'PAGO_VERIFICADO' : 'ENTREGADO');
                                                 await api.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, {
                                                     phone,
                                                     estado: nuevoEstado,
-                                                    notify: false
+                                                    notify: nuevoEstado === 'ENTREGADO', // notify:true dispara archivado + reseña
+                                                    ...(vendedorNombre ? { vendedor_nombre: vendedorNombre } : {})
                                                 });
                                                 closeModal();
                                                 onResponded();
@@ -1004,7 +1013,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                         disabled={loadingPago}
                                         className="flex-1 py-2 rounded-xl bg-green-500 text-white text-xs font-bold uppercase tracking-widest hover:bg-green-600 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
                                     >
-                                        <CheckCircle size={12} /> {loadingPago ? 'Procesando...' : `Confirmar Pago en Efectivo (${hayEncargo ? 'Abono' : 'Total'})`}
+                                        <CheckCircle size={12} /> {loadingPago ? 'Procesando...' : (hayEncargo ? 'Confirmar Pago en Efectivo (Abono)' : (esEnvio ? 'Confirmar Pago en Efectivo (Total)' : 'Pago Efectivo Total y Cerrar Venta'))}
                                     </button>
                                 </div>
                             )}
