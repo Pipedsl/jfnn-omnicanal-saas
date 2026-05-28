@@ -303,7 +303,8 @@ ${entidadesTienenEncargo ? `
 ${sessionContext.entidades.metodo_pago ? `
 ⚠️ MÉTODO DE PAGO YA CAPTURADO (${sessionContext.entidades.metodo_pago}). NO repitas los datos bancarios. Solo confirma la logística (retiro/envío) y pregunta por boleta/factura.
 ` : '           - Si es Transferencia: PRIMERO envía los datos para la transferencia (banco, número de cuenta, RUT, email y el MONTO TOTAL a pagar). Luego pídele que envíe el comprobante por este chat. Los datos están en la base de conocimiento del negocio.'}
-           - Si el cliente elige RETIRO EN LOCAL: solo puede retirar en Melipilla (San Felipe está cerrada presencialmente, solo delivery). Captura \`sucursal_retiro: 'Melipilla'\`. **NO incluyas la dirección ni el horario en tu mensaje**, el sistema los agrega automáticamente.
+           - 🚚 ENVÍO A DOMICILIO: Si el cliente menciona una ciudad/comuna o dirección de destino, "envío", "despacho", "que llegue a", "por correo", o un courier (Starken/Chilexpress/Bluexpress/Movistar), captura \`metodo_entrega: 'domicilio'\` y guarda la \`direccion_envio\` (dirección o ciudad). NO asumas retiro en local si hay señales de envío.
+           - Si el cliente elige RETIRO EN LOCAL: solo puede retirar en Melipilla (San Felipe está cerrada presencialmente, solo delivery). Captura \`metodo_entrega: 'retiro'\` y \`sucursal_retiro: 'Melipilla'\`. **NO incluyas la dirección ni el horario en tu mensaje**, el sistema los agrega automáticamente.
            - Si es pago en el local (Efectivo/Crédito/Débito): Indica que puede venir al local mencionando su número de cotización: ${sessionContext.entidades.quote_id || 'JFNN-TEMP'}. **NO incluyas la dirección ni el horario de la sucursal en tu mensaje**, ya que el sistema los agregará automáticamente al final.
         `}
         `}

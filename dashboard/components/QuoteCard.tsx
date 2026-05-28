@@ -184,24 +184,25 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
         'Melipilla': 'Serrano 98, Melipilla, Región Metropolitana',
         'San Felipe': 'Maipú 381, San Felipe, Región de Valparaíso',
     };
+    const HORARIO_LOCAL = 'Lun a Vie 9:00–13:45 y 15:00–18:00 (colación 13:45–15:00) · Sáb 9:30–13:00';
     const TEMPLATE_RETIRO = sucursalRetiro
         ? `Estimado cliente, puede pasar a retirar su pedido por nuestro local desde hoy.
 📋 Número de Cotización: ${quoteId}
 📍 Sucursal ${sucursalRetiro}: ${SUCURSAL_DIRECCIONES[sucursalRetiro]}
-🕐 Horario: Lunes a Viernes de 9:00 a 18:00 hrs.`
+🕐 Horario: ${HORARIO_LOCAL}.`
         : `Estimado cliente, puede pasar a retirar su pedido por nuestro local desde hoy.
 📋 Número de Cotización: ${quoteId}
 📍 Sucursal: Por favor indique si retira en Melipilla o San Felipe.
-🕐 Horario: Lunes a Viernes de 9:00 a 18:00 hrs.`;
+🕐 Horario: ${HORARIO_LOCAL}.`;
 
     const TEMPLATE_ENVIO = entidades.direccion_envio
         ? `Estimado cliente, su pedido fue despachado a domicilio.
 📋 Número de Cotización: ${quoteId}
 📍 Dirección: ${entidades.direccion_envio}
-🕐 Tiempo estimado de entrega: 24 a 48 hrs hábiles.`
-        : `Estimado cliente, su pedido está en camino.
+🚚 Le compartimos el número de seguimiento para que pueda rastrear su envío.`
+        : `Estimado cliente, su pedido fue despachado y va en camino.
 📋 Número de Cotización: ${quoteId}
-🕐 Tiempo estimado de entrega: 24 a 48 hrs hábiles.`;
+🚚 Le compartimos el número de seguimiento para que pueda rastrear su envío.`;
 
     const getStatusConfig = (status: string) => {
         switch (status) {
@@ -214,6 +215,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
             case 'ENCARGO_SOLICITADO': return { label: 'En Proveedor', class: 'bg-indigo-400/10 text-indigo-400 border-indigo-500/20' };
             case 'ESPERANDO_SALDO': return { label: 'Cobrando Saldo', class: 'bg-rose-400/10 text-rose-400 border-rose-500/20 ring-1 ring-rose-500/50 animate-pulse-slow' };
             case 'ESPERANDO_RETIRO': return { label: 'Esperando Retiro', class: 'bg-blue-400/10 text-blue-400 border-blue-400/20' };
+            case 'DESPACHADO': return { label: 'Despachado', class: 'bg-teal-400/10 text-teal-400 border-teal-500/20' };
             case 'ENTREGADO': return { label: 'Entregado', class: 'bg-teal-400/10 text-teal-400 border-teal-500/20' };
             case 'CICLO_COMPLETO': return { label: 'Pago Presencial', class: 'bg-pink-500/20 text-pink-400 border-pink-500/30 ring-1 ring-pink-500/40 animate-pulse' };
             case 'ARCHIVADO': return { label: 'Archivado', class: 'bg-neutral-800 text-neutral-500 border-neutral-700' };
@@ -247,7 +249,9 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
     const handleConfirmarLogistica = async () => {
         setLoadingPago(true);
         try {
-            const estadoFinal = esRetiro ? 'ESPERANDO_RETIRO' : 'ENTREGADO';
+            // Retiro queda esperando que el cliente pase a buscar; envío a domicilio pasa a
+            // DESPACHADO (estado final del envío: se entregó al courier).
+            const estadoFinal = esRetiro ? 'ESPERANDO_RETIRO' : 'DESPACHADO';
             await api.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, {
                 phone,
                 estado: estadoFinal,
@@ -1006,7 +1010,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                             )}
 
                                 {/* Ajustar venta final: visible cuando el cliente ya pagó/retiró (compras extras en local) */}
-                                {['PAGO_VERIFICADO', 'ABONO_VERIFICADO', 'ESPERANDO_RETIRO', 'ENTREGADO', 'CICLO_COMPLETO'].includes(estado) && (
+                                {['PAGO_VERIFICADO', 'ABONO_VERIFICADO', 'ESPERANDO_RETIRO', 'DESPACHADO', 'ENTREGADO', 'CICLO_COMPLETO'].includes(estado) && (
                                     <button
                                         onClick={() => setIsEditing(true)}
                                         className="w-full py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold uppercase tracking-widest hover:bg-emerald-500/20 transition-all flex items-center justify-center gap-2"
@@ -1028,7 +1032,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                         }}
                                         className={`flex-1 py-2 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2 ${estado === 'ABONO_VERIFICADO' ? 'bg-yellow-500 text-black hover:bg-yellow-600' : 'bg-green-500 text-white hover:bg-green-600'}`}
                                     >
-                                        <Truck size={14} /> {estado === 'ABONO_VERIFICADO' ? 'Marcar Encargo Listo y Notificar' : 'Confirmar Logística para Cliente'}
+                                        <Truck size={14} /> {estado === 'ABONO_VERIFICADO' ? 'Marcar Encargo Listo y Notificar' : (esRetiro ? 'Confirmar Retiro para Cliente' : 'Marcar Despachado y Notificar')}
                                     </button>
                                 )}
 

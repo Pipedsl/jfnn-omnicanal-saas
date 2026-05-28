@@ -15,6 +15,7 @@ const STATES = {
     ENCARGO_SOLICITADO: 'ENCARGO_SOLICITADO',
     ESPERANDO_SALDO: 'ESPERANDO_SALDO',
     ESPERANDO_RETIRO: 'ESPERANDO_RETIRO',
+    DESPACHADO: 'DESPACHADO',
     ENTREGADO: 'ENTREGADO',
     CICLO_COMPLETO: 'CICLO_COMPLETO',
     ARCHIVADO: 'ARCHIVADO'
@@ -650,8 +651,8 @@ const getAllPendingSessions = async (sucursal = null) => {
 // ─── getHistoricalSessions ────────────────────────────────────────
 const getHistoricalSessions = async (sucursal = null) => {
     try {
-        const activeParams = [STATES.ENTREGADO];
-        let activeWhere = `WHERE estado = $1`;
+        const activeParams = [[STATES.ENTREGADO, STATES.DESPACHADO]];
+        let activeWhere = `WHERE estado = ANY($1)`;
         if (sucursal) {
             activeParams.push(sucursal);
             activeWhere += ` AND sucursal = $2`;
@@ -1029,7 +1030,7 @@ const getDashboardMetrics = async (range = 'hoy', filters = {}) => {
                 COALESCE(AVG(EXTRACT(EPOCH FROM (archivado_en - created_at))) / 60, 0) AS mins_promedio_cierre
             FROM pedidos
             WHERE ${filtroPedidos}
-              AND estado_final IN ('ENTREGADO', 'PAGO_VERIFICADO')${pedidosExtra}
+              AND estado_final IN ('ENTREGADO', 'DESPACHADO', 'PAGO_VERIFICADO')${pedidosExtra}
         `, pedidosParams);
 
         // 2. Sesiones activas (snapshot actual)

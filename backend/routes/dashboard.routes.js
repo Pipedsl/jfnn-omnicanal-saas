@@ -56,7 +56,7 @@ router.get('/ventas', async (req, res) => {
                     EXTRACT(EPOCH FROM (archivado_en - created_at))/60 AS duracion_min
              FROM pedidos
              WHERE ${filtroSql}
-               AND estado_final IN ('ENTREGADO', 'PAGO_VERIFICADO')${extraFilter}
+               AND estado_final IN ('ENTREGADO', 'DESPACHADO', 'PAGO_VERIFICADO')${extraFilter}
              ORDER BY archivado_en DESC
              LIMIT $1`,
             params
@@ -816,14 +816,17 @@ router.patch('/cotizaciones/estado', async (req, res) => {
                         `📦 En breve le informaremos sobre el despacho o puede pasar a retirarlo a nuestro local.\n\n` +
                         `¡Muchas gracias por preferir *Repuestos JFNN*! 🙌`;
                 }
-            } else if (estado === 'ENTREGADO' && mensaje_logistica && mensaje_logistica.trim()) {
-                // Envío a domicilio: vendedor confirma despacho con mensaje + tracking.
+            } else if (estado === 'DESPACHADO') {
+                // Envío a domicilio: estado FINAL. El vendedor entregó el pedido al courier.
                 const seguimientoLinea = numero_seguimiento && numero_seguimiento.trim()
                     ? `📮 *Número de seguimiento:* ${numero_seguimiento.trim()}\n\n`
                     : '';
+                const cuerpo = (mensaje_logistica && mensaje_logistica.trim())
+                    ? `📦 *Información de despacho:*\n${mensaje_logistica.trim()}\n\n`
+                    : `📦 Su pedido fue despachado y va en camino.\n\n`;
                 message =
-                    `✅ *¡Su pago fue confirmado!* Gracias por su preferencia.\n\n` +
-                    `📦 *Información de despacho/retiro:*\n${mensaje_logistica.trim()}\n\n` +
+                    `✅ *¡Su pedido fue despachado!* Gracias por su preferencia.\n\n` +
+                    cuerpo +
                     seguimientoLinea +
                     `¡Muchas gracias por preferir *Repuestos JFNN*! 🙌`;
             }
@@ -836,7 +839,8 @@ router.patch('/cotizaciones/estado', async (req, res) => {
             }
 
             // HU-6: Solicitud de reseña en Google Maps al cierre + archivado del pedido para KPIs.
-            if (estado === 'ENTREGADO') {
+            // Ambos estados terminales: ENTREGADO (retiro) y DESPACHADO (envío a domicilio).
+            if (estado === 'ENTREGADO' || estado === 'DESPACHADO') {
                 setTimeout(() => {
                     whatsappService.sendGoogleReviewRequest(phone).catch(err => {
                         console.error('Error enviando solicitud de reseña Google:', err);
@@ -846,7 +850,7 @@ router.patch('/cotizaciones/estado', async (req, res) => {
                 // para no interferir con la reseña ni con un re-engage temprano del cliente).
                 setTimeout(() => {
                     sessionsService.archiveSession(phone).catch(err => {
-                        console.error(`[Archive] Error archivando sesión ${phone} tras ENTREGADO:`, err);
+                        console.error(`[Archive] Error archivando sesión ${phone} tras ${estado}:`, err);
                     });
                 }, 60000);
             }
