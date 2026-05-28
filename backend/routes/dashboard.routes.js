@@ -2038,10 +2038,21 @@ router.post('/campaign/hsm-masivo', async (req, res) => {
         let errores = 0;
         const detalle = [];
 
+        // Formatea el phone chileno legible para usar como saludo cuando no hay nombre
+        const formatPhoneSaludo = (p) => {
+            if (!p) return '';
+            // 56912345678 → +56 9 1234 5678
+            if (p.length === 11 && p.startsWith('56')) {
+                return ` +56 ${p[2]} ${p.slice(3, 7)} ${p.slice(7)}`;
+            }
+            return ` ${p}`;
+        };
+
         for (const c of clientes) {
             try {
-                // Param 1 = nombre con coma o vacío. Si no hay nombre, usar "" para template-friendly.
-                const nombreParam = c.nombre ? ` ${c.nombre.split(' ')[0]}` : '';
+                // Param 1 = nombre. Si no hay nombre, usar el número formateado (nunca vacío,
+                // Meta rechaza params vacíos en algunas plantillas).
+                const nombreParam = c.nombre ? ` ${c.nombre.split(' ')[0]}` : formatPhoneSaludo(c.phone);
                 const bodyParams = [{ name: '1', text: nombreParam }];
                 await whatsappService.sendTemplateMessage(c.phone, plantilla_id, language, bodyParams);
 
