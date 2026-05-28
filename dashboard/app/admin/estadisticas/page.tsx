@@ -79,6 +79,22 @@ export default function EstadisticasAdmin() {
     const [sucursalFilter, setSucursalFilter] = useState('');
     const [vendedorFilter, setVendedorFilter] = useState('');
     const [vendedores, setVendedores] = useState<Vendedor[]>([]);
+    const [savingVendedor, setSavingVendedor] = useState<number | null>(null);
+
+    const asignarVendedor = async (ventaId: number, nombre: string) => {
+        setSavingVendedor(ventaId);
+        try {
+            await api.patch(`${BACKEND_URL}/api/dashboard/ventas/${ventaId}/vendedor`, {
+                vendedor_nombre: nombre || null,
+            });
+            setVentas(prev => prev.map(v => v.id === ventaId ? { ...v, vendedor_nombre: nombre || null } : v));
+        } catch (err) {
+            console.error('Error asignando vendedor:', err);
+            alert('No se pudo asignar el vendedor. Intenta de nuevo.');
+        } finally {
+            setSavingVendedor(null);
+        }
+    };
 
     useEffect(() => {
         api.get(`${BACKEND_URL}/api/dashboard/vendedores?incluir_inactivos=0&t=${Date.now()}`)
@@ -320,7 +336,24 @@ export default function EstadisticasAdmin() {
                                                         {v.sucursal || "—"}
                                                     </td>
                                                     <td className="px-4 py-3 text-neutral-300 text-xs">
-                                                        {v.vendedor_nombre || "—"}
+                                                        <select
+                                                            value={v.vendedor_nombre || ""}
+                                                            onChange={(e) => asignarVendedor(v.id, e.target.value)}
+                                                            disabled={savingVendedor === v.id}
+                                                            className={`bg-neutral-800 border rounded px-2 py-1 text-xs focus:outline-none focus:border-accent ${v.vendedor_nombre ? 'border-white/10 text-neutral-200' : 'border-amber-500/40 text-amber-400'}`}
+                                                            title="Asignar o cambiar el vendedor de esta venta"
+                                                        >
+                                                            <option value="">— Sin asignar</option>
+                                                            {vendedores
+                                                                .filter(vd => !v.sucursal || vd.sucursal === v.sucursal)
+                                                                .map(vd => (
+                                                                    <option key={vd.id} value={vd.nombre}>{vd.nombre}</option>
+                                                                ))}
+                                                            {/* Conservar el valor actual aunque el vendedor esté inactivo o de otra sucursal */}
+                                                            {v.vendedor_nombre && !vendedores.some(vd => vd.nombre === v.vendedor_nombre && (!v.sucursal || vd.sucursal === v.sucursal)) && (
+                                                                <option value={v.vendedor_nombre}>{v.vendedor_nombre}</option>
+                                                            )}
+                                                        </select>
                                                     </td>
                                                     <td className="px-4 py-3 text-right font-bold text-green-400">
                                                         {formatMoney(v.total_cotizacion)}

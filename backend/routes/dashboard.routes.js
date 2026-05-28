@@ -88,6 +88,37 @@ router.get('/ventas', async (req, res) => {
     }
 });
 
+/**
+ * Asignar / cambiar / des-asignar el vendedor de una venta ya cerrada (pedido).
+ * Usado por el dropdown de /admin/estadisticas cuando una venta quedó sin vendedor
+ * (ej. cerrada sin lock activo). Admin-only por el JWT del router.
+ * PATCH /api/dashboard/ventas/:id/vendedor   Body: { vendedor_nombre }
+ */
+router.patch('/ventas/:id/vendedor', async (req, res) => {
+    try {
+        const id = parseInt(req.params.id, 10);
+        if (!Number.isInteger(id)) {
+            return res.status(400).json({ error: 'ID de venta inválido' });
+        }
+        // Permitir des-asignar con null / "".
+        const raw = req.body?.vendedor_nombre;
+        const vendedorNombre = raw == null || String(raw).trim() === '' ? null : String(raw).trim().slice(0, 120);
+
+        const { rows } = await db.query(
+            `UPDATE pedidos SET vendedor_nombre = $1 WHERE id = $2 RETURNING id, vendedor_nombre, sucursal`,
+            [vendedorNombre, id]
+        );
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'Venta no encontrada' });
+        }
+        console.log(`[Dashboard] ✏️ Venta ${id} → vendedor: ${vendedorNombre || '(sin asignar)'}`);
+        res.json({ success: true, venta: rows[0] });
+    } catch (error) {
+        console.error('[Dashboard] Error asignando vendedor a venta:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
 router.get('/metrics', async (req, res) => {
     try {
         const allowedRanges = ['hoy', '7d', '30d', 'total'];
@@ -356,6 +387,11 @@ router.post('/cotizaciones/responder', async (req, res) => {
             total_cotizacion: total,
             horario_entrega: horario_entrega || null
         };
+        // Persistir el vendedor que cotiza para atribución de la venta al cerrar
+        // (fallback cuando no hay lock activo en archiveSession).
+        if (vendedor_nombre && vendedor_nombre.trim()) {
+            sessionUpdateParams.vendedor_nombre = vendedor_nombre.trim();
+        }
         if (vehiculos && vehiculos.length > 0) {
             sessionUpdateParams.vehiculos = vehiculos;
         } else {

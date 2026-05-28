@@ -773,12 +773,15 @@ const archiveSession = async (phone) => {
         // Derivar sucursal para el pedido archivado (fuente de verdad: entidades)
         const sucursalPedido = derivarSucursal(e);
 
-        // Leer el vendedor que tenía el lock en el momento del cierre (para REQ-03)
+        // Leer el vendedor que tenía el lock en el momento del cierre (para REQ-03).
+        // Fallback: si no hay lock activo (cerrada desde el chat, lock expirado, etc.) usar
+        // el vendedor declarado en las entidades (SellerActionForm lo persiste al cotizar),
+        // así la venta no queda sin atribución.
         const { rows: lockRows } = await db.query(
             `SELECT lock_vendedor FROM user_sessions WHERE phone = $1`,
             [phone]
         );
-        const vendedorNombre = lockRows[0]?.lock_vendedor || null;
+        const vendedorNombre = lockRows[0]?.lock_vendedor || e.vendedor_nombre || null;
 
         const { rows: pedidoRows } = await db.query(
             `INSERT INTO pedidos (phone, quote_id, estado_final, marca_modelo, ano, patente, vin,
