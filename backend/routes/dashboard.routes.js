@@ -321,7 +321,14 @@ router.post('/cotizaciones/responder', async (req, res) => {
         };
 
         if (vehiculos && vehiculos.length > 0) {
-            detailsText = vehiculos.map(v => {
+            // Ocultar del mensaje al cliente los vehículos SIN repuestos cotizados (cuando
+            // el cliente preguntó por varios autos pero solo se cotizó uno). Evita listar
+            // un vehículo vacío que confunde. La sesión conserva todos los vehículos.
+            const vehiculosConRepuestos = vehiculos.filter(
+                v => Array.isArray(v.repuestos_solicitados)
+                  && v.repuestos_solicitados.some(r => (r?.nombre || '').trim())
+            );
+            detailsText = vehiculosConRepuestos.map(v => {
                 let vehiculoHeader = `🚗 *${v.marca_modelo || 'Vehículo'} ${v.ano || ''}*\n`;
                 let vehiculoDetails = (v.repuestos_solicitados || []).map(parseItem).join('\n');
                 return vehiculoHeader + vehiculoDetails;
