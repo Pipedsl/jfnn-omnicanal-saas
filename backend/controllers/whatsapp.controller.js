@@ -1262,7 +1262,25 @@ const recoverUnansweredSessions = async (windowMin = parseInt(process.env.RECOVE
 
                 const textos = msgs.filter(m => m.tipo === 'text' && (m.contenido || '').trim());
                 if (textos.length === 0) {
-                    console.warn(`[Recovery] ⏭️ ${phone} sin texto reprocesable (solo media). Revisar manual.`);
+                    // Solo media (foto/audio/video/doc) sin texto: no rehidratamos binarios en
+                    // recovery. Lo MARCAMOS visiblemente para que el vendedor lo vea y responda.
+                    const tipos = [...new Set(msgs.map(m => m.tipo))].join(', ') || 'media';
+                    if (!session.entidades?.marca) {
+                        try {
+                            await sessionsService.updateEntidades(phone, {
+                                marca: {
+                                    vendedor: 'Sistema',
+                                    momento: new Date().toISOString(),
+                                    nota: `⚠️ Cliente envió ${tipos} durante un reinicio del sistema y quedó sin responder. Revisar y contestar manual.`,
+                                },
+                            });
+                            console.warn(`[Recovery] 🔖 ${phone} marcado para revisión manual (solo ${tipos}, sin texto).`);
+                        } catch (errMarca) {
+                            console.error(`[Recovery] ❌ No se pudo marcar ${phone}:`, errMarca.message);
+                        }
+                    } else {
+                        console.warn(`[Recovery] ⏭️ ${phone} solo media sin texto, ya tenía marca previa. Se respeta.`);
+                    }
                     continue;
                 }
 
