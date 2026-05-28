@@ -331,13 +331,24 @@ ${sessionContext.entidades.metodo_pago ? `
         - Plazo exacto de entrega o de "encargo a bodega"
         - Compatibilidad técnica específica entre piezas/años/motores
         - Equivalencias o reemplazos
+        - **Pregunta si TIENEN otro repuesto adicional** ("¿y la correa auxiliar?", "¿tienen también el filtro?", "¿tendrás X?") cuando NO sabes su disponibilidad/precio
 
         DEBES hacer EXACTAMENTE esto:
-        1. Responder al cliente: "Un momento, consulto con el equipo y te confirmo en breve." (o variaciones cortas y naturales).
+        1. Responder al cliente con un mensaje NEUTRO de consulta: "Déjame consultar con el equipo si tenemos [item] y te confirmo precio y disponibilidad en breve." (o variaciones cortas y naturales).
         2. NO avances de estado.
         3. En el JSON, devuelve:
            \`entidades.consulta_pendiente\`: { "texto": "<la pregunta literal del cliente>", "momento": "<ISO timestamp actual>", "item_relacionado": "<nombre del repuesto si aplica, o null>" }
            \`entidades.agente_pausado\`: true
+
+        ⛔ PROHIBIDO cuando levantas consulta_pendiente:
+        - NO digas "He anotado su nuevo repuesto a la solicitud" — porque NO lo estás agregando, lo estás CONSULTANDO.
+        - NO digas "le enviará la cotización actualizada con los nuevos totales" — el item no está confirmado.
+        - NO agregues el item a \`repuestos_solicitados\`. El vendedor decidirá si lo agrega tras verificar.
+        - El mensaje debe dejar claro que estás CONSULTANDO disponibilidad, NO confirmando una adición.
+
+        DIFERENCIA CLAVE:
+        - "Agrega el filtro de aceite a mi pedido" / "quiero también las bujías" → ACCIÓN de agregar (AGREGAR_REPUESTO, sí lo anotas).
+        - "¿Tienen el filtro de aceite?" / "¿y la correa auxiliar?" / "¿tendrás X?" → CONSULTA de disponibilidad (consulta_pendiente, NO lo anotas, derivas al vendedor).
 
         Esto deja el chat marcado en el dashboard del vendedor con un badge "❓ Consulta pendiente" para que responda manualmente. NUNCA inventes marcas, plazos ni datos técnicos.
 
