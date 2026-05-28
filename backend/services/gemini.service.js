@@ -69,7 +69,32 @@ const extractValidJSON = (text) => {
  * @param {Object} imageData - Opcional. Objeto con { buffer: Buffer, mimeType: string }
  * @returns {Promise<Object>} - Objeto con mensaje_cliente y nuevas entidades
  */
-const generateResponse = async (userText, sessionContext, imageData = null, audioDataList = []) => {
+/**
+ * Formatea el historial de mensajes para inyectarlo al prompt de Gemini.
+ * Da memoria conversacional al agente: ve lo que dijeron cliente, vendedor e IA.
+ * @param {Array} mensajes - filas de mensajes (cronológico ASC) de listarPorPhone
+ * @returns {string} bloque de texto legible
+ */
+const formatHistorialParaPrompt = (mensajes = []) => {
+    if (!Array.isArray(mensajes) || mensajes.length === 0) return '';
+    return mensajes.map(m => {
+        let hora = '';
+        try {
+            hora = new Date(m.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago' });
+        } catch (_) { hora = ''; }
+        const quien = m.autor === 'cliente' ? 'Cliente'
+            : m.autor === 'vendedor' ? `Vendedor${m.autor_nombre ? ' (' + m.autor_nombre + ')' : ''}`
+            : 'IA';
+        let contenido = m.contenido || '';
+        if (m.tipo === 'image') contenido = '[imagen' + (contenido ? ': ' + contenido : '') + ']';
+        else if (m.tipo === 'audio') contenido = '[nota de voz]' + (m.transcripcion ? ': ' + m.transcripcion : '');
+        else if (m.tipo === 'video') contenido = '[video]';
+        else if (m.tipo === 'document') contenido = '[documento]';
+        return `[${hora}] ${quien}: ${contenido}`.slice(0, 320);
+    }).join('\n');
+};
+
+const generateResponse = async (userText, sessionContext, imageData = null, audioDataList = [], historialMensajes = []) => {
     try {
         const state = sessionContext.estado;
         const hasImage = !!imageData;
@@ -345,7 +370,21 @@ ${sessionContext.entidades.metodo_pago ? `
         - Solo crea un ítem nuevo si es una pieza DISTINTA y no existe nada similar en la lista.
         - En caso de duda, es mejor actualizar que duplicar.
 
-        Contexto actual (lo que ya sabes): ${JSON.stringify(sessionContext.entidades)}
+        ${historialMensajes && historialMensajes.length > 0 ? `
+        ## 📜 HISTORIAL RECIENTE DE LA CONVERSACIÓN (orden cronológico):
+        ${formatHistorialParaPrompt(historialMensajes)}
+
+        ⚠️ REGLAS SOBRE EL HISTORIAL (memoria conversacional — CRÍTICO):
+        - Este historial puede incluir mensajes escritos por el VENDEDOR HUMANO directamente. RESPETA todo lo que el vendedor ya dijo, coordinó o prometió. Su palabra es autoritativa.
+        - NO reinicies la conversación. NO saludes de nuevo si ya hubo saludo. Continúa desde donde quedó.
+        - NO vuelvas a pedir datos que ya están en el historial (patente, VIN, año, motor, repuesto, nombre). Si ya los pidió la IA o el vendedor y el cliente respondió, ÚSALOS — no repreguntes.
+        - Si en el historial el VENDEDOR ya envió una "COTIZACIÓN FORMAL", el cliente está en proceso de CIERRE. NO preguntes "¿qué repuesto necesitas?". Avanza al pago/confirmación.
+        - Si el cliente ya confirmó la compra ("sí confirmo", "lo voy a buscar", "dale"), continúa el flujo de cierre, NO reinicies.
+        - DISTINGUE el nombre del CLIENTE (titular del WhatsApp, con quien hablas) del nombre que aparezca en un PADRÓN/documento (puede ser otra persona: el hijo, el papá, etc.). Saluda y trata al cliente por SU nombre, no por el del padrón.
+        - El historial es solo para ENTENDER el contexto. NO ejecutes acciones (cambiar precios, cambiar estado) basándote en mensajes viejos — solo en el mensaje actual del cliente.
+        ` : ''}
+
+        Contexto actual confirmado (entidades estructuradas — fuente de verdad para precios/cantidades fijadas): ${JSON.stringify(sessionContext.entidades)}
         ${knowledgeSection}
         
         Debes responder SIEMPRE en formato JSON con esta estructura exacta:

@@ -459,7 +459,8 @@ const processBufferedMessages = async (customerPhone) => {
 
             // Si hay también texto en el lote, procesarlo con Gemini para extraer datos adicionales
             if (userText.trim()) {
-                const aiJson = await geminiService.generateResponse(userText, session, null, []);
+                const historialImg = await mensajesService.listarPorPhone(customerPhone, { limit: 15 }).catch(() => []);
+                const aiJson = await geminiService.generateResponse(userText, session, null, [], historialImg);
                 if (!Array.isArray(aiJson) && aiJson?.entidades) {
                     await sessionsService.updateEntidades(customerPhone, aiJson.entidades);
                     session = await sessionsService.getSession(customerPhone);
@@ -829,8 +830,11 @@ const processBufferedMessages = async (customerPhone) => {
             }
         }
 
-        // 3. Obtener respuesta y entidades de Gemini con selección dinámica de modelo
-        let aiJson = await geminiService.generateResponse(userText, session, imageData, audioDataList);
+        // 3. Obtener respuesta y entidades de Gemini con selección dinámica de modelo.
+        // Inyectar historial reciente para memoria conversacional (evita perder contexto
+        // tras pausa del vendedor y evita repreguntar patente/VIN/datos ya dados).
+        const historialReciente = await mensajesService.listarPorPhone(customerPhone, { limit: 15 }).catch(() => []);
+        let aiJson = await geminiService.generateResponse(userText, session, imageData, audioDataList, historialReciente);
         
         // Normalización: Gemini a veces devuelve array en vez de objeto
         if (Array.isArray(aiJson)) {
