@@ -1,7 +1,7 @@
 const SUCURSALES = {
     'Melipilla': {
         direccion: 'Serrano 98, 9580000 Melipilla, Región Metropolitana',
-        horario: 'Lunes a Viernes: 9:00 a 13:45 y 15:00 a 18:00 hrs (colación 13:45–15:00)',
+        horario: 'Lunes a Viernes: 9:00 a 13:45 y 15:00 a 18:00 hrs (colación 13:45–15:00). Sábados: 9:30 a 13:00 hrs',
         abierta: true,
         retiroPresencial: true,
     },

@@ -12,8 +12,9 @@
 - **Slogan:** El repuesto que necesitas, al precio justo.
 
 ## Horarios de Atención (Sucursal Principal)
-- **Lunes a Viernes:** 9:00 AM – 6:00 PM
-- **Sábados:** 9:00 AM – 2:00 PM
+- **Lunes a Viernes:** 9:00 a 13:45 y 15:00 a 18:00 hrs
+  - **Cerramos por colación:** 13:45 a 15:00 hrs (NO es horario continuado)
+- **Sábados:** 9:30 a 13:00 hrs
 - **Domingos y Festivos:** Cerrado
 
 > El canal de WhatsApp puede recibir mensajes 24/7 pero las respuestas manuales del equipo son dentro del horario anterior.

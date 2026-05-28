@@ -996,6 +996,15 @@ const processBufferedMessages = async (customerPhone) => {
             const vehiculosHasMinData = Array.isArray(e.vehiculos) && e.vehiculos.some(tieneIdentificador);
 
             const hasMinData = (rootHasMinData || vehiculosHasMinData) && hasRepuestos;
+
+            // Un repuesto identificado por CÓDIGO (filtro/OEM/referencia) es suficiente para
+            // cotizar aunque falte marca/modelo — el vendedor cruza el código.
+            const repuestosFlat = [
+                ...(Array.isArray(e.repuestos_solicitados) ? e.repuestos_solicitados : []),
+                ...((Array.isArray(e.vehiculos) ? e.vehiculos : []).flatMap(v => Array.isArray(v?.repuestos_solicitados) ? v.repuestos_solicitados : [])),
+            ];
+            const hasRepuestoConCodigo = repuestosFlat.some(r => (r?.codigo || '').trim());
+
             // finalMessage puede ser string, array, null o undefined — normalizar a string
             const finalMessageStr = Array.isArray(finalMessage) ? finalMessage.join(" ") : (finalMessage || "");
             const isAsking = finalMessageStr.includes("?") || finalMessageStr.toLowerCase().includes("qué tipo");
@@ -1004,9 +1013,10 @@ const processBufferedMessages = async (customerPhone) => {
             const geminiSugiereTraspasar = aiJson.estado === 'ESPERANDO_VENDEDOR';
 
             // Avanzar si: hay datos mínimos (marca + repuesto) Y no está preguntando,
-            // O si Gemini explícitamente decidió traspasar (confiamos en su criterio).
+            // O si Gemini explícitamente decidió traspasar (confiamos en su criterio),
+            // O si hay un repuesto identificado por código (basta para que el vendedor cotice).
             // Con geminiSugiereTraspasar igual exigimos al menos un repuesto para no avanzar vacío.
-            if ((hasMinData && !isAsking) || (geminiSugiereTraspasar && hasRepuestos)) {
+            if ((hasMinData && !isAsking) || (geminiSugiereTraspasar && hasRepuestos) || (hasRepuestoConCodigo && !isAsking)) {
                 await sessionsService.setEstado(customerPhone, 'ESPERANDO_VENDEDOR');
                 // Siempre usar el mensaje de Gemini — ya está contextualizado con el horario
                 printShadowQuote(customerPhone, session.entidades);

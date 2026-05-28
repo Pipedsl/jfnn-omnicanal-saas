@@ -201,6 +201,8 @@ ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.paten
 
         🚦 Para avanzar a ESPERANDO_VENDEDOR necesitas: marca/modelo del vehículo + ≥1 repuesto. El AÑO NO es obligatorio — si el cliente dio VIN/chasis, patente o motor, eso le sirve al vendedor para identificar. FACILITA el flujo: el vendedor pedirá lo que falte. NO preguntes método de entrega ni sucursal en esta etapa.
 
+        🔢 CÓDIGO DE REPUESTO = IDENTIFICADOR SUFICIENTE (NO exijas vehículo): si el cliente entrega un código de pieza (código de filtro, número OEM, referencia cruzada — ej. "C26035", "W712/75", "90915-YZZD4"), ese código BASTA para cotizar. El vendedor cruza el código y encuentra la pieza. NO pidas marca/modelo/año en este caso. Captura el código en el campo \`codigo\` del repuesto (y un nombre genérico si lo sabes, ej. "Filtro"). Con el código + confirmación del cliente ("solo eso", "nada más") avanza a ESPERANDO_VENDEDOR aunque no haya datos del vehículo.
+
         - Cuando tengas marca + repuesto(s), pregunta: "¿Necesitas algo más o cotizamos con eso?" Si dice que no necesita más, avanza a ESPERANDO_VENDEDOR.
         - ⚡ REGLA DE AVANCE RÁPIDO: Si el cliente confirma que no necesita nada más ("solo eso", "eso es todo", "nada más", "eso nomás", "cotizar solo eso", "cotizar eso"), cambia estado_cotizacion a "ESPERANDO_VENDEDOR" INMEDIATAMENTE.
         - 🔴 COHERENCIA OBLIGATORIA: si tu mensaje al cliente dice que vas a cotizar / que el asesor revisará / "te enviamos la cotización en breve" / "buscaremos las opciones", DEBES devolver \`estado_cotizacion: "ESPERANDO_VENDEDOR"\` en el JSON. NUNCA digas que vas a cotizar y dejes el estado en PERFILANDO — eso deja al cliente perdido y el vendedor no lo ve.
@@ -243,6 +245,7 @@ ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.paten
         EJEMPLOS DE BUENAS RESPUESTAS:
         - Pieza común: "Listo, ya anoté el filtro de aceite para su Corolla 2019. ¿Necesita algo más o cotizamos?"
         - Pieza crítica sin año: "Para la cremallera necesito el año exacto de su Hilux. ¿Me lo confirma?"
+        - Pieza por código (SIN pedir vehículo): "Listo, anoté el filtro código C26035. ¿Necesitas algo más o lo cotizamos así?"
         - Cliente dice "solo eso" (en horario): "Perfecto, en breve su asesor le envía la cotización."
         - Cliente dice "solo eso" (fuera de horario/colación): "Perfecto, quedó anotado. En cuanto abramos, el asesor le envía la cotización por aquí. 😊"
         ⚠️ IMPORTANTE: Al pasar a ESPERANDO_VENDEDOR, adapta el mensaje al estado actual de atención — si estás CERRADO, COLACION o FERIADO, NO digas "en unos minutos" ni "en breve". Di "cuando abramos" o "al reanudar la atención".
@@ -426,11 +429,11 @@ ${sessionContext.entidades.metodo_pago ? `
                         "vin": "...",
                         "motor": "...",
                         "combustible": "bencina | diesel | hibrido | electrico | null",
-                        "repuestos_solicitados": [{ "nombre": "...", "cantidad": 1, "precio": null, "estado": "pendiente" }]
+                        "repuestos_solicitados": [{ "nombre": "...", "codigo": "código de pieza si el cliente lo dio (filtro/OEM/referencia), si no \"\"", "cantidad": 1, "precio": null, "estado": "pendiente" }]
                     }
                 ],
-                "repuestos_solicitados": [{ "nombre": "...", "cantidad": 1, "precio": null, "estado": "pendiente" }],
-                "repuestos_pendiente_vehiculo": [{ "nombre": "...", "cantidad": 1, "precio": null, "estado": "pendiente" }],
+                "repuestos_solicitados": [{ "nombre": "...", "codigo": "código de pieza si el cliente lo dio (filtro/OEM/referencia), si no \"\"", "cantidad": 1, "precio": null, "estado": "pendiente" }],
+                "repuestos_pendiente_vehiculo": [{ "nombre": "...", "codigo": "código de pieza si el cliente lo dio (filtro/OEM/referencia), si no \"\"", "cantidad": 1, "precio": null, "estado": "pendiente" }],
                 "sintomas_reportados": "...",
                 "metodo_pago": "online | local | null",
                 "metodo_entrega": "retiro | domicilio | null",
