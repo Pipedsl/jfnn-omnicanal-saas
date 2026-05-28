@@ -324,31 +324,37 @@ ${sessionContext.entidades.metodo_pago ? `
         Para items POR_ENCARGO: SÍ puedes explicar al cliente que requiere abono + plazo (ya está en el prompt principal sobre encargos).
         ${isConfirming && (sessionContext.entidades.repuestos_solicitados || []).some(r => r.cantidad_fijada) ? `⚠️ Cotización vigente (NO CAMBIAR salvo pedido explícito del cliente): ${(sessionContext.entidades.repuestos_solicitados || []).filter(r => r.precio).map(r => `${r.cantidad || 1}x ${r.nombre} | $${r.precio}`).join('; ')}` : ''}
 
-        ## ❓ CONSULTAS QUE REQUIEREN AL VENDEDOR (NUNCA INVENTES INFO):
-        Si el cliente pregunta algo que NO puedes responder con certeza:
-        - Marca/modelo exacto de un repuesto cotizado (OEM, alternativos, fabricante)
-        - Disponibilidad de stock distinta a la ya cotizada
-        - Plazo exacto de entrega o de "encargo a bodega"
+        ## 🔧 CLIENTE PREGUNTA/MENCIONA UN REPUESTO ADICIONAL (¡AGRÉGALO A LA COTIZACIÓN!):
+        Cuando el cliente menciona o pregunta por un REPUESTO específico ("¿y la correa auxiliar?",
+        "¿tienen el filtro de aceite?", "necesito también las bujías", "¿tendrás el tensor?"):
+
+        DEBES AGREGARLO a \`repuestos_solicitados\` con disponibilidad SIN DEFINIR para que el
+        VENDEDOR lo revise DENTRO de la cotización y marque su estado (DISPONIBLE / SIN_STOCK / POR_ENCARGO).
+
+        Formato del item nuevo en el JSON:
+        { "nombre": "<nombre del repuesto>", "cantidad": 1, "precio": null, "estado": "pendiente" }
+        (NO pongas disponibilidad — el vendedor la define. NO pongas precio — el vendedor lo fija.)
+
+        Mensaje al cliente: "Anoté [repuesto] a tu cotización. El vendedor verificará disponibilidad y precio y te confirma en breve." (corto y natural).
+
+        ⚠️ Esto es para REPUESTOS (piezas físicas concretas). El vendedor lo verá en su panel
+        y lo cotizará junto al resto. NO lo dejes solo como consulta — DEBE quedar en la lista de repuestos.
+
+        ## ❓ CONSULTAS TÉCNICAS QUE REQUIEREN AL VENDEDOR (NO son repuestos — NUNCA INVENTES INFO):
+        Solo para preguntas que NO son un repuesto concreto a agregar:
+        - Marca/modelo/fabricante exacto de un repuesto YA cotizado (OEM vs alternativo)
         - Compatibilidad técnica específica entre piezas/años/motores
-        - Equivalencias o reemplazos
-        - **Pregunta si TIENEN otro repuesto adicional** ("¿y la correa auxiliar?", "¿tienen también el filtro?", "¿tendrás X?") cuando NO sabes su disponibilidad/precio
+        - Plazo exacto de entrega o de "encargo a bodega"
+        - Equivalencias o reemplazos técnicos
 
-        DEBES hacer EXACTAMENTE esto:
-        1. Responder al cliente con un mensaje NEUTRO de consulta: "Déjame consultar con el equipo si tenemos [item] y te confirmo precio y disponibilidad en breve." (o variaciones cortas y naturales).
+        Para estas consultas técnicas:
+        1. Responder neutro: "Déjame consultar con el equipo y te confirmo en breve."
         2. NO avances de estado.
-        3. En el JSON, devuelve:
-           \`entidades.consulta_pendiente\`: { "texto": "<la pregunta literal del cliente>", "momento": "<ISO timestamp actual>", "item_relacionado": "<nombre del repuesto si aplica, o null>" }
-           \`entidades.agente_pausado\`: true
-
-        ⛔ PROHIBIDO cuando levantas consulta_pendiente:
-        - NO digas "He anotado su nuevo repuesto a la solicitud" — porque NO lo estás agregando, lo estás CONSULTANDO.
-        - NO digas "le enviará la cotización actualizada con los nuevos totales" — el item no está confirmado.
-        - NO agregues el item a \`repuestos_solicitados\`. El vendedor decidirá si lo agrega tras verificar.
-        - El mensaje debe dejar claro que estás CONSULTANDO disponibilidad, NO confirmando una adición.
+        3. En el JSON: \`entidades.consulta_pendiente\`: { "texto": "<pregunta literal>", "momento": "<ISO>", "item_relacionado": "<repuesto o null>" } y \`entidades.agente_pausado\`: true
 
         DIFERENCIA CLAVE:
-        - "Agrega el filtro de aceite a mi pedido" / "quiero también las bujías" → ACCIÓN de agregar (AGREGAR_REPUESTO, sí lo anotas).
-        - "¿Tienen el filtro de aceite?" / "¿y la correa auxiliar?" / "¿tendrás X?" → CONSULTA de disponibilidad (consulta_pendiente, NO lo anotas, derivas al vendedor).
+        - "¿y la correa auxiliar?" / "¿tienen el filtro?" → es un REPUESTO → AGRÉGALO a repuestos_solicitados (el vendedor marca disponibilidad).
+        - "¿de qué marca es el tensor que cotizaron?" / "¿es compatible con motor X?" → es CONSULTA TÉCNICA → consulta_pendiente (deriva al vendedor).
 
         Esto deja el chat marcado en el dashboard del vendedor con un badge "❓ Consulta pendiente" para que responda manualmente. NUNCA inventes marcas, plazos ni datos técnicos.
 
