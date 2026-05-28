@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api } from "@/lib/api";
 import { X, User, RefreshCcw, AlertCircle } from 'lucide-react';
+import { safeSet } from '@/lib/storage';
 
 export interface Vendedor {
   id: number;
@@ -55,7 +56,7 @@ export default function IdentitySelector({
   }, [open, fetchVendedores]);
 
   const handleSelect = (nombre: string) => {
-    localStorage.setItem('jfnn_vendedor_nombre', nombre);
+    safeSet('jfnn_vendedor_nombre', nombre);
     onSelect(nombre);
   };
 

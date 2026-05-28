@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { api } from "@/lib/api";
+import { safeGet, safeRemove } from "@/lib/storage";
 import { LayoutDashboard, RefreshCcw, Bell, BellRing, Settings, ShieldCheck, Search, LogOut, BarChart3 } from "lucide-react";
 import { useNotifications } from "@/hooks/useNotifications";
 import QuoteCard from "@/components/QuoteCard";
@@ -56,11 +57,11 @@ export default function Home() {
 
   // Leer rol, sucursal e identidad del usuario desde localStorage al montar
   useEffect(() => {
-    const storedRole = localStorage.getItem('jfnn_role') ?? 'vendedor';
+    const storedRole = safeGet('jfnn_role') ?? 'vendedor';
     setUserRole(storedRole);
 
-    const storedSucursal = localStorage.getItem('jfnn_sucursal') as 'Melipilla' | 'San Felipe' | null;
-    const storedNombre = localStorage.getItem('jfnn_vendedor_nombre') ?? '';
+    const storedSucursal = safeGet('jfnn_sucursal') as 'Melipilla' | 'San Felipe' | null;
+    const storedNombre = safeGet('jfnn_vendedor_nombre') ?? '';
     setVendedorNombre(storedNombre);
 
     // Abrir selector de identidad si es vendedor sin nombre asignado
@@ -78,10 +79,10 @@ export default function Home() {
 
   const handleLogout = async () => {
     await fetch('/api/logout', { method: 'POST' });
-    localStorage.removeItem('jfnn_role');
-    localStorage.removeItem('jfnn_token');
-    localStorage.removeItem('jfnn_sucursal');
-    localStorage.removeItem('jfnn_vendedor_nombre');
+    safeRemove('jfnn_role');
+    safeRemove('jfnn_token');
+    safeRemove('jfnn_sucursal');
+    safeRemove('jfnn_vendedor_nombre');
     window.location.href = '/login';
   };
 
@@ -100,8 +101,8 @@ export default function Home() {
     console.log(`[Fetch] Cotizaciones activas. Origen: ${source} a las ${new Date().toLocaleTimeString()}`);
     try {
       setLoading(true);
-      const role = localStorage.getItem('jfnn_role') ?? 'vendedor';
-      const sucursalLocal = localStorage.getItem('jfnn_sucursal') as 'Melipilla' | 'San Felipe' | null;
+      const role = safeGet('jfnn_role') ?? 'vendedor';
+      const sucursalLocal = safeGet('jfnn_sucursal') as 'Melipilla' | 'San Felipe' | null;
       let sucursalParam = '';
       if (role === 'vendedor' && sucursalLocal) {
         sucursalParam = `&sucursal=${encodeURIComponent(sucursalLocal)}`;
@@ -139,8 +140,8 @@ export default function Home() {
     console.log(`[Fetch] Historial bajo demanda a las ${new Date().toLocaleTimeString()}`);
     try {
       setLoading(true);
-      const role = localStorage.getItem('jfnn_role') ?? 'vendedor';
-      const sucursalLocal = localStorage.getItem('jfnn_sucursal') as 'Melipilla' | 'San Felipe' | null;
+      const role = safeGet('jfnn_role') ?? 'vendedor';
+      const sucursalLocal = safeGet('jfnn_sucursal') as 'Melipilla' | 'San Felipe' | null;
       let sucursalParam = '';
       if (role === 'vendedor' && sucursalLocal) {
         sucursalParam = `&sucursal=${encodeURIComponent(sucursalLocal)}`;

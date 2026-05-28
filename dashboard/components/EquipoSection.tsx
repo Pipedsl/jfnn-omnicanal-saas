@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Users, Loader2, Plus } from "lucide-react";
 import { api } from "@/lib/api";
 import { BACKEND_URL } from "@/lib/api";
+import { safeGet } from "@/lib/storage";
 
 const API = `${BACKEND_URL}/api/dashboard`;
 
@@ -25,7 +26,7 @@ export default function EquipoSection() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    setRole(localStorage.getItem("jfnn_role"));
+    setRole(safeGet("jfnn_role"));
   }, []);
 
   const fetchVendedores = useCallback(async () => {

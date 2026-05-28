@@ -7,6 +7,7 @@ import ImageLightbox from "./ImageLightbox";
 import { api } from "@/lib/api";
 import { BACKEND_URL } from "@/lib/api";
 import { useQuoteLock } from "@/hooks/useQuoteLock";
+import { safeGet } from "@/lib/storage";
 import { tieneRepuestosPorEncargo } from '@/lib/encargo';
 
 interface Repuesto {
@@ -95,8 +96,8 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
     const closeModal = () => { setIsModalOpen(false); onClose?.(); };
 
     // Lock pesimista — admin no compite con vendedores (no hace claim)
-    const role = typeof window !== 'undefined' ? (localStorage.getItem('jfnn_role') ?? 'vendedor') : 'vendedor';
-    const vendedorNombre = typeof window !== 'undefined' ? localStorage.getItem('jfnn_vendedor_nombre') : null;
+    const role = safeGet('jfnn_role') ?? 'vendedor';
+    const vendedorNombre = safeGet('jfnn_vendedor_nombre');
     const lockVendedor = role === 'admin' ? null : vendedorNombre;
     const { isLocked, lockedBy, lockToken } = useQuoteLock(isModalOpen ? phone : null, lockVendedor);
     const [isEditing, setIsEditing] = useState(false);

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { safeSet } from '@/lib/storage';
 
 type Account = 'vendedor_melipilla' | 'vendedor_san_felipe' | 'admin';
 
@@ -46,9 +47,9 @@ export default function LoginPage() {
       document.cookie = `jfnn_auth=${token}; path=/; SameSite=Lax`;
 
       // localStorage para acceso rápido desde componentes
-      localStorage.setItem('jfnn_role', userRole);
-      localStorage.setItem('jfnn_sucursal', sucursal ?? '');
-      localStorage.setItem('jfnn_token', token);
+      safeSet('jfnn_role', userRole);
+      safeSet('jfnn_sucursal', sucursal ?? '');
+      safeSet('jfnn_token', token);
 
       router.push('/');
       router.refresh();

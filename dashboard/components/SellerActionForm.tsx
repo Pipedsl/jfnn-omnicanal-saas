@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Send, Hash, DollarSign, Car, Package, Trash2, Plus } from "lucide-react";
 import { api } from "@/lib/api";
 import { BACKEND_URL } from "@/lib/api";
+import { safeGet } from "@/lib/storage";
 
 interface Item {
     nombre: string;
@@ -40,18 +41,17 @@ const RenderItemInput = ({ item, isSinStock, onChange, onRemove }: { item: Item,
         {/* PARTE 1: Nombre y Cantidad (Toma el 40% del ancho) */}
         <div className="relative z-10 flex items-center justify-between md:justify-start gap-2 md:w-[40%]">
             <div className="flex items-center gap-2 flex-grow">
-                {!item._isNew && item.nombre ? (
-                    <p className="text-[10px] font-bold uppercase text-accent tracking-wider break-words">{item.nombre}</p>
-                ) : (
-                    <input
-                        type="text"
-                        placeholder="Nombre del repuesto..."
-                        className="bg-transparent text-[10px] font-bold uppercase text-accent tracking-wider focus:outline-none border-b border-accent/30 w-full"
-                        value={item.nombre}
-                        onChange={(e) => onChange("nombre", e.target.value)}
-                        required
-                    />
-                )}
+                {/* Nombre SIEMPRE editable: el vendedor puede corregir piezas mal nombradas
+                    por el agente/cliente (transcripción de audio, código sin nombre, etc.). */}
+                <input
+                    type="text"
+                    placeholder="Nombre del repuesto..."
+                    className="bg-transparent text-[10px] font-bold uppercase text-accent tracking-wider focus:outline-none border-b border-accent/30 w-full hover:border-accent/60 focus:border-accent transition-colors"
+                    value={item.nombre}
+                    onChange={(e) => onChange("nombre", e.target.value)}
+                    title="Edita el nombre del repuesto si está mal escrito"
+                    required
+                />
             </div>
             <div className="flex items-center gap-1 bg-neutral-800 border border-white/10 rounded px-1.5 py-0.5 whitespace-nowrap">
                 <Package className="h-3 w-3 text-neutral-500" />
@@ -319,9 +319,7 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
 
         setLoading(true);
         try {
-            const vendedorNombre = typeof window !== 'undefined'
-                ? localStorage.getItem('jfnn_vendedor_nombre')
-                : null;
+            const vendedorNombre = safeGet('jfnn_vendedor_nombre');
             const itemsPayload = formVehiculos.length === 0 ? cleanItems(formItems) : null;
             const vehiculosPayload = formVehiculos.length > 0 ? cleanVehiculos : null;
 
@@ -393,9 +391,7 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
 
         setLoading(true);
         try {
-            const vendedorNombre = typeof window !== 'undefined'
-                ? localStorage.getItem('jfnn_vendedor_nombre')
-                : null;
+            const vendedorNombre = safeGet('jfnn_vendedor_nombre');
             await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/anular`, {
                 phone,
                 motivo: motivo || undefined,

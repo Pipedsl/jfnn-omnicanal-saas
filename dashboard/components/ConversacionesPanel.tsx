@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { MessageCircle, Image, Mic, Video, FileText, ArrowLeft, User, Bot, Clock, Timer, AlertTriangle, Send, ChevronDown, Plus, X, PauseCircle, PlayCircle, Bookmark, BookmarkCheck, Paperclip, Ban, FileSpreadsheet, Search } from "lucide-react";
+import { MessageCircle, Image, Mic, Video, FileText, ArrowLeft, User, Bot, Clock, Timer, AlertTriangle, Send, ChevronDown, Plus, X, PauseCircle, PlayCircle, Bookmark, BookmarkCheck, Paperclip, Ban, FileSpreadsheet, Search, PencilLine } from "lucide-react";
 import { api } from "@/lib/api";
+import { safeGet } from "@/lib/storage";
 import SellerActionForm from "./SellerActionForm";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
@@ -177,7 +178,7 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
       if (plantilla.params.includes("nombre") && chat.nombre_cliente) {
         params.nombre = chat.nombre_cliente;
       }
-      const vendedorNombre = typeof window !== "undefined" ? localStorage.getItem("jfnn_vendedor_nombre") : null;
+      const vendedorNombre = safeGet("jfnn_vendedor_nombre");
       await api.post(`${API_URL}/api/dashboard/conversaciones/${selectedPhone}/plantilla`, {
         plantilla_id: plantilla.id,
         params,
@@ -262,7 +263,7 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
         reader.onerror = () => reject(reader.error);
         reader.readAsDataURL(file);
       });
-      const vendedorNombre = typeof window !== "undefined" ? localStorage.getItem("jfnn_vendedor_nombre") : null;
+      const vendedorNombre = safeGet("jfnn_vendedor_nombre");
       await api.post(`${API_URL}/api/dashboard/conversaciones/${selectedPhone}/imagen`, {
         imagen_base64: base64,
         mime_type: file.type,
@@ -298,9 +299,7 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
           ""
         );
         if (nota === null) return; // cancelado
-        const vendedor = typeof window !== "undefined"
-          ? localStorage.getItem("jfnn_vendedor_nombre") || "Sistema"
-          : "Sistema";
+        const vendedor = safeGet("jfnn_vendedor_nombre") || "Sistema";
         const res = await api.post(`${API_URL}/api/dashboard/sessions/${selectedPhone}/marcar`, {
           vendedor_nombre: vendedor,
           nota: nota || undefined
@@ -315,7 +314,7 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
   const sendMessage = async () => {
     if (!selectedPhone || !messageText.trim() || sendingMessage) return;
     const texto = messageText.trim();
-    const vendedorNombre = typeof window !== "undefined" ? localStorage.getItem("jfnn_vendedor_nombre") : null;
+    const vendedorNombre = safeGet("jfnn_vendedor_nombre");
     const tempId = `temp_${Date.now()}`;
 
     // UI optimista: mostrar el mensaje inmediatamente con estado "pending"
@@ -387,7 +386,7 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
     if (phone.length < 10) { alert("Número inválido"); return; }
     setSendingPlantilla(plantilla.id);
     try {
-      const vendedorNombre = typeof window !== "undefined" ? localStorage.getItem("jfnn_vendedor_nombre") : null;
+      const vendedorNombre = safeGet("jfnn_vendedor_nombre");
       // Las plantillas HSM requieren rellenar TODOS los params declarados,
       // sino Meta rechaza. Como es conversación nueva (sin nombre conocido), usamos
       // placeholders neutros.
@@ -690,10 +689,13 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
                 <button
                   onClick={() => setShowCotizarModal(true)}
                   className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-accent/15 text-accent hover:bg-accent/25 border border-accent/30 flex items-center gap-1.5 transition-colors"
-                  title="Enviar cotización formal al cliente desde aquí (no requiere salir del chat)"
+                  title={["CONFIRMANDO_COMPRA", "ESPERANDO_COMPROBANTE"].includes(chat?.estado || "")
+                    ? "Rectificar la cotización ya enviada (reemplaza la anterior y reenvía al cliente)"
+                    : "Enviar cotización formal al cliente desde aquí (no requiere salir del chat)"}
                 >
-                  <FileSpreadsheet size={12} />
-                  Cotizar
+                  {["CONFIRMANDO_COMPRA", "ESPERANDO_COMPROBANTE"].includes(chat?.estado || "")
+                    ? (<><PencilLine size={12} />Rectificar</>)
+                    : (<><FileSpreadsheet size={12} />Cotizar</>)}
                 </button>
                 {!chat?.agente_pausado && (
                   <button
@@ -998,8 +1000,17 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
           >
             <div className="flex items-center justify-between px-5 py-3 border-b border-white/10">
               <div>
-                <h3 className="text-sm font-bold text-neutral-100">📋 Cotizar a {chat?.nombre_cliente || formatPhone(selectedPhone)}</h3>
-                <p className="text-[10px] text-neutral-500 mt-0.5">La cotización formal se enviará al cliente. La sesión pasará a CONFIRMANDO.</p>
+                {["CONFIRMANDO_COMPRA", "ESPERANDO_COMPROBANTE"].includes(chat?.estado || "") ? (
+                  <>
+                    <h3 className="text-sm font-bold text-neutral-100">✏️ Rectificar cotización de {chat?.nombre_cliente || formatPhone(selectedPhone)}</h3>
+                    <p className="text-[10px] text-neutral-500 mt-0.5">Se reemplazará la cotización anterior y se reenviará al cliente.</p>
+                  </>
+                ) : (
+                  <>
+                    <h3 className="text-sm font-bold text-neutral-100">📋 Cotizar a {chat?.nombre_cliente || formatPhone(selectedPhone)}</h3>
+                    <p className="text-[10px] text-neutral-500 mt-0.5">La cotización formal se enviará al cliente. La sesión pasará a CONFIRMANDO.</p>
+                  </>
+                )}
               </div>
               <button onClick={() => setShowCotizarModal(false)} className="p-1.5 hover:bg-white/10 rounded-lg">
                 <X size={16} className="text-neutral-400" />

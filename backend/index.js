@@ -47,6 +47,24 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/whatsapp', whatsappRoutes);
 app.use('/api/dashboard', apiLimiter, verifyJWT, dashboardRoutes);
 
+// Reporte de errores de cliente del dashboard (público, sin JWT: el crash puede
+// ocurrir con token expirado/ausente). Loguea a consola para verlo en Railway y poder
+// diagnosticar el error real, que en prod llega minificado en el navegador.
+const clientErrorLimiter = rateLimit({ windowMs: 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false });
+app.post('/api/client-error', clientErrorLimiter, (req, res) => {
+    try {
+        const b = req.body || {};
+        const safe = (v, n = 500) => (v == null ? '' : String(v).slice(0, n));
+        console.error('[ClientError] ❌ ' + safe(b.message, 300));
+        console.error('[ClientError]    url=' + safe(b.url, 200) + ' | scope=' + safe(b.scope, 40) + ' | digest=' + safe(b.digest, 80));
+        console.error('[ClientError]    role=' + safe(b.role, 40) + ' | sucursal=' + safe(b.sucursal, 40) + ' | ua=' + safe(b.userAgent, 200));
+        if (b.stack) console.error('[ClientError]    stack=' + safe(b.stack, 2000));
+    } catch {
+        // nunca fallar este endpoint
+    }
+    res.status(204).end();
+});
+
 // Health check básico para Railway (liveness — no toca la DB)
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', uptime: process.uptime(), env: process.env.NODE_ENV });
