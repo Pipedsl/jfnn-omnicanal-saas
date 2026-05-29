@@ -77,8 +77,12 @@ const verifyWebhook = (req, res) => {
 // SISTEMA DE DEBOUNCE (COLA DE MENSAJES)
 // -------------------------------------------------------------
 const messageBuffer = new Map();
+// Guard de concurrencia: si un phone ya está siendo procesado por Gemini, no lanzar otra
+// invocación en paralelo (causa de respuestas duplicadas). Al terminar, si llegaron más
+// mensajes, se reprocesa una sola vez.
+const processingPhones = new Set();
 // Debounce ajustable por env. Dev/test: 5s. Producción recomendado: 20s (ahorra tokens).
-const DEBOUNCE_TIME_MS = parseInt(process.env.WHATSAPP_DEBOUNCE_MS || '17000', 10);
+const DEBOUNCE_TIME_MS = parseInt(process.env.WHATSAPP_DEBOUNCE_MS || '20000', 10);
 
 // sendAndPersist mantiene compatibilidad: hoy el wrapper sendAgentMessage ya auto-persiste
 // en la tabla mensajes con autor='agente_ia'. Conservamos la firma para no romper callers.
@@ -103,6 +107,14 @@ const cancelDebounce = (customerPhone) => {
 };
 
 const processBufferedMessages = async (customerPhone) => {
+    // GUARD DE CONCURRENCIA (defensa anti-respuesta-duplicada):
+    // si ya hay un procesamiento en curso para este phone, no disparar otro Gemini en
+    // paralelo. Los mensajes nuevos quedan en el buffer y se reprocesan al final.
+    if (processingPhones.has(customerPhone)) {
+        console.warn(`[Debounce] ⏭️ Procesamiento en curso para ${customerPhone}, omitiendo invocación duplicada (los mensajes nuevos se procesarán al terminar).`);
+        return;
+    }
+    processingPhones.add(customerPhone);
     try {
         const bufferData = messageBuffer.get(customerPhone);
         if (!bufferData) return;
@@ -1116,6 +1128,15 @@ const processBufferedMessages = async (customerPhone) => {
 
     } catch (error) {
         console.error(`[Debounce] Error procesando lote para ${customerPhone}:`, error);
+    } finally {
+        processingPhones.delete(customerPhone);
+        // Si llegaron mensajes nuevos durante el procesamiento, reprocesarlos en UNA sola
+        // invocación adicional (defensa anti-respuesta-duplicada).
+        const buf = messageBuffer.get(customerPhone);
+        if (buf && buf.messages.length > 0) {
+            if (buf.timer) { clearTimeout(buf.timer); buf.timer = null; }
+            setImmediate(() => processBufferedMessages(customerPhone));
+        }
     }
 };
 
@@ -1197,6 +1218,14 @@ const receiveMessage = async (req, res) => {
             buffer = { messages: [], timer: null };
         }
 
+        // Dedup por wa_message_id (defensa anti-retry de Meta): si el mismo mensaje ya está
+        // en el buffer, ignorar. Evita procesarlo dos veces si Meta reintenta el webhook.
+        const incomingId = message?.id || null;
+        if (incomingId && buffer.messages.some(m => m.message?.id === incomingId)) {
+            console.warn(`[Webhook] ⏭️ Mensaje duplicado de ${customerPhone} (wa_message_id=${incomingId}) — ya estaba en buffer, ignorando retry.`);
+            return res.status(200).send('EVENT_RECEIVED');
+        }
+
         buffer.messages.push({ userText, hasImage, hasAudio, hasVideo, hasDocument, audioMediaId, videoMediaId, documentMediaId, message, timestamp: Date.now() });
 
         if (buffer.timer) {
@@ -1263,7 +1292,10 @@ const recoverUnansweredSessions = async (windowMin = parseInt(process.env.RECOVE
              SELECT u.phone
              FROM ultimo u
              WHERE u.direccion = 'entrante'
-               AND u.created_at > NOW() - ($1 || ' minutes')::interval`,
+               AND u.created_at > NOW() - ($1 || ' minutes')::interval
+               -- Colchón: el último entrante debe tener ≥ 90s (evita reprocesar mensajes
+               -- recién recibidos cuya respuesta aún no quedó persistida en mensajes).
+               AND u.created_at < NOW() - INTERVAL '90 seconds'`,
             [String(windowMin)]
         );
 
