@@ -2052,16 +2052,39 @@ router.post('/conversaciones/:phone/mensaje', async (req, res) => {
  * Catálogo de plantillas HSM disponibles para re-engage.
  * Nota: requiere Business Verification de Meta para funcionar en producción.
  */
-router.get('/plantillas-hsm', (_req, res) => {
-    const plantillas = [
-        { id: 'retomar_cotizacion', nombre: 'Retomar cotización', descripcion: 'Re-abrir conversación con el cliente', params: ['nombre'], language: 'es_CL' },
-        { id: 'cotizacion_lista', nombre: 'Cotización lista', descripcion: 'Avisar que la cotización ya tiene precios', params: ['nombre', 'cantidad'], language: 'es_CL' },
-        { id: 'comprobante_pendiente', nombre: 'Comprobante pendiente', descripcion: 'Recordar envío de comprobante de pago', params: ['nombre'], language: 'es_CL' },
-        { id: 'pedido_listo', nombre: 'Pedido listo para retiro', descripcion: 'Avisar que los repuestos están listos', params: ['nombre', 'sucursal'], language: 'es_CL' },
-        { id: 'encargo_llegada', nombre: 'Encargo llegó', descripcion: 'Avisar que el repuesto por encargo llegó', params: ['nombre', 'sucursal'], language: 'es_CL' },
-        { id: 'seguimiento_postventa', nombre: 'Seguimiento postventa', descripcion: 'Consultar satisfacción post-compra', params: ['nombre'], language: 'es_CL' },
-    ];
-    res.json(plantillas);
+router.get('/plantillas-hsm', async (_req, res) => {
+    // Etiquetas/descripciones amigables por nombre de plantilla (las que no estén aquí
+    // se muestran con su nombre crudo).
+    const LABELS = {
+        retomar_cotizacion: { nombre: 'Retomar cotización', descripcion: 'Re-abrir conversación con el cliente' },
+        cotizacion_lista: { nombre: 'Cotización lista', descripcion: 'Avisar que la cotización ya tiene precios' },
+        comprobante_pendiente: { nombre: 'Comprobante pendiente', descripcion: 'Recordar envío de comprobante de pago' },
+        pedido_listo: { nombre: 'Pedido listo para retiro', descripcion: 'Avisar que los repuestos están listos' },
+        encargo_llegada: { nombre: 'Encargo llegó', descripcion: 'Avisar que el repuesto por encargo llegó' },
+        seguimiento_postventa: { nombre: 'Seguimiento postventa', descripcion: 'Consultar satisfacción post-compra' },
+    };
+    // Fallback (si Meta no responde): lista mínima conocida, todas con 1 parámetro (nombre).
+    const FALLBACK = Object.keys(LABELS).map(id => ({
+        id, nombre: LABELS[id].nombre, descripcion: LABELS[id].descripcion, params: ['nombre'], language: 'es_CL',
+    }));
+
+    try {
+        const aprobadas = await whatsappService.listApprovedTemplates();
+        if (!aprobadas || aprobadas.length === 0) return res.json(FALLBACK);
+
+        const plantillas = aprobadas
+            .filter(t => t.name !== 'hello_world')
+            .map(t => {
+                // Derivar nombres de parámetros según cantidad de placeholders {{n}}.
+                // El primero siempre es el nombre del cliente; el resto, genéricos.
+                const params = Array.from({ length: t.numParams }, (_, i) => (i === 0 ? 'nombre' : `param${i + 1}`));
+                const label = LABELS[t.name] || { nombre: t.name, descripcion: t.body?.slice(0, 60) || '' };
+                return { id: t.name, nombre: label.nombre, descripcion: label.descripcion, params, language: t.language };
+            });
+        res.json(plantillas.length ? plantillas : FALLBACK);
+    } catch {
+        res.json(FALLBACK);
+    }
 });
 
 /**
@@ -2077,17 +2100,16 @@ router.post('/conversaciones/:phone/plantilla', async (req, res) => {
             return res.status(400).json({ error: 'Falta plantilla_id' });
         }
 
-        const langMap = {
-            'retomar_cotizacion': 'es_CL',
-            'cotizacion_lista': 'es_CL',
-            'comprobante_pendiente': 'es_CL',
-            'pedido_listo': 'es_CL',
-            'encargo_llegada': 'es_CL',
-            'seguimiento_postventa': 'es_CL',
-        };
-        const languageCode = langMap[plantilla_id] || 'es';
+        // Resolver el idioma real de la plantilla desde Meta (cae a es_CL si no está).
+        let languageCode = 'es_CL';
+        try {
+            const aprobadas = await whatsappService.listApprovedTemplates();
+            const match = aprobadas.find(t => t.name === plantilla_id);
+            if (match?.language) languageCode = match.language;
+        } catch { /* usar default */ }
 
-        const bodyParams = Object.entries(tplParams).map(([name, text]) => ({ name, text: String(text) }));
+        // Parámetros POSICIONALES en orden (las plantillas usan {{1}}, {{2}}…).
+        const bodyParams = Object.values(tplParams).map(text => ({ text: String(text) }));
 
         const response = await whatsappService.sendTemplateMessage(phone, plantilla_id, languageCode, bodyParams);
 

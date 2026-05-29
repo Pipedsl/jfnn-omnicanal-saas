@@ -142,13 +142,14 @@ const sendTemplateMessage = async (to, templateName, languageCode = 'es', bodyPa
     try {
         const components = [];
         if (bodyParams.length > 0) {
+            // Las plantillas de JFNN usan placeholders POSICIONALES ({{1}}, {{2}}…),
+            // por lo que enviamos parámetros posicionales (sin parameter_name). Enviar
+            // parameter_name aquí hace que Meta rechace el mensaje.
             components.push({
                 type: 'body',
                 parameters: bodyParams.map(p => {
-                    if (typeof p === 'object' && p.name) {
-                        return { type: 'text', parameter_name: p.name, text: p.text };
-                    }
-                    return { type: 'text', text: String(p) };
+                    const text = (typeof p === 'object' && p !== null) ? (p.text ?? '') : p;
+                    return { type: 'text', text: String(text) };
                 })
             });
         }
@@ -187,6 +188,38 @@ const sendTemplateMessage = async (to, templateName, languageCode = 'es', bodyPa
         }
 
         throw error;
+    }
+};
+
+/**
+ * Lista las plantillas HSM realmente aprobadas en la WABA (vía Graph API), con su idioma
+ * y el número de parámetros posicionales del body ({{1}}, {{2}}…). Cache 5 min.
+ * Devuelve [] si no hay WABA_ID/token o si Meta falla (el caller usa su fallback).
+ */
+let _tplCache = { data: null, ts: 0 };
+const listApprovedTemplates = async () => {
+    const WABA_ID = process.env.WHATSAPP_WABA_ID || '1003088295416438';
+    if (_tplCache.data && Date.now() - _tplCache.ts < 5 * 60 * 1000) return _tplCache.data;
+    try {
+        const { data } = await axios.get(
+            `${GRAPH_BASE}/${WABA_ID}/message_templates`,
+            {
+                params: { fields: 'name,status,language,components', limit: 200, access_token: process.env.WHATSAPP_ACCESS_TOKEN },
+            }
+        );
+        const aprobadas = (data?.data || [])
+            .filter(t => t.status === 'APPROVED')
+            .map(t => {
+                const body = (t.components || []).find(c => c.type === 'BODY');
+                const texto = body?.text || '';
+                const nums = (texto.match(/\{\{\s*(\d+)\s*\}\}/g) || []).length;
+                return { name: t.name, language: t.language, numParams: nums, body: texto };
+            });
+        _tplCache = { data: aprobadas, ts: Date.now() };
+        return aprobadas;
+    } catch (err) {
+        console.error('[WhatsApp] ⚠️ No se pudieron listar plantillas de Meta:', err.response?.data?.error?.message || err.message);
+        return [];
     }
 };
 
@@ -274,6 +307,7 @@ module.exports = {
     sendSellerMessage,
     sendImageMessage,
     sendTemplateMessage,
+    listApprovedTemplates,
     downloadMedia,
     sendGoogleReviewRequest,
     WINDOW_CLOSED_ERROR,
