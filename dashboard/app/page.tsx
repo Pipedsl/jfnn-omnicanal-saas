@@ -107,7 +107,7 @@ export default function Home() {
       let sucursalParam = '';
       if (role === 'vendedor' && sucursalLocal) {
         sucursalParam = `&sucursal=${encodeURIComponent(sucursalLocal)}`;
-      } else if (role === 'admin' && adminSucursalFilter !== 'todas') {
+      } else if ((role === 'admin' || role === 'soporte') && adminSucursalFilter !== 'todas') {
         sucursalParam = `&sucursal=${encodeURIComponent(adminSucursalFilter)}`;
       }
       const resPend = await api.get(`${API_URL}/api/dashboard/cotizaciones?t=${Date.now()}${sucursalParam}`);
@@ -146,7 +146,7 @@ export default function Home() {
       let sucursalParam = '';
       if (role === 'vendedor' && sucursalLocal) {
         sucursalParam = `&sucursal=${encodeURIComponent(sucursalLocal)}`;
-      } else if (role === 'admin' && adminSucursalFilter !== 'todas') {
+      } else if ((role === 'admin' || role === 'soporte') && adminSucursalFilter !== 'todas') {
         sucursalParam = `&sucursal=${encodeURIComponent(adminSucursalFilter)}`;
       }
       const resHist = await api.get(`${API_URL}/api/dashboard/cotizaciones/historial?t=${Date.now()}${sucursalParam}`);
@@ -237,9 +237,14 @@ export default function Home() {
             <Link href="/verificacion" className="p-2 hover:bg-yellow-500/20 rounded-lg text-yellow-500 transition-colors" title="Verificación de Pagos">
               <ShieldCheck size={18} />
             </Link>
-            {userRole === 'admin' && (
+            {(userRole === 'admin' || userRole === 'soporte') && (
               <Link href="/admin/estadisticas" className="p-2 hover:bg-cyan-500/20 rounded-lg text-cyan-400 transition-colors" title="Estadísticas Admin">
                 <BarChart3 size={18} />
+              </Link>
+            )}
+            {userRole === 'soporte' && (
+              <Link href="/soporte/logs" className="p-2 hover:bg-amber-500/20 rounded-lg text-amber-400 transition-colors" title="Auditoría (soporte)">
+                <ShieldCheck size={18} />
               </Link>
             )}
             <Link href="/settings" className="p-2 hover:bg-neutral-800 rounded-lg text-neutral-400 transition-colors" title="Ajustes">
@@ -293,7 +298,7 @@ export default function Home() {
 
       <div className="max-w-7xl mx-auto px-6">
         {/* KPI Panel (hidden in chat view) */}
-        {view !== 'conversaciones' && userRole === 'admin' && (
+        {view !== 'conversaciones' && (userRole === 'admin' || userRole === 'soporte') && (
           <>
             <DashboardMetrics />
             <AgentMetrics />
@@ -372,8 +377,8 @@ export default function Home() {
             </button>
           ))}
 
-          {/* Selector de sucursal (solo admin) */}
-          {userRole === 'admin' && (
+          {/* Selector de sucursal (admin y soporte) */}
+          {(userRole === 'admin' || userRole === 'soporte') && (
             <div className="flex items-center gap-1.5 ml-2 pl-2 border-l border-white/10">
               <span className="text-[9px] font-bold uppercase tracking-widest text-neutral-600">Sucursal:</span>
               {(['todas', 'Melipilla', 'San Felipe'] as const).map((s) => (

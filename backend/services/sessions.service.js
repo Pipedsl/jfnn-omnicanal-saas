@@ -702,7 +702,9 @@ const getAllPendingSessions = async (sucursal = null) => {
 // ─── getHistoricalSessions ────────────────────────────────────────
 const getHistoricalSessions = async (sucursal = null) => {
     try {
-        const activeParams = [[STATES.ENTREGADO, STATES.DESPACHADO]];
+        // Incluir ARCHIVADO: sesiones archivadas manualmente que pueden no tener pedido,
+        // para que aparezcan en Historial > Archivados (antes desaparecían).
+        const activeParams = [[STATES.ENTREGADO, STATES.DESPACHADO, STATES.ARCHIVADO]];
         let activeWhere = `WHERE estado = ANY($1)`;
         if (sucursal) {
             activeParams.push(sucursal);

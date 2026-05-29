@@ -9,6 +9,8 @@ const geminiService = require('../services/gemini.service');
 const db = require('../config/db');
 const vendedoresService = require('../services/vendedores.service');
 const mensajesService = require('../services/mensajes.service');
+const auditService = require('../services/audit.service');
+const { requireSoporte } = require('../middleware/auth.middleware');
 const storageService = require('../services/storage.service');
 const { getDireccionSucursal } = require('../utils/sucursales');
 const { cancelDebounce } = require('../controllers/whatsapp.controller');
@@ -89,6 +91,46 @@ router.get('/ventas', async (req, res) => {
 });
 
 /**
+ * [SOPORTE] Log de auditoría — solo el rol soporte puede leerlo.
+ * GET /api/dashboard/audit-logs?from&to&action&phone&actor&limit
+ */
+router.get('/audit-logs', requireSoporte, async (req, res) => {
+    try {
+        const { from, to, action, phone, actor, limit } = req.query;
+        const logs = await auditService.listar({ from, to, action, phone, actor, limit });
+        res.json({ total: logs.length, logs });
+    } catch (error) {
+        console.error('[Dashboard] Error en GET /audit-logs:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+/**
+ * [SOPORTE] Reactivar una sesión archivada → vuelve a ESPERANDO_VENDEDOR para que el
+ * vendedor la cotice. Acción correctiva, solo soporte, queda auditada.
+ * POST /api/dashboard/cotizaciones/:phone/reactivar   Body: { motivo? }
+ */
+router.post('/cotizaciones/:phone/reactivar', requireSoporte, async (req, res) => {
+    try {
+        const { phone } = req.params;
+        const { motivo } = req.body || {};
+        const session = await sessionsService.getSession(phone);
+        if (!session) return res.status(404).json({ error: 'Sesión no encontrada' });
+        const anterior = session.estado;
+        await sessionsService.setEstado(phone, 'ESPERANDO_VENDEDOR');
+        auditService.registrarAccion({
+            req, action: 'reactivar', targetPhone: phone,
+            targetQuoteId: session.entidades?.quote_id || null,
+            estadoAnterior: anterior, estadoNuevo: 'ESPERANDO_VENDEDOR', motivo: motivo || null,
+        });
+        res.json({ success: true, phone, estado_anterior: anterior, nuevo_estado: 'ESPERANDO_VENDEDOR' });
+    } catch (error) {
+        console.error('[Dashboard] Error en reactivar:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+/**
  * Asignar / cambiar / des-asignar el vendedor de una venta ya cerrada (pedido).
  * Usado por el dropdown de /admin/estadisticas cuando una venta quedó sin vendedor
  * (ej. cerrada sin lock activo). Admin-only por el JWT del router.
@@ -105,13 +147,17 @@ router.patch('/ventas/:id/vendedor', async (req, res) => {
         const vendedorNombre = raw == null || String(raw).trim() === '' ? null : String(raw).trim().slice(0, 120);
 
         const { rows } = await db.query(
-            `UPDATE pedidos SET vendedor_nombre = $1 WHERE id = $2 RETURNING id, vendedor_nombre, sucursal`,
+            `UPDATE pedidos SET vendedor_nombre = $1 WHERE id = $2 RETURNING id, phone, vendedor_nombre, sucursal`,
             [vendedorNombre, id]
         );
         if (rows.length === 0) {
             return res.status(404).json({ error: 'Venta no encontrada' });
         }
         console.log(`[Dashboard] ✏️ Venta ${id} → vendedor: ${vendedorNombre || '(sin asignar)'}`);
+        auditService.registrarAccion({
+            req, action: 'asignar_vendedor', targetPhone: rows[0].phone || null,
+            detalle: { pedido_id: id, vendedor_asignado: vendedorNombre },
+        });
         res.json({ success: true, venta: rows[0] });
     } catch (error) {
         console.error('[Dashboard] Error asignando vendedor a venta:', error);
@@ -752,10 +798,15 @@ router.post('/cotizaciones/template', async (req, res) => {
  */
 router.patch('/cotizaciones/estado', async (req, res) => {
     try {
-        const { phone, estado, notify, mensaje_logistica, numero_seguimiento, lock_token, vendedor_nombre } = req.body;
+        const { phone, estado, notify, mensaje_logistica, numero_seguimiento, lock_token, vendedor_nombre, motivo } = req.body;
 
         if (!phone || !estado) {
             return res.status(400).json({ error: 'Faltan campos obligatorios' });
+        }
+
+        // Archivar/Descartar EXIGE una causa (trazabilidad: los vendedores archivan por una razón).
+        if (estado === 'ARCHIVADO' && (!motivo || !String(motivo).trim())) {
+            return res.status(400).json({ error: 'Debes indicar el motivo del archivado.' });
         }
 
         // Validar lock pesimista si viene lock_token
@@ -795,6 +846,43 @@ router.patch('/cotizaciones/estado', async (req, res) => {
         }
 
         const session = await sessionsService.setEstado(phone, estado);
+
+        // Auditoría: registrar QUIÉN cambió el estado (especialmente archivar).
+        auditService.registrarAccion({
+            req,
+            action: estado === 'ARCHIVADO' ? 'archivar' : 'cambiar_estado',
+            targetPhone: phone,
+            targetQuoteId: sessionBefore?.entidades?.quote_id || null,
+            estadoAnterior: sessionBefore?.estado || null,
+            estadoNuevo: estado,
+            motivo: motivo || null,
+        });
+
+        // Archivado manual: dejar un registro trazable en `pedidos` (estado_final='ARCHIVADO')
+        // con el motivo, para que aparezca en Historial > Archivados y no se "pierda".
+        if (estado === 'ARCHIVADO' && sessionBefore) {
+            try {
+                const e = sessionBefore.entidades || {};
+                await db.query(
+                    `INSERT INTO pedidos (phone, quote_id, estado_final, marca_modelo, ano, patente, vin,
+                     repuestos, total_cotizacion, metodo_pago, metodo_entrega, direccion_envio,
+                     tipo_documento, datos_factura, comprobante_url, datos_comprobante, entidades_completas,
+                     mensajes_ia_total, mensajes_vendedor_total, sucursal, vendedor_nombre, created_at, archivado_en)
+                     VALUES ($1,$2,'ARCHIVADO',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,NOW())`,
+                    [
+                        phone, e.quote_id || null, e.marca_modelo || null, (e.ano || '').toString().slice(0,10) || null,
+                        e.patente || null, e.vin || null, JSON.stringify(e.repuestos_solicitados || []), 0,
+                        e.metodo_pago || null, e.metodo_entrega || null, e.direccion_envio || null,
+                        e.tipo_documento || null, JSON.stringify(e.datos_factura || {}), e.comprobante_url || null,
+                        JSON.stringify({ motivo_archivado: motivo || null }), JSON.stringify(e),
+                        sessionBefore.mensajes_ia || 0, sessionBefore.mensajes_vendedor || 0,
+                        sessionBefore.sucursal || 'Melipilla', vendedor_nombre || null, sessionBefore.created_at || null
+                    ]
+                );
+            } catch (archErr) {
+                console.error(`[Archivar] ⚠️ No se pudo crear pedido trazable para ${phone}:`, archErr.message);
+            }
+        }
 
         if (notify) {
             let message = "";
@@ -1073,6 +1161,14 @@ router.post('/verify-payment', async (req, res) => {
         }
 
         const monto_corregido = req.body.monto_corregido;
+
+        // Auditoría: registrar quién verificó/rechazó el pago.
+        auditService.registrarAccion({
+            req, action: 'verificar_pago', targetPhone: phone,
+            targetQuoteId: session.entidades?.quote_id || null,
+            estadoAnterior: session.estado, motivo: nota_admin || null,
+            detalle: { accion, monto_corregido: monto_corregido ?? null },
+        });
 
         // Si el admin corrigió el monto extraído por la IA, actualizarlo en la BD
         if ((accion === 'approve' || accion === 'approve_abono') && monto_corregido !== undefined) {

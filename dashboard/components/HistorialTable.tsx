@@ -24,8 +24,12 @@ export default function HistorialTable({ quotes, filter, searchQuery, onOpenDeta
         switch (estado) {
             case 'ENTREGADO':
                 return { label: 'Entregado', icon: <CheckCircle size={12} />, class: 'bg-teal-500/10 text-teal-400 border-teal-500/20' };
+            case 'DESPACHADO':
+                return { label: 'Despachado', icon: <CheckCircle size={12} />, class: 'bg-teal-500/10 text-teal-400 border-teal-500/20' };
             case 'ARCHIVADO':
                 return { label: 'Archivado', icon: <Archive size={12} />, class: 'bg-neutral-700/50 text-neutral-400 border-neutral-600' };
+            case 'ABANDONADO':
+                return { label: 'Abandonado', icon: <Archive size={12} />, class: 'bg-neutral-700/50 text-neutral-500 border-neutral-600' };
             default:
                 return { label: estado, icon: null, class: 'bg-neutral-800 text-neutral-500 border-neutral-700' };
         }
@@ -77,7 +81,13 @@ export default function HistorialTable({ quotes, filter, searchQuery, onOpenDeta
 
     // Filtrar y buscar
     const filtered = quotes
-        .filter((q) => filter === 'todos' || q.estado === filter)
+        .filter((q) => {
+            if (filter === 'todos') return true;
+            // "Ventas Completas" agrupa ENTREGADO + DESPACHADO; "Archivados" agrupa ARCHIVADO + ABANDONADO.
+            if (filter === 'ENTREGADO') return q.estado === 'ENTREGADO' || q.estado === 'DESPACHADO';
+            if (filter === 'ARCHIVADO') return q.estado === 'ARCHIVADO' || q.estado === 'ABANDONADO';
+            return q.estado === filter;
+        })
         .filter((q) => {
             if (!searchQuery.trim()) return true;
             const query = searchQuery.toLowerCase();

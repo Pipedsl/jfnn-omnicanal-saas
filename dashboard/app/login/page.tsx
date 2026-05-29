@@ -4,12 +4,13 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { safeSet } from '@/lib/storage';
 
-type Account = 'vendedor_melipilla' | 'vendedor_san_felipe' | 'admin';
+type Account = 'vendedor_melipilla' | 'vendedor_san_felipe' | 'admin' | 'soporte';
 
 const ACCOUNT_OPTIONS: { value: Account; label: string; icon: string }[] = [
   { value: 'vendedor_melipilla', label: 'Vendedor Melipilla', icon: '📍' },
   { value: 'vendedor_san_felipe', label: 'Vendedor San Felipe', icon: '🏪' },
   { value: 'admin', label: 'Administrador', icon: '🛡️' },
+  { value: 'soporte', label: 'Soporte', icon: '🛠️' },
 ];
 
 export default function LoginPage() {

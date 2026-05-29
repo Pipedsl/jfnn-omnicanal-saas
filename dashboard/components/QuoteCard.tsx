@@ -223,12 +223,33 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
         }
     };
 
-    const handleStatusUpdate = async (nuevoEstado: string, notify: boolean = true) => {
+    // Reactivar (solo soporte): devuelve una sesión archivada a ESPERANDO_VENDEDOR.
+    const reactivarSoporte = async () => {
+        const motivo = window.prompt('Reactivar esta cotización archivada (motivo, opcional):') ?? '';
+        try {
+            await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/${encodeURIComponent(phone)}/reactivar`, { motivo: motivo.trim() || undefined });
+            onResponded();
+        } catch (err) {
+            console.error('Error reactivando:', err);
+            alert('No se pudo reactivar. ¿Tienes permisos de soporte?');
+        }
+    };
+
+    // Archivar EXIGE un motivo (trazabilidad: queda en el log de auditoría con el vendedor).
+    const archivarConMotivo = () => {
+        const motivo = window.prompt('¿Por qué archivas esta cotización? (motivo obligatorio para la trazabilidad)');
+        if (motivo === null) return; // canceló
+        if (!motivo.trim()) { alert('Debes indicar un motivo para archivar.'); return; }
+        handleStatusUpdate('ARCHIVADO', false, motivo.trim());
+    };
+
+    const handleStatusUpdate = async (nuevoEstado: string, notify: boolean = true, motivo?: string) => {
         try {
             await api.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, {
                 phone,
                 estado: nuevoEstado,
                 notify,
+                ...(motivo ? { motivo } : {}),
                 ...(lockToken ? { lock_token: lockToken } : {}),
                 ...(vendedorNombre ? { vendedor_nombre: vendedorNombre } : {})
             });
@@ -949,14 +970,9 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                     {estado !== 'ARCHIVADO' && (
                                                         <button
                                                             type="button"
-                                                            onClick={() => {
-                                                                const confirmed = confirm('¿Estás seguro de que deseas archivar esta cotización? La podrás ver luego en la pestaña "Cierres".');
-                                                                if (confirmed) {
-                                                                    handleStatusUpdate('ARCHIVADO', false);
-                                                                }
-                                                            }}
+                                                            onClick={archivarConMotivo}
                                                             className="w-full mt-1 py-1.5 rounded-lg bg-neutral-800/50 border border-neutral-700/50 text-neutral-500 text-xs font-medium hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 transition-all flex items-center justify-center gap-1.5"
-                                                            title="Archiva esta cotización. Aparecerá en la pestaña Cierres."
+                                                            title="Archiva esta cotización indicando el motivo. Quedará en Historial > Archivados."
                                                         >
                                                             <Archive size={11} /> Archivar / Descartar
                                                         </button>
@@ -1231,7 +1247,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
 
                                 {estado === 'ENTREGADO' && (
                                     <button
-                                        onClick={() => handleStatusUpdate('ARCHIVADO', false)}
+                                        onClick={archivarConMotivo}
                                         className="flex-1 py-2 rounded-xl bg-neutral-700 text-white text-xs font-bold hover:bg-neutral-800 transition-colors flex items-center justify-center gap-2"
                                     >
                                         <Archive size={14} /> Archivar Venta
@@ -1295,16 +1311,22 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                 {/* Botón universal de archivado - visible en TODOS los estados excepto ARCHIVADO */}
                                 {estado !== 'ARCHIVADO' && (
                                     <button
-                                        onClick={() => {
-                                            const confirmed = confirm('¿Estás seguro de que deseas archivar esta cotización? La podrás ver luego en la pestaña "Cierres".');
-                                            if (confirmed) {
-                                                handleStatusUpdate('ARCHIVADO', false);
-                                            }
-                                        }}
+                                        onClick={archivarConMotivo}
                                         className="w-full mt-3 py-1.5 rounded-lg bg-neutral-800/50 border border-neutral-700/50 text-neutral-500 text-xs font-medium hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 transition-all flex items-center justify-center gap-1.5"
-                                        title="Archiva esta cotización. Aparecerá en la pestaña Cierres."
+                                        title="Archiva esta cotización indicando el motivo. Quedará en Historial > Archivados."
                                     >
                                         <Archive size={11} /> Archivar / Descartar
+                                    </button>
+                                )}
+
+                                {/* Reactivar (solo soporte): devuelve una sesión archivada a la bandeja */}
+                                {estado === 'ARCHIVADO' && role === 'soporte' && (
+                                    <button
+                                        onClick={reactivarSoporte}
+                                        className="w-full mt-3 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold hover:bg-amber-500/20 transition-all flex items-center justify-center gap-1.5"
+                                        title="Reactivar esta cotización archivada (solo soporte). Vuelve a Esperando Precios."
+                                    >
+                                        ♻️ Reactivar (soporte)
                                     </button>
                                 )}
                             </div>

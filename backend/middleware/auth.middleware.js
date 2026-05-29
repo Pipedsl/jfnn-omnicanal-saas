@@ -27,10 +27,18 @@ const verifyJWT = async (req, res, next) => {
 };
 
 const requireAdmin = (req, res, next) => {
-    if (req.user?.role !== 'admin') {
+    // Soporte es superset de admin: también pasa.
+    if (req.user?.role !== 'admin' && req.user?.role !== 'soporte') {
         return res.status(403).json({ error: 'Acceso solo para admin' });
     }
     next();
 };
 
-module.exports = { verifyJWT, requireAdmin };
+const requireSoporte = (req, res, next) => {
+    if (req.user?.role !== 'soporte') {
+        return res.status(403).json({ error: 'Acceso solo para soporte' });
+    }
+    next();
+};
+
+module.exports = { verifyJWT, requireAdmin, requireSoporte };

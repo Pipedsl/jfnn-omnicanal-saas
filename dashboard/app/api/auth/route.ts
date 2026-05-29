@@ -11,11 +11,11 @@ export async function POST(req: NextRequest) {
 
   // ── Ruta nueva: body incluye `account` ─────────────────────────────
   if (account) {
-    type AccountKey = 'vendedor_melipilla' | 'vendedor_san_felipe' | 'admin';
+    type AccountKey = 'vendedor_melipilla' | 'vendedor_san_felipe' | 'admin' | 'soporte';
 
     const ACCOUNT_CONFIG: Record<AccountKey, {
       envVar: string;
-      role: 'vendedor' | 'admin';
+      role: 'vendedor' | 'admin' | 'soporte';
       sucursal: string | null;
     }> = {
       vendedor_melipilla: {
@@ -31,6 +31,11 @@ export async function POST(req: NextRequest) {
       admin: {
         envVar: 'AUTH_ADMIN_PIN',
         role: 'admin',
+        sucursal: null,
+      },
+      soporte: {
+        envVar: 'AUTH_SOPORTE_PIN',
+        role: 'soporte',
         sucursal: null,
       },
     };
