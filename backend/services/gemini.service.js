@@ -620,8 +620,8 @@ Responde SOLO con JSON válido:
         "vin": "VIN / número de chasis o null",
         "motor": "número de motor o cilindrada si aparece, o null",
         "combustible": "bencina | diesel | hibrido | electrico | null",
-        "nombre_propietario": "nombre completo del propietario tal como aparece en el documento, o null",
-        "rut_propietario": "RUT en formato XX.XXX.XXX-X o null"
+        "nombre_propietario": "nombre completo del PROPIETARIO/TITULAR tal como aparece junto a la etiqueta 'PROPIETARIO' o 'NOMBRE'. LÉELO SIEMPRE si es legible (es un dato clave). NO lo dejes en null si aparece en el documento, aunque la foto esté algo inclinada o con brillo.",
+        "rut_propietario": "RUT del propietario en formato XX.XXX.XXX-X o null"
     },
     "placa_patente": {
         "patente": "patente chilena leída de la placa en MAYÚSCULAS sin guiones ni espacios (ej: 'FDKL53', 'BRXS20'). Ignora cualquier guion o espacio del medio."

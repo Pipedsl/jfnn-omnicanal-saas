@@ -1891,10 +1891,19 @@ router.get('/conversaciones/:phone', async (req, res) => {
             ? { ultimo_entrante_at: new Date(ultimoEntrante).toISOString(), expira_at: new Date(ultimoEntrante + 24 * 60 * 60 * 1000).toISOString() }
             : null;
 
+        // Fallback: si la sesión actual no tiene nombre, usar el conocido en clientes.
+        let nombreCliente = session?.entidades?.nombre_cliente || null;
+        if (!nombreCliente) {
+            try {
+                const cli = await db.query('SELECT nombre FROM clientes WHERE phone = $1 LIMIT 1', [phone]);
+                nombreCliente = cli.rows[0]?.nombre || null;
+            } catch { /* no-op */ }
+        }
+
         res.json({
             phone,
             estado: session?.estado || null,
-            nombre_cliente: session?.entidades?.nombre_cliente || null,
+            nombre_cliente: nombreCliente,
             sucursal: session?.sucursal || null,
             agente_pausado: session?.entidades?.agente_pausado || false,
             consulta_pendiente: session?.entidades?.consulta_pendiente || null,

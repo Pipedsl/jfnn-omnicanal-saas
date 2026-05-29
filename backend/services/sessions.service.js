@@ -107,6 +107,46 @@ const isSameRepuesto = (nombreA, nombreB) => {
     return false;
 };
 
+// ─── isSameVehiculo ──────────────────────────────────────────────
+/**
+ * Determina si dos vehículos son el MISMO auto (para evitar duplicados cuando el cliente
+ * da la marca/modelo por texto y luego envía el padrón con el nombre oficial completo).
+ * Match fuerte por patente o vin. Si no, compara marca+modelo base normalizado + año.
+ * Normaliza quitando tokens de ruido del padrón ("motors", "pro", "lx", "ii", cilindrada).
+ */
+const VEHICULO_NOISE = new Set(['motors', 'motor', 'pro', 'lx', 'ls', 'lt', 'gl', 'gls', 'glx', 'ii', 'iii', 'iv', 'auto', 'automovil', 'station', 'wagon', 'sedan', 'hatchback', '4x4', '4x2', 'awd']);
+const normalizeVehiculoName = (nombre) => {
+    if (!nombre || typeof nombre !== 'string') return '';
+    return nombre.toLowerCase()
+        .normalize('NFD').replace(/[̀-ͯ]/g, '')
+        .replace(/[^a-z0-9\s.]/g, ' ')
+        .replace(/\b\d\.\d\b/g, ' ')        // cilindrada suelta tipo "2.0"
+        .split(/\s+/)
+        .filter(t => t && !VEHICULO_NOISE.has(t))
+        .join(' ')
+        .trim();
+};
+const isSameVehiculo = (a, b) => {
+    if (!a || !b) return false;
+    if (a.patente && b.patente && String(a.patente).replace(/\s/g, '').toUpperCase() === String(b.patente).replace(/\s/g, '').toUpperCase()) return true;
+    if (a.vin && b.vin && String(a.vin).toUpperCase() === String(b.vin).toUpperCase()) return true;
+    const na = normalizeVehiculoName(a.marca_modelo);
+    const nb = normalizeVehiculoName(b.marca_modelo);
+    if (!na || !nb) return false;
+    // Año: si ambos lo tienen y difieren, NO es el mismo auto (mecánico multi-vehículo).
+    const anoA = (a.ano || '').toString().slice(0, 4);
+    const anoB = (b.ano || '').toString().slice(0, 4);
+    if (anoA && anoB && anoA !== anoB) return false;
+    if (na === nb) return true;
+    const tokensA = new Set(na.split(/\s+/));
+    const tokensB = new Set(nb.split(/\s+/));
+    const inter = [...tokensA].filter(t => tokensB.has(t)).length;
+    const smaller = Math.min(tokensA.size, tokensB.size);
+    // Misma marca+modelo base: uno incluye al otro, o ≥75% de tokens compartidos.
+    if (na.includes(nb) || nb.includes(na)) return true;
+    return smaller > 0 && inter / smaller >= 0.75;
+};
+
 // ─── derivarSucursal ────────────────────────────────────────────
 /**
  * Deriva la columna sucursal de user_sessions a partir de las entidades de la sesión.
@@ -573,6 +613,17 @@ const updateEntidades = async (phone, nuevasEntidades) => {
 
         if (nuevaSucursal) {
             console.log(`[Sessions] 📍 Sucursal derivada → "${nuevaSucursal}" para ${phone}`);
+        }
+
+        // Persistir el nombre a la tabla clientes apenas se captura (no solo al archivar),
+        // para que futuras sesiones lo pre-carguen y aparezca como contacto en la bandeja.
+        if (typeof nuevasEntidades.nombre_cliente === 'string' && nuevasEntidades.nombre_cliente.trim()) {
+            const nombreLimpio = nuevasEntidades.nombre_cliente.trim().slice(0, 120);
+            db.query(
+                `INSERT INTO clientes (phone, nombre) VALUES ($1, $2)
+                 ON CONFLICT (phone) DO UPDATE SET nombre = COALESCE(NULLIF(EXCLUDED.nombre, ''), clientes.nombre)`,
+                [phone, nombreLimpio]
+            ).catch(err => console.warn(`[Sessions] ⚠️ No se pudo upsert nombre en clientes (${phone}):`, err.message));
         }
 
         sessionCache.delete(phone);
@@ -1482,6 +1533,7 @@ module.exports = {
     incrementMessageCounter,
     derivarSucursal,
     tieneRepuestosPorEncargo,
+    isSameVehiculo,
     claimSession,
     releaseSession,
     validateLock,

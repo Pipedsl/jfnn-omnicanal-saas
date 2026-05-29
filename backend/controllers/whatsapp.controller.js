@@ -157,9 +157,10 @@ const processBufferedMessages = async (customerPhone) => {
         // Si el cliente recién envió un padrón y hay propietario pendiente,
         // detectamos sí/no por regex antes de seguir al flujo normal.
         // ═══════════════════════════════════════════════════════
-        if (session.entidades?.propietario_padron_pendiente?.nombre && userText && !hasImage) {
+        const propPendiente = session.entidades?.propietario_padron_pendiente;
+        if (propPendiente && typeof propPendiente === 'object' && userText && !hasImage) {
             const lowerConf = userText.toLowerCase().trim();
-            const afirmativo = /(^|\s)(s[ií]|sí|si)(\s|[.,!?]|$)|\bes m[ií]o\b|\bsoy yo\b|\ba mi nombre\b|\bes mi auto\b|\bmi veh[íi]culo\b|\bcorrecto\b|\bafirmativo\b|\bexacto\b|\bas[ií] es\b|\bas[ií] mismo\b|\best[aá] a mi nombre\b/i.test(lowerConf);
+            const afirmativo = /(^|\s)(s[ií]|s[ií]i|soi)(\s|[.,!?]|$)|\bsoy?\s+(yo|el|la)\b|\b(el|la|soy?|soi)\s*due[ñn][oa]\b|\bdue[ñn][oa]\b|\bes m[ií]o\b|\bsoy yo\b|\ba mi nombre\b|\bes mi auto\b|\bmi veh[íi]culo\b|\bcorrecto\b|\bafirmativo\b|\bexacto\b|\bas[ií] es\b|\bas[ií] mismo\b|\best[aá] a mi nombre\b|\bme pertenece\b/i.test(lowerConf);
             const negativo = /^no(\b|,|\.|$)|\bno es m[ií]o\b|\bno soy yo\b|\bcotizo para\b|\bpara otra persona\b|\bpara un cliente\b|\bsoy mec[áa]nico\b|\bno me pertenece\b|\bes de un cliente\b|\bes del jefe\b|\bes de mi\s/i.test(lowerConf);
 
             if (negativo) {
@@ -172,12 +173,20 @@ const processBufferedMessages = async (customerPhone) => {
             }
 
             if (afirmativo) {
-                const p = session.entidades.propietario_padron_pendiente;
+                const p = propPendiente;
                 const updates = { propietario_padron_pendiente: false };
                 if (p.nombre && !session.entidades.nombre_cliente) updates.nombre_cliente = p.nombre;
                 if (p.rut && !session.entidades.rut_cliente) updates.rut_cliente = p.rut;
                 session = await sessionsService.updateEntidades(customerPhone, updates);
-                console.log(`[Padrón] ✅ Propietario confirmado: ${p.nombre} (${customerPhone})`);
+                console.log(`[Padrón] ✅ Propietario confirmado: ${p.nombre || '(nombre no extraído)'} (${customerPhone})`);
+                // Fallback: el cliente confirmó ser dueño pero el padrón no entregó el nombre →
+                // lo pedimos una vez para no perder la atribución del contacto.
+                if (!p.nombre && !session.entidades.nombre_cliente) {
+                    const ackSinNombre = '¡Perfecto! Para dejar la cotización a tu nombre, ¿me confirmas tu nombre completo?';
+                    await new Promise(r => setTimeout(r, 1200));
+                    await sendAndPersist(customerPhone, ackSinNombre);
+                    return;
+                }
                 const nombreCorto = (p.nombre || '').split(/\s+/)[0] || '';
                 const ack = `¡Perfecto${nombreCorto ? ' ' + nombreCorto : ''}! Ya registré tus datos. ¿Qué repuesto necesitas?`;
                 await new Promise(r => setTimeout(r, 1200));
@@ -366,33 +375,55 @@ const processBufferedMessages = async (customerPhone) => {
                     combustible: p.combustible || null
                 };
 
-                const currentVehiculos = Array.isArray(session.entidades?.vehiculos) ? session.entidades.vehiculos : [];
-                const rootHasVehiculo = !!(session.entidades?.marca_modelo || session.entidades?.patente || session.entidades?.vin);
+                // Saltar vehículos vacíos del padrón (extracción sin datos útiles)
+                const padronTieneDatos = !!(vehiculoData.marca_modelo || vehiculoData.patente || vehiculoData.vin);
 
-                if (currentVehiculos.length > 0 || rootHasVehiculo) {
-                    // Ya hay contexto de vehículo: usar el array vehiculos[] (caso mecánico multi-auto)
+                const currentVehiculos = Array.isArray(session.entidades?.vehiculos) ? session.entidades.vehiculos : [];
+                const rootVehiculo = {
+                    marca_modelo: session.entidades?.marca_modelo || null,
+                    ano: session.entidades?.ano || null,
+                    patente: session.entidades?.patente || null,
+                    vin: session.entidades?.vin || null,
+                    motor: session.entidades?.motor || null,
+                    combustible: session.entidades?.combustible || null,
+                };
+                const rootHasVehiculo = !!(rootVehiculo.marca_modelo || rootVehiculo.patente || rootVehiculo.vin);
+
+                if (!padronTieneDatos) {
+                    // Nada útil que agregar desde el padrón.
+                } else if (currentVehiculos.length > 0) {
+                    // Ya hay array multi-vehículo: enriquecer el que haga match, o agregar uno nuevo.
                     const nuevosVehiculos = [...currentVehiculos];
-                    if (rootHasVehiculo && currentVehiculos.length === 0) {
-                        nuevosVehiculos.push({
-                            marca_modelo: session.entidades.marca_modelo || null,
-                            ano: session.entidades.ano || null,
-                            patente: session.entidades.patente || null,
-                            vin: session.entidades.vin || null,
-                            motor: session.entidades.motor || null,
-                            combustible: session.entidades.combustible || null,
-                            repuestos_solicitados: session.entidades.repuestos_solicitados || []
-                        });
-                    }
-                    const yaExiste = nuevosVehiculos.some(v =>
-                        (vehiculoData.patente && v.patente === vehiculoData.patente) ||
-                        (vehiculoData.vin && v.vin === vehiculoData.vin)
-                    );
-                    if (!yaExiste) {
+                    const idxMatch = nuevosVehiculos.findIndex(v => sessionsService.isSameVehiculo(v, vehiculoData));
+                    if (idxMatch !== -1) {
+                        const v = nuevosVehiculos[idxMatch];
+                        nuevosVehiculos[idxMatch] = {
+                            ...v,
+                            marca_modelo: vehiculoData.marca_modelo || v.marca_modelo, // padrón = nombre oficial
+                            ano: v.ano || vehiculoData.ano,
+                            patente: v.patente || vehiculoData.patente,
+                            vin: v.vin || vehiculoData.vin,
+                            motor: v.motor || vehiculoData.motor,
+                            combustible: v.combustible || vehiculoData.combustible,
+                            repuestos_solicitados: v.repuestos_solicitados || []
+                        };
+                    } else {
                         nuevosVehiculos.push({ ...vehiculoData, repuestos_solicitados: [] });
                     }
                     await sessionsService.updateEntidades(customerPhone, { vehiculos: nuevosVehiculos });
+                } else if (rootHasVehiculo && sessionsService.isSameVehiculo(rootVehiculo, vehiculoData)) {
+                    // MISMO auto que el del root (dado por texto): ENRIQUECER el root con los datos
+                    // del padrón en vez de duplicarlo. updateEntidades ignora nulls → solo rellena.
+                    await sessionsService.updateEntidades(customerPhone, vehiculoData);
+                } else if (rootHasVehiculo) {
+                    // Auto DISTINTO al del root (mecánico multi-vehículo): pasar a array.
+                    const nuevosVehiculos = [
+                        { ...rootVehiculo, repuestos_solicitados: session.entidades?.repuestos_solicitados || [] },
+                        { ...vehiculoData, repuestos_solicitados: [] }
+                    ];
+                    await sessionsService.updateEntidades(customerPhone, { vehiculos: nuevosVehiculos });
                 } else {
-                    // Sin vehículo previo: merge al root directamente
+                    // Sin vehículo previo: merge al root directamente.
                     await sessionsService.updateEntidades(customerPhone, vehiculoData);
                 }
 
