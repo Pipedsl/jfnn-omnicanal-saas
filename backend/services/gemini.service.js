@@ -75,23 +75,60 @@ const extractValidJSON = (text) => {
  * @param {Array} mensajes - filas de mensajes (cronológico ASC) de listarPorPhone
  * @returns {string} bloque de texto legible
  */
-const formatHistorialParaPrompt = (mensajes = []) => {
+const _fmtFechaHora = (iso) => {
+    try {
+        return new Date(iso).toLocaleString('es-CL', {
+            day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago',
+        });
+    } catch (_) { return ''; }
+};
+const _lineaMensaje = (m) => {
+    const quien = m.autor === 'cliente' ? 'Cliente'
+        : m.autor === 'vendedor' ? `Vendedor${m.autor_nombre ? ' (' + m.autor_nombre + ')' : ''}`
+        : 'IA';
+    let contenido = m.contenido || '';
+    if (m.tipo === 'image') contenido = '[imagen' + (contenido ? ': ' + contenido : '') + ']';
+    else if (m.tipo === 'audio') contenido = '[nota de voz]' + (m.transcripcion ? ': ' + m.transcripcion : '');
+    else if (m.tipo === 'video') contenido = '[video]';
+    else if (m.tipo === 'document') contenido = '[documento]';
+    return `[${_fmtFechaHora(m.created_at)}] ${quien}: ${contenido}`.slice(0, 320);
+};
+
+/**
+ * Formatea el historial separando la CONVERSACIÓN ACTUAL (desde sesionIniciadaAt) del
+ * CONTEXTO HISTÓRICO (mensajes de sesiones anteriores). Incluye FECHA + hora en cada línea
+ * para que el agente no re-cotice repuestos pedidos días atrás.
+ * @param {Array} mensajes - filas de mensajes (cronológico ASC)
+ * @param {string|null} sesionIniciadaAt - ISO de inicio de la conversación actual
+ */
+const formatHistorialParaPrompt = (mensajes = [], sesionIniciadaAt = null) => {
     if (!Array.isArray(mensajes) || mensajes.length === 0) return '';
-    return mensajes.map(m => {
-        let hora = '';
-        try {
-            hora = new Date(m.created_at).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Santiago' });
-        } catch (_) { hora = ''; }
-        const quien = m.autor === 'cliente' ? 'Cliente'
-            : m.autor === 'vendedor' ? `Vendedor${m.autor_nombre ? ' (' + m.autor_nombre + ')' : ''}`
-            : 'IA';
-        let contenido = m.contenido || '';
-        if (m.tipo === 'image') contenido = '[imagen' + (contenido ? ': ' + contenido : '') + ']';
-        else if (m.tipo === 'audio') contenido = '[nota de voz]' + (m.transcripcion ? ': ' + m.transcripcion : '');
-        else if (m.tipo === 'video') contenido = '[video]';
-        else if (m.tipo === 'document') contenido = '[documento]';
-        return `[${hora}] ${quien}: ${contenido}`.slice(0, 320);
-    }).join('\n');
+
+    // Determinar el corte de "conversación actual".
+    let corte = sesionIniciadaAt ? new Date(sesionIniciadaAt).getTime() : null;
+    if (!corte) {
+        // Fallback: buscar el último salto > 6h entre mensajes consecutivos.
+        const GAP = 6 * 60 * 60 * 1000;
+        for (let i = mensajes.length - 1; i > 0; i--) {
+            const t = new Date(mensajes[i].created_at).getTime();
+            const tPrev = new Date(mensajes[i - 1].created_at).getTime();
+            if (t - tPrev > GAP) { corte = t; break; }
+        }
+    }
+
+    const actuales = corte ? mensajes.filter(m => new Date(m.created_at).getTime() >= corte) : mensajes;
+    const historicos = corte ? mensajes.filter(m => new Date(m.created_at).getTime() < corte) : [];
+
+    let out = '';
+    if (historicos.length > 0) {
+        // Solo unos pocos del histórico, como referencia (NO recotizar).
+        const recortado = historicos.slice(-5);
+        out += `── CONTEXTO HISTÓRICO (conversaciones ANTERIORES — solo referencia, NO recotizar) ──\n`;
+        out += recortado.map(_lineaMensaje).join('\n') + '\n';
+    }
+    out += `── CONVERSACIÓN ACTUAL${corte ? ' (desde ' + _fmtFechaHora(new Date(corte).toISOString()) + ')' : ''} ──\n`;
+    out += (actuales.length ? actuales : mensajes).map(_lineaMensaje).join('\n');
+    return out;
 };
 
 const generateResponse = async (userText, sessionContext, imageData = null, audioDataList = [], historialMensajes = []) => {
@@ -393,16 +430,17 @@ ${sessionContext.entidades.metodo_pago ? `
         - En caso de duda, es mejor actualizar que duplicar.
 
         ${historialMensajes && historialMensajes.length > 0 ? `
-        ## 📜 HISTORIAL RECIENTE DE LA CONVERSACIÓN (orden cronológico):
-        ${formatHistorialParaPrompt(historialMensajes)}
+        ## 📜 HISTORIAL DE LA CONVERSACIÓN (con fecha y hora; separado en histórico vs actual):
+        ${formatHistorialParaPrompt(historialMensajes, sessionContext.entidades?.sesion_iniciada_at)}
 
         ⚠️ REGLAS SOBRE EL HISTORIAL (memoria conversacional — CRÍTICO):
+        - 🚫 SOLO cotiza/agrega los repuestos pedidos en la **CONVERSACIÓN ACTUAL**. Los repuestos que aparezcan en el **CONTEXTO HISTÓRICO** (otra fecha/sesión anterior) NO se agregan a la cotización actual, A MENOS que el cliente los repita explícitamente AHORA. Cada conversación nueva parte limpia.
+        - 🚗 NO dupliques vehículos: usa el vehículo de la CONVERSACIÓN ACTUAL. No crees una entrada por cada variante del mismo auto que aparezca en el histórico (ej. "Kia" / "Kia Rio" / "Kia Motors Rio" son el MISMO auto).
+        - Fíjate en las FECHAS: si el último pedido de repuestos fue hace días, NO lo arrastres a la cotización de hoy.
         - Este historial puede incluir mensajes escritos por el VENDEDOR HUMANO directamente. RESPETA todo lo que el vendedor ya dijo, coordinó o prometió. Su palabra es autoritativa.
-        - NO reinicies la conversación. NO saludes de nuevo si ya hubo saludo. Continúa desde donde quedó.
-        - NO vuelvas a pedir datos que ya están en el historial (patente, VIN, año, motor, repuesto, nombre). Si ya los pidió la IA o el vendedor y el cliente respondió, ÚSALOS — no repreguntes.
-        - Si en el historial el VENDEDOR ya envió una "COTIZACIÓN FORMAL", el cliente está en proceso de CIERRE. NO preguntes "¿qué repuesto necesitas?". Avanza al pago/confirmación.
-        - Si el cliente ya confirmó la compra ("sí confirmo", "lo voy a buscar", "dale"), continúa el flujo de cierre, NO reinicies.
-        - DISTINGUE el nombre del CLIENTE (titular del WhatsApp, con quien hablas) del nombre que aparezca en un PADRÓN/documento (puede ser otra persona: el hijo, el papá, etc.). Saluda y trata al cliente por SU nombre, no por el del padrón.
+        - NO reinicies la conversación ACTUAL. NO saludes de nuevo si ya hubo saludo en la conversación actual. Continúa desde donde quedó.
+        - NO vuelvas a pedir datos que el cliente YA dio en la CONVERSACIÓN ACTUAL (patente, VIN, año, motor, repuesto, nombre). Úsalos — no repreguntes.
+        - DISTINGUE el nombre del CLIENTE (titular del WhatsApp) del nombre que aparezca en un PADRÓN/documento (puede ser otra persona). Trata al cliente por SU nombre.
         - El historial es solo para ENTENDER el contexto. NO ejecutes acciones (cambiar precios, cambiar estado) basándote en mensajes viejos — solo en el mensaje actual del cliente.
         ` : ''}
 

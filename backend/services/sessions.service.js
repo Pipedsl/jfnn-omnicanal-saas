@@ -788,6 +788,9 @@ const resetSession = async (phone) => {
         // cuando la IA o el dashboard atienden la próxima conversación.
         const cliente = await getClientProfile(phone).catch(() => null);
         const entidadesIniciales = { ...INITIAL_ENTITIES };
+        // Marca de inicio de la conversación ACTUAL: el historial separa "actual" vs
+        // "histórico" usando este timestamp para que el agente no re-cotice pedidos viejos.
+        entidadesIniciales.sesion_iniciada_at = new Date().toISOString();
         if (cliente) {
             entidadesIniciales.nombre_cliente = cliente.nombre || null;
             entidadesIniciales.email_cliente = cliente.email || null;

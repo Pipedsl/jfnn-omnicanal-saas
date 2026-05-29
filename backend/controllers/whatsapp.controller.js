@@ -157,8 +157,11 @@ const processBufferedMessages = async (customerPhone) => {
         // Si el cliente recién envió un padrón y hay propietario pendiente,
         // detectamos sí/no por regex antes de seguir al flujo normal.
         // ═══════════════════════════════════════════════════════
+        // Solo durante el PERFILADO: una vez enviada la cotización (CONFIRMANDO_COMPRA o más),
+        // un "Sí" del cliente confirma la COMPRA, no la propiedad del padrón. No consumirlo aquí.
         const propPendiente = session.entidades?.propietario_padron_pendiente;
-        if (propPendiente && typeof propPendiente === 'object' && userText && !hasImage) {
+        const estadoTempranoPadron = [sessionsService.STATES.PERFILANDO, sessionsService.STATES.ESPERANDO_VENDEDOR].includes(session.estado);
+        if (propPendiente && typeof propPendiente === 'object' && estadoTempranoPadron && userText && !hasImage) {
             const lowerConf = userText.toLowerCase().trim();
             const afirmativo = /(^|\s)(s[ií]|s[ií]i|soi)(\s|[.,!?]|$)|\bsoy?\s+(yo|el|la)\b|\b(el|la|soy?|soi)\s*due[ñn][oa]\b|\bdue[ñn][oa]\b|\bes m[ií]o\b|\bsoy yo\b|\ba mi nombre\b|\bes mi auto\b|\bmi veh[íi]culo\b|\bcorrecto\b|\bafirmativo\b|\bexacto\b|\bas[ií] es\b|\bas[ií] mismo\b|\best[aá] a mi nombre\b|\bme pertenece\b/i.test(lowerConf);
             const negativo = /^no(\b|,|\.|$)|\bno es m[ií]o\b|\bno soy yo\b|\bcotizo para\b|\bpara otra persona\b|\bpara un cliente\b|\bsoy mec[áa]nico\b|\bno me pertenece\b|\bes de un cliente\b|\bes del jefe\b|\bes de mi\s/i.test(lowerConf);
