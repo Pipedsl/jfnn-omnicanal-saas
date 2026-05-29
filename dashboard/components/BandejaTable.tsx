@@ -23,6 +23,7 @@ interface BandejaTableProps {
     filter: string;
     searchQuery: string;
     onOpenDetail: (quote: Quote) => void;
+    onOpenChat?: (phone: string) => void;
     onRefresh: () => void;
 }
 
@@ -93,7 +94,7 @@ function PauseToggle({ phone, paused, onToggled }: { phone: string; paused: bool
     );
 }
 
-export default function BandejaTable({ quotes, filter, searchQuery, onOpenDetail, onRefresh }: BandejaTableProps) {
+export default function BandejaTable({ quotes, filter, searchQuery, onOpenDetail, onOpenChat, onRefresh }: BandejaTableProps) {
     const getStatusConfig = (status: string) => {
         switch (status) {
             case 'PENDIENTE': return { label: 'Nuevo', class: 'bg-yellow-400/10 text-yellow-400 border-yellow-400/20', action: null };
@@ -152,19 +153,19 @@ export default function BandejaTable({ quotes, filter, searchQuery, onOpenDetail
             const vehicle = getVehicleLabel(q.entidades).toLowerCase();
             return q.phone.includes(query) || name.includes(query) || quoteId.includes(query) || vehicle.includes(query);
         })
-        // Ordenar: prioridad por estado (ESPERANDO_VENDEDOR primero — requiere cotizar),
-        // luego ESPERANDO_APROBACION_ADMIN, luego CONFIRMANDO_COMPRA, resto al final.
+        // Ordenar: primero los estados que requieren ACCIÓN del vendedor (cotizar, logística),
+        // y CONFIRMANDO_COMPRA (Cierre) SIEMPRE al final — espera al cliente, no al vendedor.
         // Dentro de cada grupo, por antigüedad (más antiguos arriba).
         .sort((a, b) => {
             const prioridad = (estado: string): number => {
                 if (estado === 'ESPERANDO_VENDEDOR') return 0;
                 if (estado === 'ESPERANDO_APROBACION_ADMIN') return 1;
-                if (estado === 'CONFIRMANDO_COMPRA') return 2;
-                if (estado === 'ABONO_VERIFICADO') return 3;
-                if (estado === 'PAGO_VERIFICADO') return 4;
-                if (estado === 'ENCARGO_SOLICITADO' || estado === 'ESPERANDO_SALDO') return 5;
-                if (estado === 'ESPERANDO_RETIRO') return 6;
-                return 7;
+                if (estado === 'ABONO_VERIFICADO') return 2;
+                if (estado === 'PAGO_VERIFICADO') return 3;
+                if (estado === 'ENCARGO_SOLICITADO' || estado === 'ESPERANDO_SALDO') return 4;
+                if (estado === 'ESPERANDO_RETIRO') return 5;
+                if (estado === 'CONFIRMANDO_COMPRA') return 99; // CIERRE: siempre al final
+                return 6;
             };
             const diff = prioridad(a.estado) - prioridad(b.estado);
             if (diff !== 0) return diff;
@@ -222,8 +223,12 @@ export default function BandejaTable({ quotes, filter, searchQuery, onOpenDetail
                                         </div>
                                     )}
                                 </div>
-                                <div className="min-w-0">
-                                    <p className="text-xs font-bold text-neutral-200 truncate">
+                                <div
+                                    className={`min-w-0 ${onOpenChat ? 'cursor-pointer rounded-md -mx-1 px-1 hover:bg-accent/10' : ''}`}
+                                    onClick={onOpenChat ? (e) => { e.stopPropagation(); onOpenChat(quote.phone); } : undefined}
+                                    title={onOpenChat ? 'Ver conversación en el chat' : undefined}
+                                >
+                                    <p className="text-xs font-bold text-neutral-200 truncate group-hover:underline decoration-accent/40">
                                         {quote.entidades?.nombre_cliente || 'Sin nombre'}
                                     </p>
                                     <div className="flex items-center gap-1.5">

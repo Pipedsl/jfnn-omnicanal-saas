@@ -134,7 +134,7 @@ const TIPO_ICON: Record<string, React.ReactNode> = {
   document: <FileText size={14} />,
 };
 
-export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { sucursalFilter?: string | null; onNewMessage?: (title: string, body: string) => void }) {
+export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targetPhone }: { sucursalFilter?: string | null; onNewMessage?: (title: string, body: string) => void; targetPhone?: string | null }) {
   const [conversaciones, setConversaciones] = useState<Conversacion[]>([]);
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
   const [chat, setChat] = useState<ChatData | null>(null);
@@ -482,6 +482,13 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage }: { 
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPhone]);
+
+  // Abrir directamente la conversación indicada desde la bandeja (clic en nombre/teléfono).
+  useEffect(() => {
+    if (targetPhone) {
+      setSelectedPhone(targetPhone);
+    }
+  }, [targetPhone]);
 
   useEffect(() => {
     const count = chat?.mensajes?.length ?? 0;

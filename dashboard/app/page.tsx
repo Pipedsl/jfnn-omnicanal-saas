@@ -36,6 +36,7 @@ export default function Home() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null);
+  const [chatTargetPhone, setChatTargetPhone] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string>('vendedor');
   const [userSucursal, setUserSucursal] = useState<'Melipilla' | 'San Felipe' | null>(null);
   const [vendedorNombre, setVendedorNombre] = useState<string>('');
@@ -413,6 +414,7 @@ export default function Home() {
                 adminSucursalFilter !== 'todas' ? adminSucursalFilter : null
               }
               onNewMessage={notifyAll}
+              targetPhone={chatTargetPhone}
             />
           ) : loading && quotes.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-64 glass rounded-3xl animate-pulse">
@@ -431,6 +433,7 @@ export default function Home() {
               filter={filter}
               searchQuery={searchQuery}
               onOpenDetail={(quote) => setSelectedQuote(quote)}
+              onOpenChat={(phone) => { setChatTargetPhone(phone); setView('conversaciones'); }}
               onRefresh={() => fetchPendientes('onRefresh_PauseToggle')}
             />
           ) : (
