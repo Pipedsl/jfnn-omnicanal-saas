@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 import { safeGet, safeRemove } from "@/lib/storage";
-import { LayoutDashboard, RefreshCcw, Bell, BellRing, Settings, ShieldCheck, Search, LogOut, BarChart3 } from "lucide-react";
+import { LayoutDashboard, RefreshCcw, Bell, BellRing, Settings, ShieldCheck, Search, LogOut, BarChart3, Wrench } from "lucide-react";
 import { useNotifications } from "@/hooks/useNotifications";
 import QuoteCard from "@/components/QuoteCard";
 import BandejaTable from "@/components/BandejaTable";
@@ -243,9 +243,14 @@ export default function Home() {
               </Link>
             )}
             {userRole === 'soporte' && (
-              <Link href="/soporte/logs" className="p-2 hover:bg-amber-500/20 rounded-lg text-amber-400 transition-colors" title="Auditoría (soporte)">
-                <ShieldCheck size={18} />
-              </Link>
+              <>
+                <Link href="/soporte/logs" className="p-2 hover:bg-amber-500/20 rounded-lg text-amber-400 transition-colors" title="Auditoría (soporte)">
+                  <ShieldCheck size={18} />
+                </Link>
+                <Link href="/soporte/herramientas" className="p-2 hover:bg-amber-500/20 rounded-lg text-amber-400 transition-colors" title="Herramientas de soporte">
+                  <Wrench size={18} />
+                </Link>
+              </>
             )}
             <Link href="/settings" className="p-2 hover:bg-neutral-800 rounded-lg text-neutral-400 transition-colors" title="Ajustes">
               <Settings size={18} />

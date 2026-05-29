@@ -131,6 +131,129 @@ router.post('/cotizaciones/:phone/reactivar', requireSoporte, async (req, res) =
 });
 
 /**
+ * [SOPORTE] Cambiar manualmente el estado de una sesión (override correctivo).
+ * Solo cambia el estado; NO notifica al cliente ni archiva. Queda auditado.
+ * PATCH /api/dashboard/soporte/sesion/:phone/estado   Body: { estado, motivo }
+ */
+router.patch('/soporte/sesion/:phone/estado', requireSoporte, async (req, res) => {
+    try {
+        const { phone } = req.params;
+        const { estado, motivo } = req.body || {};
+        const estadosValidos = Object.values(sessionsService.STATES);
+        if (!estado || !estadosValidos.includes(estado)) {
+            return res.status(400).json({ error: 'Estado inválido', estados_validos: estadosValidos });
+        }
+        if (!motivo || !String(motivo).trim()) {
+            return res.status(400).json({ error: 'El motivo es obligatorio.' });
+        }
+        const session = await sessionsService.getSession(phone);
+        if (!session) return res.status(404).json({ error: 'Sesión no encontrada' });
+        const anterior = session.estado;
+        await sessionsService.setEstado(phone, estado);
+        auditService.registrarAccion({
+            req, action: 'cambiar_estado_manual', targetPhone: phone,
+            targetQuoteId: session.entidades?.quote_id || null,
+            estadoAnterior: anterior, estadoNuevo: estado, motivo: String(motivo).trim(),
+        });
+        res.json({ success: true, phone, estado_anterior: anterior, nuevo_estado: estado });
+    } catch (error) {
+        console.error('[Dashboard] Error en cambio manual de estado:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+/**
+ * [SOPORTE] Lista de ventas sin cerrar (cotizadas con precio pero en estado no terminal).
+ * GET /api/dashboard/soporte/ventas-sin-cerrar
+ */
+router.get('/soporte/ventas-sin-cerrar', requireSoporte, async (req, res) => {
+    try {
+        const estados = ['CONFIRMANDO_COMPRA', 'ESPERANDO_COMPROBANTE', 'ESPERANDO_APROBACION_ADMIN',
+            'PAGO_VERIFICADO', 'ABONO_VERIFICADO', 'ENCARGO_SOLICITADO', 'ESPERANDO_SALDO', 'ESPERANDO_RETIRO'];
+        const { rows } = await db.query(
+            `SELECT phone, estado, sucursal, lock_vendedor, ultimo_mensaje, entidades
+             FROM user_sessions WHERE estado = ANY($1) ORDER BY ultimo_mensaje DESC`,
+            [estados]
+        );
+        const ventas = rows.map(r => {
+            const e = r.entidades || {};
+            const reps = [
+                ...(e.repuestos_solicitados || []),
+                ...((e.vehiculos || []).flatMap(v => v.repuestos_solicitados || [])),
+            ];
+            const total = reps.reduce((acc, x) => acc + ((parseInt(x.precio) || 0) * (parseInt(x.cantidad) || 1)), 0);
+            return {
+                phone: r.phone, estado: r.estado, sucursal: r.sucursal,
+                nombre_cliente: e.nombre_cliente || null,
+                vehiculo: e.marca_modelo || (e.vehiculos?.[0]?.marca_modelo) || null,
+                items: reps.map(x => `${x.cantidad || 1}x ${x.nombre}${x.precio ? ' ($' + Number(x.precio).toLocaleString('es-CL') + ')' : ''}`).join(', '),
+                total, vendedor: r.lock_vendedor || e.vendedor_nombre || null,
+                quote_id: e.quote_id || null, ultimo_mensaje: r.ultimo_mensaje,
+            };
+        });
+        res.json({ total: ventas.length, ventas });
+    } catch (error) {
+        console.error('[Dashboard] Error en ventas-sin-cerrar:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+/**
+ * [SOPORTE] Cerrar una venta manualmente → ENTREGADO (o DESPACHADO) → KPIs + gracias/reseña.
+ * POST /api/dashboard/soporte/cerrar-venta
+ * Body: { phone, items?, total?, vendedor_nombre?, metodo_entrega?, enviar_resena?, motivo? }
+ * Si no se pasan items, usa los de la sesión actual.
+ */
+router.post('/soporte/cerrar-venta', requireSoporte, async (req, res) => {
+    try {
+        const { phone, items, total, vendedor_nombre, metodo_entrega, enviar_resena = true, motivo } = req.body || {};
+        if (!phone) return res.status(400).json({ error: 'Falta phone' });
+        const session = await sessionsService.getSession(phone);
+        if (!session) return res.status(404).json({ error: 'Sesión no encontrada' });
+
+        // Reconstruir entidades si se pasan items (caso venta perdida / sesión reseteada).
+        const updates = {};
+        if (Array.isArray(items) && items.length > 0) {
+            updates.repuestos_solicitados = items.map(it => ({
+                nombre: String(it.nombre || 'Repuesto'), codigo: it.codigo || '',
+                precio: it.precio != null ? parseInt(it.precio, 10) : null,
+                cantidad: it.cantidad != null ? parseInt(it.cantidad, 10) : 1,
+                disponibilidad: 'DISPONIBLE', cantidad_fijada: true, _isNew: false,
+            }));
+        }
+        if (total != null) updates.total_cotizacion = parseInt(total, 10);
+        if (vendedor_nombre) updates.vendedor_nombre = vendedor_nombre;
+        if (metodo_entrega) updates.metodo_entrega = metodo_entrega;
+        if (Object.keys(updates).length > 0) await sessionsService.patchSellerData(phone, updates);
+        if (vendedor_nombre) {
+            await db.query(`UPDATE user_sessions SET lock_vendedor = $1 WHERE phone = $2`, [vendedor_nombre, phone]);
+        }
+
+        const esEnvio = (metodo_entrega || session.entidades?.metodo_entrega) === 'domicilio';
+        const estadoFinal = esEnvio ? 'DESPACHADO' : 'ENTREGADO';
+        const anterior = session.estado;
+        await sessionsService.setEstado(phone, estadoFinal);
+
+        if (enviar_resena) {
+            setTimeout(() => { whatsappService.sendGoogleReviewRequest(phone).catch(() => {}); }, 3000);
+        }
+        // Archivar a pedidos (KPIs).
+        setTimeout(() => { sessionsService.archiveSession(phone).catch(err => console.error('[Soporte] archive err:', err.message)); }, 8000);
+
+        auditService.registrarAccion({
+            req, action: 'cerrar_venta_soporte', targetPhone: phone,
+            targetQuoteId: session.entidades?.quote_id || null,
+            estadoAnterior: anterior, estadoNuevo: estadoFinal, motivo: motivo || null,
+            detalle: { enviar_resena, items: updates.repuestos_solicitados || undefined },
+        });
+        res.json({ success: true, phone, nuevo_estado: estadoFinal });
+    } catch (error) {
+        console.error('[Dashboard] Error en cerrar-venta soporte:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+/**
  * Asignar / cambiar / des-asignar el vendedor de una venta ya cerrada (pedido).
  * Usado por el dropdown de /admin/estadisticas cuando una venta quedó sin vendedor
  * (ej. cerrada sin lock activo). Admin-only por el JWT del router.

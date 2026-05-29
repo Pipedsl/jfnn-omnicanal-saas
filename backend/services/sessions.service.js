@@ -746,6 +746,40 @@ const getHistoricalSessions = async (sucursal = null) => {
     }
 };
 
+// ─── snapshotUnclosedSale ────────────────────────────────────────
+/**
+ * Si la sesión tiene una cotización CON PRECIOS sin cerrar, guarda un snapshot recuperable
+ * en `pedidos` (estado_final='SIN_CERRAR') antes de que un reset la borre. Evita perder la
+ * venta cuando el cliente re-engancha. No suma a KPIs (SIN_CERRAR se excluye de ventas).
+ */
+const snapshotUnclosedSale = async (phone) => {
+    try {
+        const session = await getSession(phone);
+        const e = session?.entidades || {};
+        const reps = [
+            ...(e.repuestos_solicitados || []),
+            ...((e.vehiculos || []).flatMap(v => v.repuestos_solicitados || [])),
+        ];
+        const total = reps.reduce((a, r) => a + ((parseInt(r.precio) || 0) * (parseInt(r.cantidad) || 1)), 0);
+        if (total <= 0) return; // sin precios → nada que preservar
+        const { rows: lockRows } = await db.query(`SELECT lock_vendedor FROM user_sessions WHERE phone = $1`, [phone]);
+        await db.query(
+            `INSERT INTO pedidos (phone, quote_id, estado_final, marca_modelo, ano, patente, vin,
+             repuestos, total_cotizacion, metodo_pago, metodo_entrega, direccion_envio,
+             entidades_completas, sucursal, vendedor_nombre, created_at, archivado_en)
+             VALUES ($1,$2,'SIN_CERRAR',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW())`,
+            [phone, e.quote_id || null, e.marca_modelo || null, (e.ano || '').toString().slice(0,10) || null,
+             e.patente || null, e.vin || null, JSON.stringify(reps), total,
+             e.metodo_pago || null, e.metodo_entrega || null, e.direccion_envio || null,
+             JSON.stringify(e), derivarSucursal(e), lockRows[0]?.lock_vendedor || e.vendedor_nombre || null,
+             session.created_at || null]
+        );
+        console.log(`[Snapshot] 💾 Venta sin cerrar preservada para ${phone} (total $${total}).`);
+    } catch (err) {
+        console.error(`[Snapshot] ⚠️ No se pudo preservar venta sin cerrar de ${phone}:`, err.message);
+    }
+};
+
 // ─── resetSession ────────────────────────────────────────────────
 const resetSession = async (phone) => {
     try {
@@ -1536,6 +1570,7 @@ module.exports = {
     derivarSucursal,
     tieneRepuestosPorEncargo,
     isSameVehiculo,
+    snapshotUnclosedSale,
     claimSession,
     releaseSession,
     validateLock,

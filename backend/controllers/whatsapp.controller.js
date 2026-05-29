@@ -801,6 +801,9 @@ const processBufferedMessages = async (customerPhone) => {
                 (lowerText.length < 25 && (lowerText.includes("otro auto") || lowerText.includes("nueva cotizacion") || lowerText.includes("otra pieza") || lowerText.includes("quiero comprar algo mas")));
 
             if (wantsMore && !hasImage) {
+                // Preservar la venta sin cerrar antes de resetear (evita perderla — recuperable
+                // por soporte en "Ventas sin cerrar").
+                await sessionsService.snapshotUnclosedSale(customerPhone);
                 session = await sessionsService.resetSession(customerPhone);
                 console.log(`[Session] ♻️ Re-perfilado para ${customerPhone} desde ${session.estado}.`);
             }
