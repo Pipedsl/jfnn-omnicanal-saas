@@ -175,10 +175,19 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
     if (!selectedPhone || !chat) return;
     setSendingPlantilla(plantilla.id);
     try {
+      // Las plantillas usan placeholders posicionales ({{1}}, {{2}}…). DEBEMOS enviar un
+      // valor por cada uno o Meta rechaza por "número de parámetros no coincide".
       const params: Record<string, string> = {};
-      if (plantilla.params.includes("nombre") && chat.nombre_cliente) {
-        params.nombre = chat.nombre_cliente;
-      }
+      (plantilla.params || []).forEach((p, idx) => {
+        if (p === "nombre" || idx === 0) {
+          // Si no hay nombre del cliente, usar fallback "cliente" (Meta no acepta vacío).
+          params[p] = chat.nombre_cliente?.trim() || "cliente";
+        } else {
+          // Otros params: enviar un texto genérico para no romper el envío. El soporte
+          // puede mejorarlo en una iteración futura con inputs.
+          params[p] = "—";
+        }
+      });
       const vendedorNombre = safeGet("jfnn_vendedor_nombre");
       await api.post(`${API_URL}/api/dashboard/conversaciones/${selectedPhone}/plantilla`, {
         plantilla_id: plantilla.id,
@@ -188,8 +197,10 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
       setShowPlantillas(false);
       fetchChat(selectedPhone, false);
     } catch (err) {
-      console.error("[Plantilla] Error:", err);
-      alert("Error al enviar plantilla. Puede que no esté aprobada en Meta aún.");
+      const e = err as { response?: { data?: { detalle?: string; error?: string } } };
+      const detalle = e.response?.data?.detalle || e.response?.data?.error || "Error desconocido";
+      console.error("[Plantilla] Error:", detalle);
+      alert(`No se pudo enviar la plantilla.\n\nDetalle: ${detalle}`);
     } finally {
       setSendingPlantilla(null);
     }
