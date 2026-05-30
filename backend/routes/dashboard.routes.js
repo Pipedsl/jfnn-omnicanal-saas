@@ -131,6 +131,97 @@ router.post('/cotizaciones/:phone/reactivar', requireSoporte, async (req, res) =
 });
 
 /**
+ * [SOPORTE] Costos de infraestructura por mes.
+ * GET /api/dashboard/soporte/costos?mes=YYYY-MM
+ * Auto-crea filas fijas (Vercel/Railway/Supabase) si no existen para ese mes.
+ */
+const COSTOS_FIJOS = [
+    { servicio: 'supabase', monto_usd: 25, nota: 'Plan Pro' },
+    { servicio: 'vercel', monto_usd: 20, nota: 'Plan Pro' },
+    { servicio: 'railway', monto_usd: 20, nota: 'Plan Pro' },
+];
+router.get('/soporte/costos', requireSoporte, async (req, res) => {
+    try {
+        const mes = (req.query.mes || new Date().toISOString().slice(0, 7));
+        if (!/^\d{4}-\d{2}$/.test(mes)) return res.status(400).json({ error: 'Formato mes inválido (YYYY-MM)' });
+        // Auto-crear fijos si faltan (idempotente).
+        for (const f of COSTOS_FIJOS) {
+            await db.query(
+                `INSERT INTO costos_infra (mes, servicio, monto_usd, nota)
+                 VALUES ($1, $2, $3, $4)
+                 ON CONFLICT (mes, servicio) DO NOTHING`,
+                [mes, f.servicio, f.monto_usd, f.nota]
+            );
+        }
+        const { rows } = await db.query(
+            `SELECT * FROM costos_infra WHERE mes = $1
+             ORDER BY CASE servicio
+                 WHEN 'supabase' THEN 1 WHEN 'vercel' THEN 2 WHEN 'railway' THEN 3
+                 WHEN 'gemini' THEN 4 WHEN 'whatsapp' THEN 5 ELSE 9 END, id`,
+            [mes]
+        );
+        const total = rows.reduce((acc, r) => acc + Number(r.monto_usd || 0), 0);
+        res.json({ mes, total_usd: total, costos: rows });
+    } catch (error) {
+        console.error('[Soporte/costos] GET error:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+router.post('/soporte/costos', requireSoporte, async (req, res) => {
+    try {
+        const { mes, servicio, monto_usd, nota } = req.body || {};
+        if (!mes || !/^\d{4}-\d{2}$/.test(mes)) return res.status(400).json({ error: 'Formato mes inválido (YYYY-MM)' });
+        if (!servicio || !String(servicio).trim()) return res.status(400).json({ error: 'servicio obligatorio' });
+        const { rows } = await db.query(
+            `INSERT INTO costos_infra (mes, servicio, monto_usd, nota, created_by)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (mes, servicio) DO UPDATE SET monto_usd = EXCLUDED.monto_usd, nota = EXCLUDED.nota, updated_at = now()
+             RETURNING *`,
+            [mes, String(servicio).trim().toLowerCase(), Number(monto_usd) || 0, nota || null, req.body.vendedor_nombre || null]
+        );
+        auditService.registrarAccion({ req, action: 'costo_infra_upsert', detalle: { mes, servicio, monto_usd } });
+        res.json({ success: true, costo: rows[0] });
+    } catch (error) {
+        console.error('[Soporte/costos] POST error:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+router.patch('/soporte/costos/:id', requireSoporte, async (req, res) => {
+    try {
+        const id = parseInt(req.params.id, 10);
+        if (!Number.isInteger(id)) return res.status(400).json({ error: 'id inválido' });
+        const { monto_usd, nota } = req.body || {};
+        const { rows } = await db.query(
+            `UPDATE costos_infra
+             SET monto_usd = COALESCE($1, monto_usd), nota = COALESCE($2, nota), updated_at = now()
+             WHERE id = $3 RETURNING *`,
+            [monto_usd != null ? Number(monto_usd) : null, nota ?? null, id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'no encontrado' });
+        auditService.registrarAccion({ req, action: 'costo_infra_update', detalle: { id, monto_usd, nota } });
+        res.json({ success: true, costo: rows[0] });
+    } catch (error) {
+        console.error('[Soporte/costos] PATCH error:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+router.delete('/soporte/costos/:id', requireSoporte, async (req, res) => {
+    try {
+        const id = parseInt(req.params.id, 10);
+        if (!Number.isInteger(id)) return res.status(400).json({ error: 'id inválido' });
+        await db.query(`DELETE FROM costos_infra WHERE id = $1`, [id]);
+        auditService.registrarAccion({ req, action: 'costo_infra_delete', detalle: { id } });
+        res.json({ success: true });
+    } catch (error) {
+        console.error('[Soporte/costos] DELETE error:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+/**
  * [SOPORTE] Cambiar manualmente el estado de una sesión (override correctivo).
  * Solo cambia el estado; NO notifica al cliente ni archiva. Queda auditado.
  * PATCH /api/dashboard/soporte/sesion/:phone/estado   Body: { estado, motivo }

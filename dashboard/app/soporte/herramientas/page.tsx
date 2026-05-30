@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ShieldAlert, RefreshCcw, CheckCircle, Wrench } from "lucide-react";
+import { ArrowLeft, ShieldAlert, RefreshCcw, CheckCircle, Wrench, DollarSign, Plus, Trash2 } from "lucide-react";
 import { api, BACKEND_URL } from "@/lib/api";
 import { safeGet } from "@/lib/storage";
 
@@ -38,6 +38,15 @@ export default function SoporteHerramientas() {
   const [estado, setEstado] = useState("ESPERANDO_VENDEDOR");
   const [motivo, setMotivo] = useState("");
 
+  // Costos de infraestructura
+  type Costo = { id: number; mes: string; servicio: string; monto_usd: number | string; nota: string | null };
+  const [costosMes, setCostosMes] = useState<string>(new Date().toISOString().slice(0, 7));
+  const [costos, setCostos] = useState<Costo[]>([]);
+  const [totalCostos, setTotalCostos] = useState(0);
+  const [nuevoServicio, setNuevoServicio] = useState("gemini");
+  const [nuevoMonto, setNuevoMonto] = useState("");
+  const [nuevaNota, setNuevaNota] = useState("");
+
   useEffect(() => {
     setAuthorized(safeGet("jfnn_role") === "soporte");
   }, []);
@@ -55,6 +64,38 @@ export default function SoporteHerramientas() {
   }, []);
 
   useEffect(() => { if (authorized) fetchVentas(); }, [authorized, fetchVentas]);
+
+  const fetchCostos = useCallback(async () => {
+    try {
+      const res = await api.get(`${BACKEND_URL}/api/dashboard/soporte/costos?mes=${costosMes}`);
+      setCostos(res.data.costos || []);
+      setTotalCostos(Number(res.data.total_usd) || 0);
+    } catch (err) { console.error(err); }
+  }, [costosMes]);
+  useEffect(() => { if (authorized) fetchCostos(); }, [authorized, fetchCostos]);
+
+  const guardarCosto = async (id: number, monto_usd: number, nota: string) => {
+    try {
+      await api.patch(`${BACKEND_URL}/api/dashboard/soporte/costos/${id}`, { monto_usd, nota });
+      fetchCostos();
+    } catch (err) { console.error(err); alert("No se pudo guardar."); }
+  };
+  const agregarCosto = async () => {
+    const monto = Number(nuevoMonto);
+    if (!nuevoServicio.trim() || Number.isNaN(monto)) { alert("Indica servicio y monto válido."); return; }
+    try {
+      await api.post(`${BACKEND_URL}/api/dashboard/soporte/costos`, {
+        mes: costosMes, servicio: nuevoServicio.trim().toLowerCase(), monto_usd: monto, nota: nuevaNota || null,
+      });
+      setNuevoMonto(""); setNuevaNota("");
+      fetchCostos();
+    } catch (err) { console.error(err); alert("No se pudo agregar."); }
+  };
+  const borrarCosto = async (id: number) => {
+    if (!confirm("¿Borrar este costo?")) return;
+    try { await api.delete(`${BACKEND_URL}/api/dashboard/soporte/costos/${id}`); fetchCostos(); }
+    catch (err) { console.error(err); }
+  };
 
   const cerrarVenta = async (v: VentaSinCerrar) => {
     if (!confirm(`¿Cerrar la venta de ${v.nombre_cliente || v.phone} ($${v.total.toLocaleString("es-CL")})? Se enviará gracias + reseña y quedará en KPIs.`)) return;
@@ -188,6 +229,72 @@ export default function SoporteHerramientas() {
               ))}
             </tbody>
           </table>
+        </div>
+
+        {/* Costos de infraestructura */}
+        <div className="mt-10">
+          <div className="flex items-center gap-3 mb-3">
+            <h2 className="text-sm font-bold text-neutral-100 flex items-center gap-2"><DollarSign size={14} /> Costos de infraestructura</h2>
+            <input type="month" value={costosMes} onChange={(e) => setCostosMes(e.target.value)}
+              className="bg-neutral-900 border border-white/10 rounded-lg px-3 py-1 text-xs" />
+            <div className="ml-auto text-xs text-neutral-500">Total: <span className="text-green-400 font-bold text-sm">${totalCostos.toFixed(2)} USD</span></div>
+          </div>
+          <div className="rounded-2xl border border-white/10 overflow-hidden mb-3">
+            <table className="w-full text-xs">
+              <thead className="bg-white/[0.03] text-neutral-500 uppercase text-[10px]">
+                <tr>
+                  <th className="text-left px-3 py-2">Servicio</th>
+                  <th className="text-left px-3 py-2 w-[140px]">Monto USD</th>
+                  <th className="text-left px-3 py-2">Nota</th>
+                  <th className="text-right px-3 py-2 w-[80px]"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {costos.length === 0 ? (
+                  <tr><td colSpan={4} className="text-center py-6 text-neutral-600">Cargando…</td></tr>
+                ) : costos.map((c) => (
+                  <tr key={c.id} className="border-t border-white/5">
+                    <td className="px-3 py-2 font-bold text-neutral-200 uppercase">{c.servicio}</td>
+                    <td className="px-3 py-2">
+                      <input type="number" step="0.01" defaultValue={Number(c.monto_usd)}
+                        onBlur={(e) => guardarCosto(c.id, Number(e.target.value), c.nota || "")}
+                        className="w-full bg-neutral-900 border border-white/10 rounded px-2 py-1 text-xs" />
+                    </td>
+                    <td className="px-3 py-2">
+                      <input type="text" defaultValue={c.nota || ""}
+                        onBlur={(e) => guardarCosto(c.id, Number(c.monto_usd), e.target.value)}
+                        className="w-full bg-neutral-900 border border-white/10 rounded px-2 py-1 text-xs"
+                        placeholder="Nota (opcional)" />
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <button onClick={() => borrarCosto(c.id)} className="p-1.5 rounded-lg hover:bg-red-500/20 text-red-400/60 hover:text-red-400" title="Eliminar">
+                        <Trash2 size={12} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="rounded-2xl border border-white/10 p-3 bg-white/[0.02]">
+            <h3 className="text-xs font-bold text-neutral-300 mb-2 flex items-center gap-1"><Plus size={12} /> Agregar costo del mes</h3>
+            <div className="flex flex-wrap gap-2">
+              <select value={nuevoServicio} onChange={(e) => setNuevoServicio(e.target.value)}
+                className="bg-neutral-900 border border-white/10 rounded-lg px-3 py-2 text-xs">
+                <option value="gemini">Gemini</option>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="otro">Otro</option>
+              </select>
+              <input type="number" step="0.01" value={nuevoMonto} onChange={(e) => setNuevoMonto(e.target.value)}
+                placeholder="Monto USD" className="bg-neutral-900 border border-white/10 rounded-lg px-3 py-2 text-xs w-[120px]" />
+              <input type="text" value={nuevaNota} onChange={(e) => setNuevaNota(e.target.value)}
+                placeholder="Nota (opcional)" className="flex-1 min-w-[180px] bg-neutral-900 border border-white/10 rounded-lg px-3 py-2 text-xs" />
+              <button onClick={agregarCosto} className="px-4 py-2 rounded-lg bg-accent/15 text-accent border border-accent/30 text-xs font-bold hover:bg-accent/25">
+                Agregar
+              </button>
+            </div>
+            <p className="text-[10px] text-neutral-600 mt-2">Vercel/Railway/Supabase se cargan automáticos cada mes — solo edita el monto si cambió. Gemini y WhatsApp los agregas a mano cuando llegue la factura.</p>
+          </div>
         </div>
       </div>
     </div>
