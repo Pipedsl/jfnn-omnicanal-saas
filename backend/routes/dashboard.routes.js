@@ -551,10 +551,10 @@ router.post('/cotizaciones/responder', async (req, res) => {
                     quoteId = `${prevId}-V2`;
                 }
             } else {
-                quoteId = `JFNN-2026-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+                quoteId = `JFNN-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
             }
         } else {
-            quoteId = `JFNN-2026-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
+            quoteId = `JFNN-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
         }
         let total = 0;
         let detailsText = '';
@@ -612,24 +612,18 @@ router.post('/cotizaciones/responder', async (req, res) => {
             ? `\n\n📦 *Sobre los productos marcados con 📦:* No están en stock local. Para confirmarlos, los solicitamos a nuestra bodega central, lo que requiere un abono parcial por transferencia. El saldo lo pagas cuando llegan al local. ⏳`
             : '';
 
-        // Cierre contextual según disponibilidad de items
-        let cierreMensaje;
-        if (todosSinStock) {
-            cierreMensaje = `Lamentablemente no tenemos stock de ninguno de los items solicitados en este momento y no podemos encargarlos. Te recomendamos buscar en otros proveedores. Si necesitas algo más adelante, no dudes en escribirnos.`;
-        } else if (itemsPorEncargo > 0 && itemsDisponibles > 0) {
-            cierreMensaje = `¿Deseas confirmar la compra de los productos disponibles ✔️ y/o el encargo de los marcados con 📦?`;
-        } else if (itemsPorEncargo > 0 && itemsDisponibles === 0) {
-            cierreMensaje = `Los productos solicitados solo están disponibles por encargo 📦. ¿Deseas confirmar el encargo con el abono correspondiente?`;
-        } else if (itemsSinStock > 0 && itemsDisponibles > 0) {
-            cierreMensaje = `Algunos items están agotados. ¿Deseas confirmar la compra de los disponibles?`;
-        } else {
-            // Todos disponibles
-            cierreMensaje = `¿Deseas confirmar la compra?`;
-        }
-
+        // Mensaje formal LIMPIO — sin pregunta al final. La pregunta + recordatorio del
+        // código van en un SEGUNDO mensaje separado para reducir confusión del cliente y
+        // reforzar el uso del número de cotización al ir presencialmente.
         const headerMsg = rectificacion
             ? `⚠️ *COTIZACIÓN RECTIFICADA - JFNN*\nEsta cotización REEMPLAZA la anterior. Por favor ignora la versión previa.\n\n`
             : `*COTIZACIÓN FORMAL - JFNN*\n`;
+
+        // Si todo está agotado, agregamos un cierre informativo (NO es pregunta).
+        const cierreInformativo = todosSinStock
+            ? `\n\nLamentablemente no tenemos stock de ninguno de los items solicitados en este momento y no podemos encargarlos. Te recomendamos buscar en otros proveedores. Si necesitas algo más adelante, no dudes en escribirnos.`
+            : '';
+
         const message = `${headerMsg}` +
             `📄 ID: ${quoteId}\n\n` +
             `Estimado cliente, revisamos el stock de lo solicitado:\n\n` +
@@ -640,13 +634,33 @@ router.post('/cotizaciones/responder', async (req, res) => {
             `${note ? `📝 Nota del asesor: ${note}\n\n` : ''}` +
             `--- \n` +
             `🏢 Origen: Venta Online / WhatsApp\n` +
-            `👤 Atentamente: ${vendedor_nombre || 'Asesor JFNN'}\n\n` +
-            cierreMensaje;
+            `👤 Atentamente: ${vendedor_nombre || 'Asesor JFNN'}` +
+            cierreInformativo;
 
-        // sendSellerMessage auto-persiste el mensaje en la tabla mensajes con el autor_nombre indicado.
         await whatsappService.sendSellerMessage(phone, message, {
             autorNombre: vendedor_nombre || 'Asesor JFNN'
         });
+
+        // SEGUNDO MENSAJE: pregunta de confirmación + recordatorio del número de cotización.
+        // Solo si hay items disponibles o por encargo. Si TODO está agotado, no preguntamos.
+        if (!todosSinStock) {
+            let preguntaConfirmacion;
+            if (itemsPorEncargo > 0 && itemsDisponibles > 0) {
+                preguntaConfirmacion = `¿Deseas confirmar la compra de los productos disponibles ✔️ y/o el encargo de los marcados con 📦?`;
+            } else if (itemsPorEncargo > 0 && itemsDisponibles === 0) {
+                preguntaConfirmacion = `Los productos solicitados solo están disponibles por encargo 📦. ¿Deseas confirmar el encargo con el abono correspondiente?`;
+            } else if (itemsSinStock > 0 && itemsDisponibles > 0) {
+                preguntaConfirmacion = `Algunos items están agotados. ¿Deseas confirmar la compra de los disponibles?`;
+            } else {
+                preguntaConfirmacion = `¿Deseas confirmar la compra?`;
+            }
+            const recordatorioCodigo =
+                `\n\n📌 *Recuerda:* para facilitar tu atención presencial, menciona tu número de cotización *${quoteId}* al llegar al local. 🙌`;
+            await new Promise(r => setTimeout(r, 1200));
+            await whatsappService.sendSellerMessage(phone, preguntaConfirmacion + recordatorioCodigo, {
+                autorNombre: vendedor_nombre || 'Asesor JFNN'
+            });
+        }
 
         // Actualizar sesión: Guardar ID de cotización, total, horario, precios y pasar al flujo de cierre
         const sessionUpdateParams = {
