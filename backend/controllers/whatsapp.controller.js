@@ -4,6 +4,7 @@ const whatsappService = require('../services/whatsapp.service');
 const sessionsService = require('../services/sessions.service');
 const storageService = require('../services/storage.service');
 const mensajesService = require('../services/mensajes.service');
+const scheduleService = require('../services/schedule.service');
 const db = require('../config/db');
 const { printShadowQuote } = require('../utils/shadowQuote');
 const { getDireccionSucursal, esPagoPresencial } = require('../utils/sucursales');
@@ -845,6 +846,36 @@ const processBufferedMessages = async (customerPhone) => {
                 session = await sessionsService.setEstado(customerPhone, sessionsService.STATES.PERFILANDO);
                 console.log(`[Session] ➕ Intención de compra detectada para ${customerPhone}. Volviendo a PERFILANDO.`);
             }
+        }
+
+        // ── Capa 1: aviso determinista fuera de horario ──
+        // Si está cerrado/colación Y la sesión está en perfilado temprano sin cotización
+        // con precios Y aún no avisamos en esta conversación → enviar el mensaje exacto
+        // de horario y NO llamar a Gemini en este turno. El flag se autoresetea al abrir.
+        try {
+            const estadoAtencion = await scheduleService.getEstadoAtencion();
+            const entidades = session.entidades || {};
+            const tieneCotizacionConPrecios = Array.isArray(entidades.repuestos_solicitados)
+                && entidades.repuestos_solicitados.some(r => r && r.precio != null && Number(r.precio) > 0);
+
+            if (estadoAtencion.abierto && entidades.aviso_horario_enviado) {
+                // Volvió a abrir → limpiar flag para que mañana/sábado vuelva a avisar
+                await sessionsService.updateEntidades(customerPhone, { aviso_horario_enviado: false });
+                console.log(`[Horario] 🔄 Flag aviso_horario_enviado limpiado para ${customerPhone} (horario abierto).`);
+            } else if (
+                !estadoAtencion.abierto
+                && estadoAtencion.mensaje
+                && !entidades.aviso_horario_enviado
+                && (session.estado === sessionsService.STATES.PERFILANDO || session.estado === sessionsService.STATES.ESPERANDO_VENDEDOR)
+                && !tieneCotizacionConPrecios
+            ) {
+                console.log(`[Horario] 🌙 Cerrado (${estadoAtencion.estado}). Enviando aviso determinista a ${customerPhone} y omitiendo Gemini.`);
+                await sendAndPersist(customerPhone, estadoAtencion.mensaje);
+                await sessionsService.updateEntidades(customerPhone, { aviso_horario_enviado: true });
+                return;
+            }
+        } catch (horarioErr) {
+            console.error(`[Horario] ⚠️ Error en guard determinista (continúa flujo normal):`, horarioErr.message);
         }
 
         console.log(`[Webhook] Enviando a Gemini mensaje final de ${customerPhone}: "${userText.replace(/\n/g, ' ')}"`);

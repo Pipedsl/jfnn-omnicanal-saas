@@ -248,10 +248,12 @@ ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.paten
 
         ${estadoAtencion.mensaje ? `
         ### ⏰ ESTADO DE ATENCIÓN ACTUAL: ${estadoAtencion.estado}
-        ${estadoAtencion.estado === 'COLACION'
-            ? 'Estamos en colación. En tu PRIMER mensaje de esta sesión, avisa amablemente que los asesores regresan a las 15:01 pero que puede seguir contándote qué necesita. NO repitas el aviso en turnos siguientes.'
-            : 'Estamos fuera del horario de atención. En tu PRIMER mensaje de esta sesión, avisa al cliente con el mensaje de horario. NO repitas el aviso en turnos siguientes. Sigue recopilando datos del vehículo y repuestos normalmente.'}
-        Mensaje sugerido para avisar al cliente (úsalo solo una vez, al inicio de la sesión si aún no lo has dado):
+        ${sessionContext.entidades?.aviso_horario_enviado === true
+            ? '⚠️ El cliente YA fue avisado del cierre en este mismo flujo (el sistema lo hizo automáticamente). NO repitas el aviso de horario. Continúa recopilando datos del vehículo y repuestos como si fuese una conversación normal.'
+            : estadoAtencion.estado === 'COLACION'
+                ? 'Estamos en colación. Avisa amablemente que los asesores regresan a las 15:01 pero que puede seguir contándote qué necesita. NO repitas el aviso en turnos siguientes.'
+                : 'Estamos fuera del horario de atención. Avisa al cliente con el mensaje de horario. NO repitas el aviso en turnos siguientes. Sigue recopilando datos del vehículo y repuestos normalmente.'}
+        Mensaje sugerido para avisar al cliente (solo si aún no lo has dado):
         "${estadoAtencion.mensaje}"
         ` : ''}
 
