@@ -182,7 +182,13 @@ const processBufferedMessages = async (customerPhone) => {
             if (negativo) {
                 session = await sessionsService.updateEntidades(customerPhone, { propietario_padron_pendiente: false });
                 console.log(`[Padrón] ❌ Cliente cotiza para otro (no auto-vinculamos propietario): ${customerPhone}`);
-                const ack = 'Entendido, cotizamos sin vincular esos datos a tu nombre. ¿Qué repuesto necesitas para ese vehículo?';
+                const yaTieneRepuesto = Array.isArray(session.entidades?.repuestos_solicitados) && session.entidades.repuestos_solicitados.length > 0;
+                const ack = yaTieneRepuesto
+                    ? 'Entendido, cotizamos sin vincular esos datos a tu nombre. Un asesor revisará tu cotización con estos datos. 🙌'
+                    : 'Entendido, cotizamos sin vincular esos datos a tu nombre. ¿Qué repuesto necesitas para ese vehículo?';
+                if (yaTieneRepuesto) {
+                    session = await sessionsService.setEstado(customerPhone, sessionsService.STATES.ESPERANDO_VENDEDOR);
+                }
                 await new Promise(r => setTimeout(r, 1200));
                 await sendAndPersist(customerPhone, ack);
                 return;
@@ -204,7 +210,13 @@ const processBufferedMessages = async (customerPhone) => {
                     return;
                 }
                 const nombreCorto = (p.nombre || '').split(/\s+/)[0] || '';
-                const ack = `¡Perfecto${nombreCorto ? ' ' + nombreCorto : ''}! Ya registré tus datos. ¿Qué repuesto necesitas?`;
+                const yaTieneRepuesto = Array.isArray(session.entidades?.repuestos_solicitados) && session.entidades.repuestos_solicitados.length > 0;
+                const ack = yaTieneRepuesto
+                    ? `¡Perfecto${nombreCorto ? ' ' + nombreCorto : ''}! Ya registré tus datos. Un asesor revisará tu cotización en breve. 🙌`
+                    : `¡Perfecto${nombreCorto ? ' ' + nombreCorto : ''}! Ya registré tus datos. ¿Qué repuesto necesitas?`;
+                if (yaTieneRepuesto) {
+                    session = await sessionsService.setEstado(customerPhone, sessionsService.STATES.ESPERANDO_VENDEDOR);
+                }
                 await new Promise(r => setTimeout(r, 1200));
                 await sendAndPersist(customerPhone, ack);
                 return;
@@ -537,7 +549,13 @@ const processBufferedMessages = async (customerPhone) => {
             if (padronDatos && !propietarioPendiente) {
                 const veh = `${padronDatos.marca_modelo || 'tu vehículo'}${padronDatos.ano ? ' ' + padronDatos.ano : ''}`;
                 const patenteStr = padronDatos.patente ? ` (patente ${padronDatos.patente})` : '';
-                const msg = `📄 Recibí tu padrón del ${veh}${patenteStr}. Ya anoté los datos del vehículo. ¿Qué repuesto necesitas?`;
+                const yaTieneRepuesto = Array.isArray(session.entidades?.repuestos_solicitados) && session.entidades.repuestos_solicitados.length > 0;
+                const msg = yaTieneRepuesto
+                    ? `📄 Recibí tu padrón del ${veh}${patenteStr}. Ya anoté los datos del vehículo. Un asesor revisará tu cotización en breve. 🙌`
+                    : `📄 Recibí tu padrón del ${veh}${patenteStr}. Ya anoté los datos del vehículo. ¿Qué repuesto necesitas?`;
+                if (yaTieneRepuesto) {
+                    await sessionsService.setEstado(customerPhone, sessionsService.STATES.ESPERANDO_VENDEDOR);
+                }
                 await new Promise(r => setTimeout(r, 1500));
                 await sendAndPersist(customerPhone, msg);
                 return;
