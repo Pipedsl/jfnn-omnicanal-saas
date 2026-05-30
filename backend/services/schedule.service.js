@@ -136,4 +136,29 @@ async function getEstadoAtencion(now = new Date()) {
     };
 }
 
-module.exports = { getEstadoAtencion, invalidateCache, loadFeriados };
+/**
+ * Cuenta MINUTOS HÁBILES entre dos instantes (Date|ISO), respetando horario de atención de
+ * JFNN en zona Chile: L-V 9:00–13:45 y 15:00–18:00 · Sáb 9:30–13:00 · Dom y feriados cerrado.
+ * Excluye las horas en que el local está cerrado (para KPIs de "tiempo de espera").
+ */
+function businessMinutesBetween(start, end, feriadosSet) {
+    const startMs = (start instanceof Date ? start : new Date(start)).getTime();
+    const endMs = (end instanceof Date ? end : new Date(end)).getTime();
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return 0;
+    let mins = 0;
+    for (let ms = startMs; ms < endMs; ms += 60000) {
+        const ct = getChileTime(new Date(ms));
+        if (feriadosSet && feriadosSet.has(ct.dateStr)) continue;
+        if (ct.weekday === 'Sun') continue;
+        const t = ct.timeMinutes;
+        if (ct.weekday === 'Sat') {
+            if (t >= 570 && t < 780) mins++; // 9:30–13:00
+            continue;
+        }
+        // Lunes a Viernes: 9:00–13:45 (540–825) y 15:00–18:00 (900–1080)
+        if ((t >= 540 && t < 825) || (t >= 900 && t < 1080)) mins++;
+    }
+    return mins;
+}
+
+module.exports = { getEstadoAtencion, invalidateCache, loadFeriados, businessMinutesBetween };

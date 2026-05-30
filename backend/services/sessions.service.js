@@ -3,6 +3,7 @@
  * 100% independiente de Supabase.
  */
 const db = require('../config/db');
+const { loadFeriados, businessMinutesBetween } = require('./schedule.service');
 
 const STATES = {
     PERFILANDO: 'PERFILANDO',
@@ -1126,12 +1127,22 @@ const getDashboardMetrics = async (range = 'hoy', filters = {}) => {
         // 2. Sesiones activas (snapshot actual)
         const activasResult = await db.query(`SELECT COUNT(*) AS sesiones_activas FROM user_sessions WHERE TRUE${sesionesExtra}`, sesionesParams);
 
-        // 3. Tiempo promedio de espera del vendedor (snapshot actual)
-        const tiempoEsperaResult = await db.query(`
-            SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (NOW() - ultimo_mensaje))) / 60, 0) AS mins_espera
-            FROM user_sessions
+        // 3. Tiempo promedio de espera del vendedor (snapshot actual).
+        // SOLO HORAS HÁBILES: si el local está cerrado (Lun-Vie fuera de 9-13:45/15-18,
+        // Sáb fuera 9:30-13, Dom y feriados), ese tiempo NO se cuenta — sino el KPI se
+        // dispara inflado por las noches y fines de semana.
+        const esperandoRows = (await db.query(`
+            SELECT ultimo_mensaje FROM user_sessions
             WHERE estado = 'ESPERANDO_VENDEDOR'${sesionesExtra}
-        `, sesionesParams);
+        `, sesionesParams)).rows;
+        let minsEspera = 0;
+        if (esperandoRows.length > 0) {
+            const feriados = await loadFeriados();
+            const now = new Date();
+            const total = esperandoRows.reduce((acc, r) => acc + businessMinutesBetween(r.ultimo_mensaje, now, feriados), 0);
+            minsEspera = total / esperandoRows.length;
+        }
+        const tiempoEsperaResult = { rows: [{ mins_espera: minsEspera }] };
 
         // 4. Conversaciones iniciadas en el rango (sesiones + pedidos creados)
         const iniciadasParams = [...sesionesParams, ...pedidosParams];
@@ -1161,7 +1172,7 @@ const getDashboardMetrics = async (range = 'hoy', filters = {}) => {
         const mensajesVendedorPedidos = parseInt(ventasResult.rows[0].mensajes_vendedor_pedidos, 10);
         const minsPromedioCierre = parseFloat(ventasResult.rows[0].mins_promedio_cierre);
         const sesionesActivas = parseInt(activasResult.rows[0].sesiones_activas, 10);
-        const minsEspera = parseFloat(tiempoEsperaResult.rows[0].mins_espera);
+        // minsEspera ya calculado arriba (horas hábiles)
         const totalIniciadas = parseInt(iniciadasResult.rows[0].total_iniciadas, 10);
         const mensajesIaSesiones = parseInt(sesionesIaResult.rows[0].mensajes_ia_sesiones, 10);
 
