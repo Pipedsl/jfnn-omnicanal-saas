@@ -38,12 +38,16 @@ export default function SoporteHerramientas() {
   const [estado, setEstado] = useState("ESPERANDO_VENDEDOR");
   const [motivo, setMotivo] = useState("");
 
-  // Costos de infraestructura
+  // Costos de infraestructura. USD se guarda en DB (Supabase/Vercel/Railway facturan USD),
+  // pero la UI muestra y edita en CLP a tipo de cambio fijo de $1.000 CLP/USD.
+  const USD_TO_CLP = 1000;
+  const fmtCLP = (clp: number) => '$' + Math.round(clp).toLocaleString('es-CL');
   type Costo = { id: number; mes: string; servicio: string; monto_usd: number | string; nota: string | null };
   const [costosMes, setCostosMes] = useState<string>(new Date().toISOString().slice(0, 7));
   const [costos, setCostos] = useState<Costo[]>([]);
   const [totalCostos, setTotalCostos] = useState(0);
   const [nuevoServicio, setNuevoServicio] = useState("gemini");
+  const [nuevoServicioNombre, setNuevoServicioNombre] = useState("");
   const [nuevoMonto, setNuevoMonto] = useState("");
   const [nuevaNota, setNuevaNota] = useState("");
 
@@ -81,13 +85,20 @@ export default function SoporteHerramientas() {
     } catch (err) { console.error(err); alert("No se pudo guardar."); }
   };
   const agregarCosto = async () => {
-    const monto = Number(nuevoMonto);
-    if (!nuevoServicio.trim() || Number.isNaN(monto)) { alert("Indica servicio y monto válido."); return; }
+    const montoCLP = Number(nuevoMonto);
+    // Si eligió "otros", usar el nombre personalizado; si no, el servicio del select.
+    const servicio = nuevoServicio === 'otros'
+      ? nuevoServicioNombre.trim().toLowerCase()
+      : nuevoServicio;
+    if (!servicio || Number.isNaN(montoCLP) || montoCLP < 0) {
+      alert("Indica un nombre de servicio y un monto válido.");
+      return;
+    }
     try {
       await api.post(`${BACKEND_URL}/api/dashboard/soporte/costos`, {
-        mes: costosMes, servicio: nuevoServicio.trim().toLowerCase(), monto_usd: monto, nota: nuevaNota || null,
+        mes: costosMes, servicio, monto_usd: montoCLP / USD_TO_CLP, nota: nuevaNota || null,
       });
-      setNuevoMonto(""); setNuevaNota("");
+      setNuevoMonto(""); setNuevaNota(""); setNuevoServicioNombre("");
       fetchCostos();
     } catch (err) { console.error(err); alert("No se pudo agregar."); }
   };
@@ -237,14 +248,14 @@ export default function SoporteHerramientas() {
             <h2 className="text-sm font-bold text-neutral-100 flex items-center gap-2"><DollarSign size={14} /> Costos de infraestructura</h2>
             <input type="month" value={costosMes} onChange={(e) => setCostosMes(e.target.value)}
               className="bg-neutral-900 border border-white/10 rounded-lg px-3 py-1 text-xs" />
-            <div className="ml-auto text-xs text-neutral-500">Total: <span className="text-green-400 font-bold text-sm">${totalCostos.toFixed(2)} USD</span></div>
+            <div className="ml-auto text-xs text-neutral-500">Total mes: <span className="text-green-400 font-bold text-sm">{fmtCLP(totalCostos * USD_TO_CLP)} CLP</span> <span className="text-neutral-600">(${totalCostos.toFixed(2)} USD · TC fijo $1.000)</span></div>
           </div>
           <div className="rounded-2xl border border-white/10 overflow-hidden mb-3">
             <table className="w-full text-xs">
               <thead className="bg-white/[0.03] text-neutral-500 uppercase text-[10px]">
                 <tr>
                   <th className="text-left px-3 py-2">Servicio</th>
-                  <th className="text-left px-3 py-2 w-[140px]">Monto USD</th>
+                  <th className="text-left px-3 py-2 w-[160px]">Monto CLP</th>
                   <th className="text-left px-3 py-2">Nota</th>
                   <th className="text-right px-3 py-2 w-[80px]"></th>
                 </tr>
@@ -256,9 +267,10 @@ export default function SoporteHerramientas() {
                   <tr key={c.id} className="border-t border-white/5">
                     <td className="px-3 py-2 font-bold text-neutral-200 uppercase">{c.servicio}</td>
                     <td className="px-3 py-2">
-                      <input type="number" step="0.01" defaultValue={Number(c.monto_usd)}
-                        onBlur={(e) => guardarCosto(c.id, Number(e.target.value), c.nota || "")}
-                        className="w-full bg-neutral-900 border border-white/10 rounded px-2 py-1 text-xs" />
+                      <input type="number" step="500" defaultValue={Math.round(Number(c.monto_usd) * USD_TO_CLP)}
+                        onBlur={(e) => guardarCosto(c.id, Number(e.target.value) / USD_TO_CLP, c.nota || "")}
+                        className="w-full bg-neutral-900 border border-white/10 rounded px-2 py-1 text-xs"
+                        placeholder="CLP" />
                     </td>
                     <td className="px-3 py-2">
                       <input type="text" defaultValue={c.nota || ""}
@@ -283,17 +295,22 @@ export default function SoporteHerramientas() {
                 className="bg-neutral-900 border border-white/10 rounded-lg px-3 py-2 text-xs">
                 <option value="gemini">Gemini</option>
                 <option value="whatsapp">WhatsApp</option>
-                <option value="otro">Otro</option>
+                <option value="otros">Otros (escribir nombre)</option>
               </select>
-              <input type="number" step="0.01" value={nuevoMonto} onChange={(e) => setNuevoMonto(e.target.value)}
-                placeholder="Monto USD" className="bg-neutral-900 border border-white/10 rounded-lg px-3 py-2 text-xs w-[120px]" />
+              {nuevoServicio === 'otros' && (
+                <input type="text" value={nuevoServicioNombre} onChange={(e) => setNuevoServicioNombre(e.target.value)}
+                  placeholder="Nombre del servicio (ej: Sentry)"
+                  className="bg-neutral-900 border border-white/10 rounded-lg px-3 py-2 text-xs w-[200px]" />
+              )}
+              <input type="number" step="500" value={nuevoMonto} onChange={(e) => setNuevoMonto(e.target.value)}
+                placeholder="Monto CLP" className="bg-neutral-900 border border-white/10 rounded-lg px-3 py-2 text-xs w-[140px]" />
               <input type="text" value={nuevaNota} onChange={(e) => setNuevaNota(e.target.value)}
                 placeholder="Nota (opcional)" className="flex-1 min-w-[180px] bg-neutral-900 border border-white/10 rounded-lg px-3 py-2 text-xs" />
               <button onClick={agregarCosto} className="px-4 py-2 rounded-lg bg-accent/15 text-accent border border-accent/30 text-xs font-bold hover:bg-accent/25">
                 Agregar
               </button>
             </div>
-            <p className="text-[10px] text-neutral-600 mt-2">Vercel/Railway/Supabase se cargan automáticos cada mes — solo edita el monto si cambió. Gemini y WhatsApp los agregas a mano cuando llegue la factura.</p>
+            <p className="text-[10px] text-neutral-600 mt-2">Vercel/Railway/Supabase se cargan automáticos cada mes — solo edita el monto si cambió. Gemini y WhatsApp los agregas a mano cuando llegue la factura. Para "Otros" escribe el nombre (ej. Sentry, Cloudflare, dominio). Todo en CLP a TC fijo $1.000/USD.</p>
           </div>
         </div>
       </div>
