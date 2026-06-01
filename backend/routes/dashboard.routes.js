@@ -1178,7 +1178,11 @@ router.patch('/cotizaciones/estado', async (req, res) => {
             }
         }
 
-        res.status(200).json({ success: true, estado: session.estado });
+        res.status(200).json({
+            success: true,
+            estado: session.estado,
+            vendedor_cotizo: session.entidades?.vendedor_nombre || null,
+        });
     } catch (error) {
         console.error('Error actualizando estado:', error);
         res.status(500).json({ error: 'Error interno' });
@@ -2058,10 +2062,12 @@ router.post('/cotizaciones/:phone/saldo-pagado-local', async (req, res) => {
 
         console.log(`[Dashboard] 💵 Saldo pagado en local + entrega cerrada para ${phone}${vendedor_nombre ? ` por ${vendedor_nombre}` : ''}`);
 
+        const sessionFinal = await sessionsService.getSession(phone).catch(() => null);
         res.status(200).json({
             success: true,
             estado: 'ENTREGADO',
-            phone
+            phone,
+            vendedor_cotizo: sessionFinal?.entidades?.vendedor_nombre || null,
         });
     } catch (error) {
         console.error('[Dashboard] Error en saldo-pagado-local:', error);

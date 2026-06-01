@@ -278,6 +278,22 @@ const processBufferedMessages = async (customerPhone) => {
         // ESTADO: ARCHIVADO → Ofrecer re-enganche o iniciar nueva
         // ═══════════════════════════════════════════════════════
         if (session.estado === sessionsService.STATES.ARCHIVADO) {
+            // Guard: si el cliente solo agradece después del cierre, NO abrir nueva
+            // conversación de venta. Responder cálido y dejar la sesión archivada.
+            const textoCierre = userText.trim().toLowerCase();
+            const esAgradecimiento = /^[\s.,!?¡¿👋🙏❤️💚⭐🌟🤝👌👍🎉]*(muchas gracias|gracias|grax|grasias|de nada|muy amable|ok gracias|listo gracias|excelente|perfecto|🙏|👍|🙌|❤️|💚|⭐|🌟)[\s.,!?¡¿👋🙏❤️💚⭐🌟🤝👌👍🎉a-z]*$/i.test(textoCierre)
+                && textoCierre.length <= 40;
+            if (esAgradecimiento) {
+                const nombre = session.entidades?.nombre_cliente
+                    ? `, ${session.entidades.nombre_cliente.split(/\s+/)[0]}`
+                    : '';
+                console.log(`[Cierre] 🙌 Agradecimiento post-cierre detectado para ${customerPhone}. No abrir nueva sesión.`);
+                const msg = `¡A ti${nombre}! 🙌 Si más adelante necesitas algo, escríbenos por aquí. Que estés muy bien.`;
+                await new Promise(r => setTimeout(r, 1000));
+                await sendAndPersist(customerPhone, msg);
+                return;
+            }
+
             const archived = await sessionsService.getArchivedSessionForResume(customerPhone);
 
             if (archived && archived.hasArchived) {

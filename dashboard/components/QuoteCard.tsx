@@ -4,6 +4,7 @@ import { Car, Package, User, CheckCircle, Truck, Archive, Edit3, MessageSquareOf
 import { useState, useEffect } from "react";
 import SellerActionForm from "./SellerActionForm";
 import ImageLightbox from "./ImageLightbox";
+import CierreVentaModal from "./CierreVentaModal";
 import { api } from "@/lib/api";
 import { BACKEND_URL } from "@/lib/api";
 import { useQuoteLock } from "@/hooks/useQuoteLock";
@@ -113,6 +114,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
     const [numeroSeguimiento, setNumeroSeguimiento] = useState("");
 
     const [solicitandoVinId, setSolicitandoVinId] = useState<string | null>(null);
+    const [cierreModal, setCierreModal] = useState<{ vendedor: string | null } | null>(null);
     const [solicitandoPatenteId, setSolicitandoPatenteId] = useState<string | null>(null);
     const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
     const [confirmandoImagen, setConfirmandoImagen] = useState<string | null>(null); // imagen_url en proceso
@@ -247,7 +249,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
 
     const handleStatusUpdate = async (nuevoEstado: string, notify: boolean = true, motivo?: string) => {
         try {
-            await api.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, {
+            const res = await api.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, {
                 phone,
                 estado: nuevoEstado,
                 notify,
@@ -255,6 +257,11 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                 ...(lockToken ? { lock_token: lockToken } : {}),
                 ...(vendedorNombre ? { vendedor_nombre: vendedorNombre } : {})
             });
+            // Estados terminales de venta: abrir modal de cierre con recordatorio Layla
+            if (['ENTREGADO', 'DESPACHADO'].includes(nuevoEstado) && notify) {
+                setCierreModal({ vendedor: res.data?.vendedor_cotizo || null });
+                return;
+            }
             closeModal();
             onResponded();
         } catch (error: unknown) {
@@ -275,7 +282,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
             // Retiro queda esperando que el cliente pase a buscar; envío a domicilio pasa a
             // DESPACHADO (estado final del envío: se entregó al courier).
             const estadoFinal = esRetiro ? 'ESPERANDO_RETIRO' : 'DESPACHADO';
-            await api.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, {
+            const res = await api.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, {
                 phone,
                 estado: estadoFinal,
                 notify: true,
@@ -287,6 +294,11 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
             setShowLogisticsModal(false);
             setMensajeLogistica("");
             setNumeroSeguimiento("");
+            // DESPACHADO es terminal: abrir modal de cierre. Retiro sigue abierto (ESPERANDO_RETIRO).
+            if (estadoFinal === 'DESPACHADO') {
+                setCierreModal({ vendedor: res.data?.vendedor_cotizo || null });
+                return;
+            }
             closeModal();
             onResponded();
         } catch (error: unknown) {
@@ -1206,12 +1218,11 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                             if (!confirm('¿Confirmás que el cliente pagó el saldo en el local? Esto cerrará el cobro y notificará al cliente.')) return;
                                             setLoadingPago(true);
                                             try {
-                                                await api.post(
+                                                const res = await api.post(
                                                     `${BACKEND_URL}/api/dashboard/cotizaciones/${encodeURIComponent(phone)}/saldo-pagado-local`,
                                                     { vendedor_nombre: vendedorNombre || undefined }
                                                 );
-                                                closeModal();
-                                                onResponded();
+                                                setCierreModal({ vendedor: res.data?.vendedor_cotizo || null });
                                             } catch (err) {
                                                 console.error('Error al confirmar saldo en local:', err);
                                                 alert('No se pudo confirmar el saldo. Intenta nuevamente.');
@@ -1243,9 +1254,13 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                     const payload = esCashRetiro
                                                         ? { phone, estado: 'ENTREGADO', notify: true }
                                                         : { phone, estado: 'PAGO_VERIFICADO', notify: false };
-                                                    await api.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, payload);
-                                                    closeModal();
-                                                    onResponded();
+                                                    const res = await api.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, payload);
+                                                    if (esCashRetiro) {
+                                                        setCierreModal({ vendedor: res.data?.vendedor_cotizo || null });
+                                                    } else {
+                                                        closeModal();
+                                                        onResponded();
+                                                    }
                                                 } catch (error) {
                                                     console.error("Error confirmando pago presencial:", error);
                                                     alert("No se pudo confirmar el pago.");
@@ -1370,6 +1385,18 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
             {/* ── Lightbox de imagen de pieza ─── */}
             {lightboxSrc && (
                 <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
+            )}
+
+            {/* ── Modal de cierre de venta (recordatorio Layla + atribución) ─── */}
+            {cierreModal && (
+                <CierreVentaModal
+                    vendedorCotizo={cierreModal.vendedor}
+                    onClose={() => {
+                        setCierreModal(null);
+                        closeModal();
+                        onResponded();
+                    }}
+                />
             )}
         </>
     );

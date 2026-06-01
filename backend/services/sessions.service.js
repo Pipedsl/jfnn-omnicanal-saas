@@ -772,7 +772,7 @@ const snapshotUnclosedSale = async (phone) => {
             [phone, e.quote_id || null, e.marca_modelo || null, (e.ano || '').toString().slice(0,10) || null,
              e.patente || null, e.vin || null, JSON.stringify(reps), total,
              e.metodo_pago || null, e.metodo_entrega || null, e.direccion_envio || null,
-             JSON.stringify(e), derivarSucursal(e), lockRows[0]?.lock_vendedor || e.vendedor_nombre || null,
+             JSON.stringify(e), derivarSucursal(e), e.vendedor_nombre || lockRows[0]?.lock_vendedor || null,
              session.created_at || null]
         );
         console.log(`[Snapshot] 💾 Venta sin cerrar preservada para ${phone} (total $${total}).`);
@@ -865,15 +865,17 @@ const archiveSession = async (phone) => {
         // Derivar sucursal para el pedido archivado (fuente de verdad: entidades)
         const sucursalPedido = derivarSucursal(e);
 
-        // Leer el vendedor que tenía el lock en el momento del cierre (para REQ-03).
-        // Fallback: si no hay lock activo (cerrada desde el chat, lock expirado, etc.) usar
-        // el vendedor declarado en las entidades (SellerActionForm lo persiste al cotizar),
-        // así la venta no queda sin atribución.
+        // Atribución de la venta: SIEMPRE al vendedor que cotizó (e.vendedor_nombre, lo
+        // persiste SellerActionForm al enviar la cotización; en rectificaciones se sobrescribe
+        // con el último cotizador). El lock_vendedor es solo fallback para sesiones cerradas
+        // sin cotización formal (caso muy raro). Esto evita que quien pulsa el botón final
+        // (despachado / retiro / saldo local) se lleve la atribución cuando no fue él quien
+        // hizo el trabajo de cotizar.
         const { rows: lockRows } = await db.query(
             `SELECT lock_vendedor FROM user_sessions WHERE phone = $1`,
             [phone]
         );
-        const vendedorNombre = lockRows[0]?.lock_vendedor || e.vendedor_nombre || null;
+        const vendedorNombre = e.vendedor_nombre || lockRows[0]?.lock_vendedor || null;
 
         const { rows: pedidoRows } = await db.query(
             `INSERT INTO pedidos (phone, quote_id, estado_final, marca_modelo, ano, patente, vin,
