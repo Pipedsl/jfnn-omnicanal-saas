@@ -1060,6 +1060,42 @@ const processBufferedMessages = async (customerPhone) => {
 
         let finalMessage = aiJson.mensaje_cliente;
 
+        // ──────────────────────────────────────────────────────────────────────
+        // Detección determinista: items nuevos sin precio en estado post-cotización
+        // ──────────────────────────────────────────────────────────────────────
+        // Si el cliente agrega repuestos después de que la cotización ya fue enviada
+        // (o incluso confirmada/cerrada), el vendedor debe verlo en bandeja como
+        // ESPERANDO_VENDEDOR con un badge "items nuevos sin precio". Si no, el flujo
+        // sigue avanzando como si todo estuviera cotizado y el vendedor pierde el aviso.
+        const POST_COTIZACION_STATES = [
+            sessionsService.STATES.CONFIRMANDO_COMPRA,
+            sessionsService.STATES.ESPERANDO_COMPROBANTE,
+            sessionsService.STATES.ESPERANDO_APROBACION_ADMIN,
+            sessionsService.STATES.PAGO_VERIFICADO,
+            sessionsService.STATES.ESPERANDO_RETIRO,
+            sessionsService.STATES.DESPACHADO,
+            sessionsService.STATES.ENTREGADO,
+            sessionsService.STATES.CICLO_COMPLETO,
+            sessionsService.STATES.ABONO_VERIFICADO,
+            sessionsService.STATES.ENCARGO_SOLICITADO,
+            sessionsService.STATES.ESPERANDO_SALDO,
+        ];
+        if (session && POST_COTIZACION_STATES.includes(session.estado)) {
+            const flatRepuestos = [
+                ...(Array.isArray(session.entidades?.repuestos_solicitados) ? session.entidades.repuestos_solicitados : []),
+                ...((Array.isArray(session.entidades?.vehiculos) ? session.entidades.vehiculos : []).flatMap(v => Array.isArray(v?.repuestos_solicitados) ? v.repuestos_solicitados : [])),
+            ];
+            const itemsSinPrecio = flatRepuestos.filter(r => r && (r.precio == null || Number(r.precio) === 0) && r.estado !== 'agotado');
+            if (itemsSinPrecio.length > 0) {
+                console.log(`[ItemsNuevos] 🆕 ${itemsSinPrecio.length} item(s) sin precio en estado ${session.estado} para ${customerPhone}. Bumping a ESPERANDO_VENDEDOR.`);
+                await sessionsService.updateEntidades(customerPhone, {
+                    items_nuevos_sin_precio: true,
+                    items_nuevos_count: itemsSinPrecio.length,
+                });
+                session = await sessionsService.setEstado(customerPhone, sessionsService.STATES.ESPERANDO_VENDEDOR);
+            }
+        }
+
         // HU-1: Remoción de repuesto solicitada por el cliente en CONFIRMANDO_COMPRA
         if (
             aiJson.accion === 'REMOVER_REPUESTO' &&

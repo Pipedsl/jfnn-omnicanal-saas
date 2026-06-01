@@ -57,6 +57,8 @@ interface Entidades {
     solicitud_manual_patente?: boolean;
     solicitud_manual_vin?: boolean;
     sucursal_retiro?: 'Melipilla' | 'San Felipe' | null;
+    items_nuevos_sin_precio?: boolean;
+    items_nuevos_count?: number;
 }
 
 interface QuoteCardProps {
@@ -559,6 +561,20 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                         <div className="flex-1 overflow-y-auto md:overflow-hidden flex flex-col md:flex-row min-h-0">
                             {/* Columna Izquierda: Información */}
                             <div className={`p-6 space-y-5 overflow-visible md:overflow-y-auto custom-scrollbar ${ (estado === 'ESPERANDO_VENDEDOR' || isEditing) ? 'w-full md:w-5/12 lg:w-1/3 border-r border-white/5' : 'w-full' }`}>
+                                {/* Banner: items nuevos sin precio (cliente agregó repuestos post-cotización) */}
+                                {entidades.items_nuevos_sin_precio && (
+                                  <div className="bg-orange-500/10 border border-orange-500/40 rounded-xl px-4 py-3 flex items-start gap-2">
+                                    <span className="text-orange-400 text-lg flex-shrink-0">🆕</span>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-xs font-bold text-orange-400 mb-0.5">Items nuevos sin precio{entidades.items_nuevos_count ? ` (${entidades.items_nuevos_count})` : ''}</p>
+                                      <p className="text-xs text-neutral-400 leading-relaxed">
+                                        El cliente agregó repuestos después de la cotización original. Revisa los precios faltantes
+                                        y re-envía la cotización actualizada.
+                                      </p>
+                                    </div>
+                                  </div>
+                                )}
+
                                 {/* B.5: Banner informativo de encargo */}
                                 {mostrarBannerEncargo && (
                                   <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-4 py-3 flex items-start gap-2">

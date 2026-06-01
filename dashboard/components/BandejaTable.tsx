@@ -257,6 +257,14 @@ export default function BandejaTable({ quotes, filter, searchQuery, onOpenDetail
                                             ⚠️ DEVOLUCIÓN / GARANTÍA
                                         </span>
                                     )}
+                                    {quote.entidades?.items_nuevos_sin_precio && (
+                                        <span
+                                            className="text-[9px] text-orange-300 font-bold mt-0.5 inline-block bg-orange-500/15 border border-orange-500/40 rounded px-1.5 py-0.5"
+                                            title={`El cliente agregó ${quote.entidades?.items_nuevos_count || ''} repuesto(s) después de la cotización. Revisa y re-cotiza.`}
+                                        >
+                                            🆕 ITEMS NUEVOS SIN PRECIO{quote.entidades?.items_nuevos_count ? ` (${quote.entidades.items_nuevos_count})` : ''}
+                                        </span>
+                                    )}
                                 </div>
                             </div>
 

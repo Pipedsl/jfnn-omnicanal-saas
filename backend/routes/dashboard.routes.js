@@ -682,6 +682,12 @@ router.post('/cotizaciones/responder', async (req, res) => {
         await sessionsService.patchSellerData(phone, sessionUpdateParams);
         await sessionsService.setEstado(phone, 'CONFIRMANDO_COMPRA');
 
+        // Al re-enviar la cotización formal (items nuevos ya con precio), limpiar el flag.
+        await sessionsService.updateEntidades(phone, {
+            items_nuevos_sin_precio: false,
+            items_nuevos_count: 0,
+        });
+
         res.status(200).json({ success: true, quoteId });
     } catch (error) {
         console.error('Error respondiendo al cliente:', error);
