@@ -249,6 +249,14 @@ export default function BandejaTable({ quotes, filter, searchQuery, onOpenDetail
                                             🔒 {quote.lock_vendedor}
                                         </span>
                                     )}
+                                    {quote.entidades?.alerta_devolucion && (
+                                        <span
+                                            className="text-[9px] text-red-300 font-bold mt-0.5 inline-block bg-red-500/15 border border-red-500/40 rounded px-1.5 py-0.5"
+                                            title={quote.entidades?.alerta_devolucion_mensaje || 'Posible devolución / garantía'}
+                                        >
+                                            ⚠️ DEVOLUCIÓN / GARANTÍA
+                                        </span>
+                                    )}
                                 </div>
                             </div>
 

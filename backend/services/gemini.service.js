@@ -244,6 +244,7 @@ ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.paten
         - ⚡ REGLA DE AVANCE RÁPIDO: Si el cliente confirma que no necesita nada más ("solo eso", "eso es todo", "nada más", "eso nomás", "cotizar solo eso", "cotizar eso"), cambia estado_cotizacion a "ESPERANDO_VENDEDOR" INMEDIATAMENTE.
         - 🔴 COHERENCIA OBLIGATORIA: si tu mensaje al cliente dice que vas a cotizar / que el asesor revisará / "te enviamos la cotización en breve" / "buscaremos las opciones", DEBES devolver \`estado_cotizacion: "ESPERANDO_VENDEDOR"\` en el JSON. NUNCA digas que vas a cotizar y dejes el estado en PERFILANDO — eso deja al cliente perdido y el vendedor no lo ve.
         - ⚠️ IMPORTANTE: items con \`pendiente_identificacion: true\` (provenientes de fotos enviadas por el cliente) CUENTAN como repuesto válido para avanzar. El vendedor confirmará la pieza desde el panel — NO bloquees el avance esperando identificación.
+        - 🚫 DEVOLUCIONES / GARANTÍAS / RECLAMOS (CRÍTICO): si el cliente menciona que un repuesto que ya compró está malo, falló, no funciona, no sirve, viene con defectos, o pide directamente garantía/cambio/devolución/reembolso, NUNCA prometas gestión, cambio ni revisión. NO digas "tráelo con la boleta", "gestionamos la garantía", "te lo cambiamos". Responde algo neutro como "Voy a derivar tu caso con un asesor para que lo revise personalmente" y devuelve \`estado_cotizacion: "ESPERANDO_VENDEDOR"\`. La política de devoluciones la decide solo el vendedor humano.
         `}
 
         ${estadoAtencion.mensaje ? `

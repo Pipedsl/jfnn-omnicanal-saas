@@ -225,6 +225,39 @@ const processBufferedMessages = async (customerPhone) => {
         }
 
         // ═══════════════════════════════════════════════════════
+        // GUARD: DEVOLUCIONES / GARANTÍAS / RECLAMOS — derivar a vendedor humano
+        // ═══════════════════════════════════════════════════════
+        // La IA NO debe prometer cambios, devoluciones ni garantías. Esos casos
+        // los gestiona exclusivamente un asesor humano (revisión de boleta, estado
+        // de la pieza, política comercial). Si detectamos la intención: pausa IA,
+        // marca alerta visible para el vendedor y deriva.
+        if (
+            ![sessionsService.STATES.ARCHIVADO, sessionsService.STATES.ESPERANDO_APROBACION_ADMIN].includes(session.estado)
+            && !session.entidades?.alerta_devolucion
+            && userText && userText.trim().length > 0
+        ) {
+            const tieneIndicadorDirecto = /\b(garant[ií]a|devoluci[oó]n|devolver|reembolso|reclamo|reclamar|cambio del|cambio de mi|no me sirvi[oó])\b/i.test(userText);
+            const verboCompraPrev = /\b(compr[eéó]|adquir[ií]|me vendieron|me lo entregaron|el d[ií]a que compr|el que les compr|que les compr|que compr[eéó]|llev[eé] de|llev[eé] el)\b/i.test(userText);
+            const indicadorProblema = /\b(mal[oa]s?|fall[oaóeé]|no funciona|no prend[ae]n?|no sirv[eo]n?|defectu|defecto|rot[oa]|no anda|se rompi[oó]|se quem[oa]|est[aá] mal[oa]|trae problema|sali[oó] mal|vino mal[oa])\b/i.test(userText);
+            const esDevolucion = tieneIndicadorDirecto || (verboCompraPrev && indicadorProblema);
+
+            if (esDevolucion) {
+                console.log(`[Devolución] ⚠️ Posible reclamo/garantía detectado para ${customerPhone}. Pausando IA y derivando.`);
+                await sessionsService.updateEntidades(customerPhone, {
+                    agente_pausado: true,
+                    alerta_devolucion: true,
+                    alerta_devolucion_mensaje: userText.trim().slice(0, 250),
+                    alerta_devolucion_at: new Date().toISOString(),
+                });
+                await sessionsService.setEstado(customerPhone, sessionsService.STATES.ESPERANDO_VENDEDOR);
+                const msg = 'Lamento mucho lo ocurrido 🙏. Voy a derivar tu caso con un asesor para que lo revise personalmente. En unos minutos te responde por aquí.';
+                await new Promise(r => setTimeout(r, 1200));
+                await sendAndPersist(customerPhone, msg);
+                return;
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════
         // MEJORA #3: Pre-filtro de saludos puros (sin interrogatorio)
         // ═══════════════════════════════════════════════════════
         const textoTrimmed = userText.trim().toLowerCase();
