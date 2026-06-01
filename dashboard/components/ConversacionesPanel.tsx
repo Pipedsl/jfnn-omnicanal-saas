@@ -702,6 +702,15 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
                       </span>
                     );
                   })()}
+                  {chat?.estado === 'PAGO_VERIFICADO'
+                    && (chat?.entidades?.metodo_entrega === 'domicilio' || chat?.entidades?.metodo_entrega === 'envio') && (
+                    <span
+                      className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/50"
+                      title={chat?.entidades?.direccion_envio ? `Dirección: ${chat.entidades.direccion_envio}` : 'Cliente esperando envío a domicilio'}
+                    >
+                      🚚 Por Despachar
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="ml-auto flex items-center gap-2">

@@ -561,6 +561,22 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                         <div className="flex-1 overflow-y-auto md:overflow-hidden flex flex-col md:flex-row min-h-0">
                             {/* Columna Izquierda: Información */}
                             <div className={`p-6 space-y-5 overflow-visible md:overflow-y-auto custom-scrollbar ${ (estado === 'ESPERANDO_VENDEDOR' || isEditing) ? 'w-full md:w-5/12 lg:w-1/3 border-r border-white/5' : 'w-full' }`}>
+                                {/* Banner: pendiente de despacho (envío a domicilio + pago verificado) */}
+                                {estado === 'PAGO_VERIFICADO' && (entidades.metodo_entrega === 'domicilio' || entidades.metodo_entrega === 'envio') && (
+                                  <div className="bg-amber-500/10 border border-amber-500/50 rounded-xl px-4 py-3 flex items-start gap-2">
+                                    <span className="text-amber-400 text-lg flex-shrink-0">🚚</span>
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-xs font-bold text-amber-400 mb-0.5">Pendiente de despacho</p>
+                                      <p className="text-xs text-neutral-400 leading-relaxed">
+                                        El cliente está esperando el envío. Cuando entregues el pedido al courier, pulsa
+                                        <strong className="text-amber-300"> &quot;Marcar Despachado y Notificar&quot;</strong> para
+                                        cerrar el flujo y avisarle automáticamente.
+                                        {entidades.direccion_envio ? <><br /><span className="text-amber-300">📍 {entidades.direccion_envio}</span></> : null}
+                                      </p>
+                                    </div>
+                                  </div>
+                                )}
+
                                 {/* Banner: items nuevos sin precio (cliente agregó repuestos post-cotización) */}
                                 {entidades.items_nuevos_sin_precio && (
                                   <div className="bg-orange-500/10 border border-orange-500/40 rounded-xl px-4 py-3 flex items-start gap-2">

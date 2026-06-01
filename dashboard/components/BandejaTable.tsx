@@ -265,6 +265,15 @@ export default function BandejaTable({ quotes, filter, searchQuery, onOpenDetail
                                             🆕 ITEMS NUEVOS SIN PRECIO{quote.entidades?.items_nuevos_count ? ` (${quote.entidades.items_nuevos_count})` : ''}
                                         </span>
                                     )}
+                                    {quote.estado === 'PAGO_VERIFICADO'
+                                        && (quote.entidades?.metodo_entrega === 'domicilio' || quote.entidades?.metodo_entrega === 'envio') && (
+                                        <span
+                                            className="text-[9px] text-amber-300 font-bold mt-0.5 inline-block bg-amber-500/15 border border-amber-500/50 rounded px-1.5 py-0.5"
+                                            title={quote.entidades?.direccion_envio ? `Dirección: ${quote.entidades.direccion_envio}` : 'Cliente esperando envío a domicilio'}
+                                        >
+                                            🚚 POR DESPACHAR
+                                        </span>
+                                    )}
                                 </div>
                             </div>
 
