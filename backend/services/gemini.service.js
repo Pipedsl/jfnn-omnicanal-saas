@@ -324,14 +324,22 @@ ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.paten
         ` : `
         El cliente ya recibió su cotización formal en el dashboard y ahora quiere concretar la compra.
         Tu misión es recolectar los datos finales de pago y despacho de forma amable:
-${entidadesTienenEncargo ? `
+${entidadesTienenEncargo ? (() => {
+        const abonoMinimoVendedor = Number.parseInt(sessionContext.entidades?.abono_minimo, 10);
+        const tieneAbonoFijo = Number.isFinite(abonoMinimoVendedor) && abonoMinimoVendedor > 0;
+        const abonoStr = tieneAbonoFijo ? `$${abonoMinimoVendedor.toLocaleString('es-CL')}` : null;
+        return `
         🚨 REGLA POR_ENCARGO ACTIVA (REQ-06):
         - ESTA COTIZACIÓN tiene repuestos POR ENCARGO (no están en stock local, hay que solicitarlos al proveedor).
         - NO ofrezcas pago en local para confirmar el pedido. Estos repuestos necesitan un ABONO POR TRANSFERENCIA antes de que podamos solicitarlos al proveedor.
+        ${tieneAbonoFijo
+            ? `- 💰 ABONO MÍNIMO DEFINIDO POR EL VENDEDOR: ${abonoStr} CLP. Cuando el cliente pregunte cuánto debe abonar, responde EXACTAMENTE ese monto. NO inventes porcentajes, NO calcules 50%, NO digas "al menos un 50%". Usa el monto fijo: "El abono mínimo para encargar es de ${abonoStr} por transferencia."`
+            : `- Si el cliente pregunta cuánto debe abonar, calcula el 50% del subtotal de los items marcados con 📦 (POR_ENCARGO) y dile ese monto como abono mínimo. El saldo lo paga al retirar.`}
         - Explica al cliente con tono natural: "Para confirmar este pedido, necesitamos un abono por transferencia. Los productos marcados con 📦 son por encargo y debemos solicitarlos a nuestra bodega central. El saldo lo pagas cómodamente en el local cuando vengas a retirarlo."
         - Si el cliente insiste en pagar todo en local: explícale que necesitamos el abono por transferencia primero para poder solicitar el repuesto al proveedor. Pídele confirmar la transferencia.
         - Cuando el cliente acepte transferir el abono, pasa el estado a ESPERANDO_COMPROBANTE en tu JSON output.
-` : ''}
+`;
+        })() : ''}
         1. **Método de Pago**: Pregunta si prefiere 'Transferencia Online' o 'Pago en el local (Efectivo, Débito o Crédito)'.
         2. **Entrega**: 
            - Si paga online: Pregunta si desea 'Retiro en local' o 'Envío a domicilio'.

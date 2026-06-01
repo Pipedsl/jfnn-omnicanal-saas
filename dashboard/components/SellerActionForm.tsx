@@ -174,6 +174,7 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
     );
     const [note, setNote] = useState("");
     const [horarioEntrega, setHorarioEntrega] = useState("");
+    const [abonoMinimo, setAbonoMinimo] = useState<string>("");
     const [loading, setLoading] = useState(false);
 
     // BUG-004: Persistir entidades sin enviar la cotización inmediatamente
@@ -331,12 +332,14 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
                     vehiculos: vehiculosPayload
                 });
             } else {
+                const abonoMinimoNum = abonoMinimo ? parseInt(abonoMinimo.replace(/[^\d]/g, ''), 10) : 0;
                 await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/responder`, {
                     phone,
                     items: itemsPayload,
                     vehiculos: vehiculosPayload,
                     note,
                     horario_entrega: horarioEntrega,
+                    abono_minimo: Number.isFinite(abonoMinimoNum) && abonoMinimoNum > 0 ? abonoMinimoNum : null,
                     vendedor_nombre: vendedorNombre || undefined,
                     rectificacion: esRectificacion
                 });
@@ -492,6 +495,37 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
                     value={horarioEntrega}
                     onChange={(e) => setHorarioEntrega(e.target.value)}
                 />
+
+                {(() => {
+                    const allItems = formVehiculos.length > 0
+                        ? formVehiculos.flatMap(v => v.repuestos_solicitados)
+                        : formItems;
+                    const encargoItems = allItems.filter(i => i.disponibilidad === 'POR_ENCARGO');
+                    if (encargoItems.length === 0) return null;
+                    const subtotalEncargo = encargoItems.reduce((acc, i) => acc + ((Number(i.precio) || 0) * (Number(i.cantidad) || 1)), 0);
+                    const sugerido50 = Math.round(subtotalEncargo / 2);
+                    return (
+                        <div className="bg-yellow-500/5 border border-yellow-500/30 rounded-xl p-3 space-y-2">
+                            <div className="flex items-center gap-2">
+                                <span className="text-yellow-400 text-sm">🟡</span>
+                                <p className="text-[11px] font-bold text-yellow-400">
+                                    Abono mínimo para encargo (Opcional)
+                                </p>
+                            </div>
+                            <input
+                                type="text"
+                                inputMode="numeric"
+                                placeholder={`Ej: ${sugerido50.toLocaleString('es-CL')} (50% sugerido)`}
+                                className="bg-neutral-900 border border-yellow-500/30 rounded-lg block w-full p-2.5 text-xs text-white focus:ring-yellow-500 focus:border-yellow-500 placeholder-neutral-500"
+                                value={abonoMinimo}
+                                onChange={(e) => setAbonoMinimo(e.target.value.replace(/[^\d]/g, ''))}
+                            />
+                            <p className="text-[10px] text-neutral-400 leading-snug">
+                                Si lo dejas vacío, la IA usará el 50% del subtotal de encargo (${sugerido50.toLocaleString('es-CL')}) como abono mínimo.
+                            </p>
+                        </div>
+                    );
+                })()}
 
                 {(() => {
                     const allItems = formVehiculos.length > 0

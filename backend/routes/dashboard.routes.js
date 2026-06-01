@@ -526,7 +526,7 @@ router.post('/cotizaciones/:phone/release', async (req, res) => {
  */
 router.post('/cotizaciones/responder', async (req, res) => {
     try {
-        const { phone, items, vehiculos, note, horario_entrega, vendedor_nombre, rectificacion } = req.body;
+        const { phone, items, vehiculos, note, horario_entrega, vendedor_nombre, rectificacion, abono_minimo } = req.body;
 
         if (!phone || (!items && !vehiculos)) {
             return res.status(400).json({ error: 'Faltan campos obligatorios' });
@@ -683,10 +683,18 @@ router.post('/cotizaciones/responder', async (req, res) => {
         await sessionsService.setEstado(phone, 'CONFIRMANDO_COMPRA');
 
         // Al re-enviar la cotización formal (items nuevos ya con precio), limpiar el flag.
-        await sessionsService.updateEntidades(phone, {
+        const cleanupUpdate = {
             items_nuevos_sin_precio: false,
             items_nuevos_count: 0,
-        });
+        };
+        // Persistir abono_minimo definido manualmente por el vendedor (CLP int o null).
+        const abonoNum = Number.parseInt(abono_minimo, 10);
+        if (Number.isFinite(abonoNum) && abonoNum > 0) {
+            cleanupUpdate.abono_minimo = abonoNum;
+        } else if (abono_minimo === null || abono_minimo === 0 || abono_minimo === '') {
+            cleanupUpdate.abono_minimo = null;
+        }
+        await sessionsService.updateEntidades(phone, cleanupUpdate);
 
         res.status(200).json({ success: true, quoteId });
     } catch (error) {
