@@ -101,6 +101,30 @@ function formatTime(dateStr: string): string {
   return new Date(dateStr).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" });
 }
 
+function sameLocalDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function formatDateSeparator(dateStr: string): string {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (sameLocalDay(d, now)) return "Hoy";
+  if (sameLocalDay(d, yesterday)) return "Ayer";
+  const sameYear = d.getFullYear() === now.getFullYear();
+  return d.toLocaleDateString("es-CL", sameYear
+    ? { weekday: "short", day: "numeric", month: "short" }
+    : { day: "numeric", month: "short", year: "numeric" });
+}
+
+function formatFullDateTime(dateStr: string): string {
+  return new Date(dateStr).toLocaleString("es-CL", {
+    weekday: "short", day: "numeric", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  });
+}
+
 function getVentanaStatus(ventana: Ventana24h | null): { label: string; color: "green" | "yellow" | "red"; expired: boolean } {
   if (!ventana) return { label: "Sin mensajes", color: "red", expired: true };
   const remaining = new Date(ventana.expira_at).getTime() - Date.now();
@@ -802,7 +826,20 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
                   Sin mensajes
                 </div>
               ) : (
-                chat?.mensajes.map((msg) => (
+                chat?.mensajes.flatMap((msg, idx, arr) => {
+                  const prev = idx > 0 ? arr[idx - 1] : null;
+                  const showSeparator = !prev || !sameLocalDay(new Date(prev.created_at), new Date(msg.created_at));
+                  const nodes: React.ReactNode[] = [];
+                  if (showSeparator) {
+                    nodes.push(
+                      <div key={`sep-${msg.id}`} className="flex justify-center my-3">
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-neutral-800/80 text-neutral-400 border border-neutral-700">
+                          {formatDateSeparator(msg.created_at)}
+                        </span>
+                      </div>
+                    );
+                  }
+                  nodes.push(
                   <div
                     key={msg.id}
                     className={`flex ${msg.direccion === "saliente" ? "justify-end" : "justify-start"}`}
@@ -894,7 +931,7 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
                       )}
 
                       {/* Timestamp + status (estilo WhatsApp) */}
-                      <div className="flex items-center gap-1 mt-1">
+                      <div className="flex items-center gap-1 mt-1" title={formatFullDateTime(msg.created_at)}>
                         <Clock size={9} className="text-neutral-600" />
                         <span className="text-[9px] text-neutral-600">{formatTime(msg.created_at)}</span>
                         {msg._status === "pending" && (
@@ -909,7 +946,9 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
                       </div>
                     </div>
                   </div>
-                ))
+                  );
+                  return nodes;
+                })
               )}
               <div ref={chatEndRef} />
             </div>
