@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Send, Hash, DollarSign, Car, Package, Trash2, Plus } from "lucide-react";
+import { Send, Hash, DollarSign, Car, Package, Trash2, Plus, ChevronRight, Sparkles } from "lucide-react";
 import { api } from "@/lib/api";
 import { BACKEND_URL } from "@/lib/api";
 import { safeGet } from "@/lib/storage";
@@ -478,52 +478,81 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
                 )}
             </div>
 
-            {/* Footer Fijo de Cotización */}
-            <div className="shrink-0 p-6 border-t border-white/5 bg-background/80 flex flex-col gap-3">
-                <textarea
-                    placeholder="📝 Nota adicional (Opcional)... Ej: Repuestos alternativos japoneses"
-                    className="bg-neutral-900 border border-white/10 rounded-xl block w-full p-3 text-xs text-white focus:ring-accent focus:border-accent placeholder-neutral-500 resize-none"
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    rows={2}
-                />
-
-                <input
-                    type="text"
-                    placeholder="🚚 Logística (Opcional)... Ej: Retiros hoy hasta las 18:00 o Envíos mañana."
-                    className="bg-neutral-900 border border-white/10 rounded-xl block w-full p-3 text-xs text-white focus:ring-accent focus:border-accent placeholder-neutral-500"
-                    value={horarioEntrega}
-                    onChange={(e) => setHorarioEntrega(e.target.value)}
-                />
-
+            {/* Footer Fijo de Cotización — compacto para laptops pequeñas */}
+            <div className="shrink-0 px-4 py-3 lg:px-6 lg:py-4 border-t border-white/5 bg-background/80 flex flex-col gap-2.5">
                 {(() => {
                     const allItems = formVehiculos.length > 0
                         ? formVehiculos.flatMap(v => v.repuestos_solicitados)
                         : formItems;
                     const encargoItems = allItems.filter(i => i.disponibilidad === 'POR_ENCARGO');
-                    if (encargoItems.length === 0) return null;
+                    const hasEncargo = encargoItems.length > 0;
+                    const hasContent = !!(note || horarioEntrega || abonoMinimo);
+                    const openByDefault = hasEncargo || hasContent;
+
                     const subtotalEncargo = encargoItems.reduce((acc, i) => acc + ((Number(i.precio) || 0) * (Number(i.cantidad) || 1)), 0);
                     const sugerido50 = Math.round(subtotalEncargo / 2);
+
                     return (
-                        <div className="bg-yellow-500/5 border border-yellow-500/30 rounded-xl p-3 space-y-2">
-                            <div className="flex items-center gap-2">
-                                <span className="text-yellow-400 text-sm">🟡</span>
-                                <p className="text-[11px] font-bold text-yellow-400">
-                                    Abono mínimo para encargo (Opcional)
-                                </p>
+                        <details open={openByDefault} className="group">
+                            <summary className="list-none cursor-pointer flex items-center justify-between gap-2 py-1.5 px-2 rounded-lg hover:bg-white/5 transition-colors select-none">
+                                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-neutral-400">
+                                    <ChevronRight size={12} className="transition-transform group-open:rotate-90" />
+                                    Opciones de cotización
+                                    {hasContent && (
+                                        <span className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded-full bg-accent/15 text-accent text-[9px] font-bold normal-case tracking-normal">
+                                            {[note && 'nota', horarioEntrega && 'logística', abonoMinimo && 'abono'].filter(Boolean).length} activas
+                                        </span>
+                                    )}
+                                    {hasEncargo && !abonoMinimo && (
+                                        <span className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-yellow-500/15 text-yellow-400 text-[9px] font-bold normal-case tracking-normal">
+                                            🟡 abono sugerido
+                                        </span>
+                                    )}
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); handlePedirInfo(); }}
+                                    disabled={loading || esAjusteVentaFinal}
+                                    className="text-[10px] font-bold text-cyan-400 hover:text-cyan-300 disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1 px-2 py-1 rounded-md hover:bg-cyan-500/10 transition-colors"
+                                    title="Pide más info al cliente vía IA sin pausar el flujo"
+                                >
+                                    <Sparkles size={11} /> Pedir info
+                                </button>
+                            </summary>
+
+                            <div className="mt-2 space-y-2">
+                                <textarea
+                                    placeholder="📝 Nota adicional (Opcional)... Ej: Repuestos alternativos japoneses"
+                                    className="bg-neutral-900 border border-white/10 rounded-lg block w-full px-3 py-2 text-xs text-white focus:ring-1 focus:ring-accent focus:border-accent placeholder-neutral-500 resize-none"
+                                    value={note}
+                                    onChange={(e) => setNote(e.target.value)}
+                                    rows={2}
+                                />
+
+                                <input
+                                    type="text"
+                                    placeholder="🚚 Logística (Opcional)... Ej: Retiros hoy hasta 18:00"
+                                    className="bg-neutral-900 border border-white/10 rounded-lg block w-full px-3 py-2 text-xs text-white focus:ring-1 focus:ring-accent focus:border-accent placeholder-neutral-500"
+                                    value={horarioEntrega}
+                                    onChange={(e) => setHorarioEntrega(e.target.value)}
+                                />
+
+                                {hasEncargo && (
+                                    <div className="flex items-center gap-2 bg-yellow-500/5 border border-yellow-500/30 rounded-lg px-2.5 py-2">
+                                        <span className="text-yellow-400 text-xs flex-shrink-0">🟡</span>
+                                        <input
+                                            type="text"
+                                            inputMode="numeric"
+                                            placeholder={`Abono mín. encargo · sugerido $${sugerido50.toLocaleString('es-CL')}`}
+                                            className="bg-transparent border-0 block w-full px-1 py-0.5 text-xs text-white focus:ring-0 focus:outline-none placeholder-yellow-400/60"
+                                            value={abonoMinimo}
+                                            onChange={(e) => setAbonoMinimo(e.target.value.replace(/[^\d]/g, ''))}
+                                            title={`Si dejas vacío, la IA usará 50% del subtotal de encargo ($${sugerido50.toLocaleString('es-CL')})`}
+                                        />
+                                    </div>
+                                )}
                             </div>
-                            <input
-                                type="text"
-                                inputMode="numeric"
-                                placeholder={`Ej: ${sugerido50.toLocaleString('es-CL')} (50% sugerido)`}
-                                className="bg-neutral-900 border border-yellow-500/30 rounded-lg block w-full p-2.5 text-xs text-white focus:ring-yellow-500 focus:border-yellow-500 placeholder-neutral-500"
-                                value={abonoMinimo}
-                                onChange={(e) => setAbonoMinimo(e.target.value.replace(/[^\d]/g, ''))}
-                            />
-                            <p className="text-[10px] text-neutral-400 leading-snug">
-                                Si lo dejas vacío, la IA usará el 50% del subtotal de encargo (${sugerido50.toLocaleString('es-CL')}) como abono mínimo.
-                            </p>
-                        </div>
+                        </details>
                     );
                 })()}
 
@@ -533,34 +562,22 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
                         : formItems;
                     const hasPending = allItems.some(item => item.pendiente_identificacion);
                     return hasPending ? (
-                        <div className="w-full py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-bold text-center">
+                        <div className="w-full py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-bold text-center">
                             ⚠️ Confirma todas las piezas identificadas por IA antes de cotizar
                         </div>
                     ) : null;
                 })()}
 
                 {esRectificacion && (
-                    <div className="w-full py-2 px-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] text-center">
-                        ⚠️ La cotización ya fue enviada al cliente. Al guardar se enviará como <strong>RECTIFICACIÓN</strong> reemplazando la anterior.
+                    <div className="w-full py-1.5 px-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] text-center">
+                        ⚠️ Se enviará como <strong>RECTIFICACIÓN</strong> reemplazando la anterior.
                     </div>
                 )}
 
                 {esAjusteVentaFinal && (
-                    <div className="w-full py-2 px-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] text-center">
-                        💰 <strong>AJUSTE DE VENTA FINAL</strong>: registra lo que el cliente compró REALMENTE en el local (incluye items extras o cambios de marca). NO se envía mensaje al cliente — es solo para KPIs internos.
+                    <div className="w-full py-1.5 px-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] text-center">
+                        💰 <strong>AJUSTE DE VENTA FINAL</strong> · NO se envía mensaje al cliente, solo KPIs internos.
                     </div>
-                )}
-
-                {!esAjusteVentaFinal && (
-                    <button
-                        type="button"
-                        onClick={handlePedirInfo}
-                        disabled={loading}
-                        className="w-full py-2 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-[10px] font-bold uppercase tracking-widest hover:bg-cyan-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
-                        title="Pide más info al cliente vía IA sin pausar el flujo. Útil cuando necesitas un dato extra antes de cotizar."
-                    >
-                        💡 Pedir Info Adicional al Cliente (sin pausar IA)
-                    </button>
                 )}
 
                 <div className="flex gap-2 w-full">
@@ -572,7 +589,7 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
                                 : formItems;
                             return allItems.some(item => item.pendiente_identificacion);
                         })()}
-                        className={`flex-1 py-3 rounded-xl font-bold uppercase tracking-widest text-[10px] focus:ring-4 transition-all disabled:opacity-50 flex items-center justify-center gap-2 ${
+                        className={`flex-1 py-2.5 rounded-xl font-bold uppercase tracking-widest text-[10px] focus:ring-4 transition-all disabled:opacity-50 flex items-center justify-center gap-2 ${
                             esAjusteVentaFinal
                                 ? 'bg-emerald-500 text-black hover:bg-emerald-400 focus:ring-emerald-500/20'
                                 : esRectificacion
@@ -590,7 +607,7 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
                             type="button"
                             onClick={handleAnular}
                             disabled={loading}
-                            className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 font-bold uppercase tracking-widest text-[10px] hover:bg-red-500/20 transition-all disabled:opacity-50"
+                            className="px-3 py-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 font-bold uppercase tracking-widest text-[10px] hover:bg-red-500/20 transition-all disabled:opacity-50"
                             title="Anular cotización: envía disculpa al cliente y vuelve a ESPERANDO_VENDEDOR"
                         >
                             ❌ Anular

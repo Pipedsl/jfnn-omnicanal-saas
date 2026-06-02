@@ -955,67 +955,72 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                         Cancelar edición
                                                     </button>
                                                 )}
-                                                <div className="flex flex-col gap-2 pt-2 border-t border-white/5">
+                                                <div className="flex flex-col gap-1.5 pt-2 border-t border-white/5">
                                                     {(estado === 'ARCHIVADO' || estado === 'ESPERANDO_VENDEDOR') && (
-                                                        <>
-                                                            <p className="text-xs text-neutral-500 text-center uppercase tracking-wider font-bold">
-                                                                📨 Re-enganche (si pasaron +24h)
-                                                            </p>
-                                                            <div className="flex gap-2">
+                                                        <div className="flex gap-1.5">
+                                                            <button
+                                                                type="button"
+                                                                onClick={async () => {
+                                                                    try {
+                                                                        await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
+                                                                            phone,
+                                                                            templateName: 'cotizacion_lista',
+                                                                            nombre: entidades.nombre_cliente || "Cliente",
+                                                                            repuesto: "los repuestos solicitados"
+                                                                        });
+                                                                        alert("✅ Plantilla 'Cotización Lista' enviada.");
+                                                                        closeModal();
+                                                                        onResponded();
+                                                                    } catch (err) {
+                                                                        console.error(err);
+                                                                        alert("Error al enviar la plantilla.");
+                                                                    }
+                                                                }}
+                                                                className="flex-1 py-1.5 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-[10px] font-bold hover:bg-green-500/20 transition-colors flex items-center justify-center gap-1.5"
+                                                                title="📨 Plantilla HSM (+24h): Notifica al cliente que su cotización está lista."
+                                                            >
+                                                                <Send size={11} /> Cot. Lista
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={async () => {
+                                                                    try {
+                                                                        await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
+                                                                            phone,
+                                                                            templateName: 'retomar_cotizacion',
+                                                                            nombre: entidades.nombre_cliente || "Cliente",
+                                                                            repuesto: "los repuestos solicitados"
+                                                                        });
+                                                                        alert("✅ Plantilla 'Retomar Cotización' enviada.");
+                                                                        closeModal();
+                                                                        onResponded();
+                                                                    } catch (err) {
+                                                                        console.error(err);
+                                                                        alert("Error al enviar la plantilla.");
+                                                                    }
+                                                                }}
+                                                                className="flex-1 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/30 text-purple-400 text-[10px] font-bold hover:bg-purple-500/20 transition-colors flex items-center justify-center gap-1.5"
+                                                                title="📨 Plantilla HSM (+24h): Recordatorio para retomar cotización abandonada."
+                                                            >
+                                                                <MessageSquareOff size={11} /> Retomar
+                                                            </button>
+                                                            {estado !== 'ARCHIVADO' && (
                                                                 <button
                                                                     type="button"
-                                                                    onClick={async () => {
-                                                                        try {
-                                                                            await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
-                                                                                phone,
-                                                                                templateName: 'cotizacion_lista',
-                                                                                nombre: entidades.nombre_cliente || "Cliente",
-                                                                                repuesto: "los repuestos solicitados"
-                                                                            });
-                                                                            alert("✅ Plantilla 'Cotización Lista' enviada.");
-                                                                            closeModal();
-                                                                            onResponded();
-                                                                        } catch (err) {
-                                                                            console.error(err);
-                                                                            alert("Error al enviar la plantilla.");
-                                                                        }
-                                                                    }}
-                                                                    className="flex-1 py-2 rounded-xl bg-green-500/10 border border-green-500/30 text-green-400 text-xs font-bold hover:bg-green-500/20 transition-colors flex items-center justify-center gap-1.5"
-                                                                    title="Notifica al cliente que su cotización está lista para revisión."
+                                                                    onClick={archivarConMotivo}
+                                                                    className="px-3 py-1.5 rounded-lg bg-neutral-800/50 border border-neutral-700/50 text-neutral-400 text-[10px] font-medium hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 transition-all flex items-center justify-center gap-1.5"
+                                                                    title="Archivar esta cotización indicando el motivo."
                                                                 >
-                                                                    <Send size={12} /> Cotización Lista
+                                                                    <Archive size={11} />
                                                                 </button>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={async () => {
-                                                                        try {
-                                                                            await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
-                                                                                phone,
-                                                                                templateName: 'retomar_cotizacion',
-                                                                                nombre: entidades.nombre_cliente || "Cliente",
-                                                                                repuesto: "los repuestos solicitados"
-                                                                            });
-                                                                            alert("✅ Plantilla 'Retomar Cotización' enviada.");
-                                                                            closeModal();
-                                                                            onResponded();
-                                                                        } catch (err) {
-                                                                            console.error(err);
-                                                                            alert("Error al enviar la plantilla.");
-                                                                        }
-                                                                    }}
-                                                                    className="flex-1 py-2 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-400 text-xs font-bold hover:bg-purple-500/20 transition-colors flex items-center justify-center gap-1.5"
-                                                                    title="Envía un recordatorio al cliente para que retome una cotización abandonada."
-                                                                >
-                                                                    <MessageSquareOff size={12} /> Retomar Conversación
-                                                                </button>
-                                                            </div>
-                                                        </>
+                                                            )}
+                                                        </div>
                                                     )}
-                                                    {estado !== 'ARCHIVADO' && (
+                                                    {estado !== 'ARCHIVADO' && estado !== 'ESPERANDO_VENDEDOR' && (
                                                         <button
                                                             type="button"
                                                             onClick={archivarConMotivo}
-                                                            className="w-full mt-1 py-1.5 rounded-lg bg-neutral-800/50 border border-neutral-700/50 text-neutral-500 text-xs font-medium hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 transition-all flex items-center justify-center gap-1.5"
+                                                            className="w-full mt-1 py-1.5 rounded-lg bg-neutral-800/50 border border-neutral-700/50 text-neutral-500 text-[10px] font-medium hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 transition-all flex items-center justify-center gap-1.5"
                                                             title="Archiva esta cotización indicando el motivo. Quedará en Historial > Archivados."
                                                         >
                                                             <Archive size={11} /> Archivar / Descartar
@@ -1302,64 +1307,68 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                 )}
 
                                 {(estado === 'ARCHIVADO' || estado === 'ESPERANDO_VENDEDOR') && (
-                                    <div className={`flex flex-col gap-2 ${estado === 'ESPERANDO_VENDEDOR' ? 'mt-4' : ''}`}>
-                                        <p className="text-xs text-neutral-500 text-center uppercase tracking-wider font-bold">
-                                            📨 Re-enganche (si pasaron +24h)
-                                        </p>
-                                        <div className="flex gap-2">
+                                    <div className={`flex gap-2 ${estado === 'ESPERANDO_VENDEDOR' ? 'mt-2' : ''}`}>
+                                        <button
+                                            onClick={async () => {
+                                                try {
+                                                    await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
+                                                        phone,
+                                                        templateName: 'cotizacion_lista',
+                                                        nombre: entidades.nombre_cliente || "Cliente",
+                                                        repuesto: "los repuestos solicitados"
+                                                    });
+                                                    alert("✅ Plantilla 'Cotización Lista' enviada.");
+                                                    closeModal();
+                                                    onResponded();
+                                                } catch (err) {
+                                                    console.error(err);
+                                                    alert("Error al enviar la plantilla.");
+                                                }
+                                            }}
+                                            className="flex-1 py-1.5 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-[10px] font-bold hover:bg-green-500/20 transition-colors flex items-center justify-center gap-1.5"
+                                            title="📨 Plantilla HSM (+24h): Notifica al cliente que su cotización está lista."
+                                        >
+                                            <Send size={11} /> Cot. Lista
+                                        </button>
+                                        <button
+                                            onClick={async () => {
+                                                try {
+                                                    await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
+                                                        phone,
+                                                        templateName: 'retomar_cotizacion',
+                                                        nombre: entidades.nombre_cliente || "Cliente",
+                                                        repuesto: "los repuestos solicitados"
+                                                    });
+                                                    alert("✅ Plantilla 'Retomar Cotización' enviada.");
+                                                    closeModal();
+                                                    onResponded();
+                                                } catch (err) {
+                                                    console.error(err);
+                                                    alert("Error al enviar la plantilla.");
+                                                }
+                                            }}
+                                            className="flex-1 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/30 text-purple-400 text-[10px] font-bold hover:bg-purple-500/20 transition-colors flex items-center justify-center gap-1.5"
+                                            title="📨 Plantilla HSM (+24h): Recordatorio para retomar cotización abandonada."
+                                        >
+                                            <MessageSquareOff size={11} /> Retomar
+                                        </button>
+                                        {estado !== 'ARCHIVADO' && (
                                             <button
-                                                onClick={async () => {
-                                                    try {
-                                                        await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
-                                                            phone,
-                                                            templateName: 'cotizacion_lista',
-                                                            nombre: entidades.nombre_cliente || "Cliente",
-                                                            repuesto: "los repuestos solicitados"
-                                                        });
-                                                        alert("✅ Plantilla 'Cotización Lista' enviada.");
-                                                        closeModal();
-                                                        onResponded();
-                                                    } catch (err) {
-                                                        console.error(err);
-                                                        alert("Error al enviar la plantilla.");
-                                                    }
-                                                }}
-                                                className="flex-1 py-2 rounded-xl bg-green-500/10 border border-green-500/30 text-green-400 text-xs font-bold hover:bg-green-500/20 transition-colors flex items-center justify-center gap-1.5"
-                                                title="Notifica al cliente que su cotización está lista para revisión."
+                                                onClick={archivarConMotivo}
+                                                className="px-3 py-1.5 rounded-lg bg-neutral-800/50 border border-neutral-700/50 text-neutral-400 text-[10px] font-medium hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 transition-all flex items-center justify-center gap-1.5"
+                                                title="Archivar esta cotización indicando el motivo. Quedará en Historial > Archivados."
                                             >
-                                                <Send size={12} /> Cotización Lista
+                                                <Archive size={11} />
                                             </button>
-                                            <button
-                                                onClick={async () => {
-                                                    try {
-                                                        await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
-                                                            phone,
-                                                            templateName: 'retomar_cotizacion',
-                                                            nombre: entidades.nombre_cliente || "Cliente",
-                                                            repuesto: "los repuestos solicitados"
-                                                        });
-                                                        alert("✅ Plantilla 'Retomar Cotización' enviada.");
-                                                        closeModal();
-                                                        onResponded();
-                                                    } catch (err) {
-                                                        console.error(err);
-                                                        alert("Error al enviar la plantilla.");
-                                                    }
-                                                }}
-                                                className="flex-1 py-2 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-400 text-xs font-bold hover:bg-purple-500/20 transition-colors flex items-center justify-center gap-1.5"
-                                                title="Envía un recordatorio al cliente para que retome una cotización abandonada."
-                                            >
-                                                <MessageSquareOff size={12} /> Retomar Conversación
-                                            </button>
-                                        </div>
+                                        )}
                                     </div>
                                 )}
 
-                                {/* Botón universal de archivado - visible en TODOS los estados excepto ARCHIVADO */}
-                                {estado !== 'ARCHIVADO' && (
+                                {/* Archivar — visible en estados intermedios (no ESPERANDO_VENDEDOR ni ARCHIVADO porque ya está arriba) */}
+                                {estado !== 'ARCHIVADO' && estado !== 'ESPERANDO_VENDEDOR' && (
                                     <button
                                         onClick={archivarConMotivo}
-                                        className="w-full mt-3 py-1.5 rounded-lg bg-neutral-800/50 border border-neutral-700/50 text-neutral-500 text-xs font-medium hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 transition-all flex items-center justify-center gap-1.5"
+                                        className="w-full mt-2 py-1.5 rounded-lg bg-neutral-800/50 border border-neutral-700/50 text-neutral-500 text-[10px] font-medium hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/30 transition-all flex items-center justify-center gap-1.5"
                                         title="Archiva esta cotización indicando el motivo. Quedará en Historial > Archivados."
                                     >
                                         <Archive size={11} /> Archivar / Descartar

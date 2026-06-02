@@ -57,3 +57,10 @@ documentacion/**/*_PRIVATE*
 **/*.pem
 **/*.key
 **/service-account*.json
+
+# Local-only: skills instaladas con `npx skills add` (se reinstalan por usuario)
+.agents/skills/
+skills-lock.json
+
+# Screenshots de inspección visual (local)
+.preview-screenshots/
