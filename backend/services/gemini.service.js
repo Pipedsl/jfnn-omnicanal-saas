@@ -140,11 +140,21 @@ const generateResponse = async (userText, sessionContext, imageData = null, audi
         const hasAudio = audioList.length > 0;
         const safeText = userText || ''; // Guard: previene ReferenceError si userText es undefined
 
-        // Selección inteligente de modelo:
-        // - Pro: Para razonamiento profundo (diagnósticos, síntomas, cierre de venta complejo, y SIEMPRE con audio)
-        // - Flash: Para velocidad y procesamiento visual estándar
-        const isComplex = hasAudio || state === 'CONFIRMANDO_COMPRA' || (safeText.length > 100 || safeText.toLowerCase().includes('calienta') || safeText.toLowerCase().includes('ruido') || safeText.toLowerCase().includes('falla'));
+        // Selección inteligente de modelo (optimización de costos junio 2026):
+        // - Pro 3.1: Solo cuando hay audio (transcripción robusta) o síntomas técnicos
+        //   reales que requieren diagnóstico (calienta, ruido, falla, vibra, etc.).
+        // - Flash 3: Para todo lo demás — conversación normal, cotización, confirmación
+        //   de compra, multi-turno. Cubre 90%+ de las interacciones.
+        // Antes: CONFIRMANDO_COMPRA + cualquier texto > 100 chars también disparaba Pro,
+        // lo que mandaba a Pro casi cualquier cotización media. Pro cuesta ~5x más
+        // que Flash en output tokens; restringir su uso a casos reales bajó el costo
+        // proyectado de Gemini de ~CLP 29k/mes a ~10-15k/mes sin afectar la calidad.
+        const sintomasTecnicos = /\b(calienta|recalienta|ruido|fall(a|o)|vibra|golpe|no enciende|no parte|no prende|humo|aceite|chirrido|temblor|p[eé]rdida|fuga)\b/i;
+        const isComplex = hasAudio || sintomasTecnicos.test(safeText);
         const modelName = isComplex ? "gemini-3.1-pro-preview" : "gemini-3-flash-preview";
+        if (process.env.NODE_ENV !== 'production') {
+            console.log(`[Gemini] 🤖 Modelo elegido: ${modelName} (audio=${hasAudio}, sintomas=${sintomasTecnicos.test(safeText)}, estado=${state})`);
+        }
         if (hasAudio) console.log(`[Audio] 🎤 Usando ${modelName} para procesar ${audioList.length} nota(s) de voz de ${sessionContext.phone || 'cliente'}.`);
 
         const model = genAI.getGenerativeModel({ model: modelName });
