@@ -340,6 +340,44 @@ const processBufferedMessages = async (customerPhone) => {
         }
 
         // ═══════════════════════════════════════════════════════
+        // GUARD: ACK POST-SOLICITUD en estados de espera
+        // ═══════════════════════════════════════════════════════
+        // Caso real: vendedor (o IA) pide el comprobante. Cliente responde "Ok".
+        // La IA volvía a pedir el comprobante en el siguiente turno → hostigamiento.
+        // Si estamos en estado de espera y el cliente solo dice ack corto, no
+        // responder nada. Esperar acción real del cliente (foto, archivo, pregunta).
+        const ESTADOS_ESPERA_ACCION = [
+            sessionsService.STATES.ESPERANDO_COMPROBANTE,
+            sessionsService.STATES.ESPERANDO_SALDO,
+            sessionsService.STATES.ESPERANDO_RETIRO,
+            sessionsService.STATES.ABONO_VERIFICADO,
+            sessionsService.STATES.ENCARGO_SOLICITADO,
+        ];
+        if (
+            ESTADOS_ESPERA_ACCION.includes(session.estado) &&
+            !hasImage && !hasAudio &&
+            userText && userText.trim().length > 0 && userText.trim().length <= 25
+        ) {
+            const ackRe = /^[\s.,!?¡¿👋🙏❤️💚⭐🌟🤝👌👍🎉✅]*(ok|okey|okay|dale|listo|s[ií]|s[ií]i|bueno|perfecto|ya|vale|👍|🙏|🙌|✅|gracias|muchas gracias)[\s.,!?¡¿👋🙏❤️💚⭐🌟🤝👌👍🎉✅]*$/i;
+            if (ackRe.test(userText.trim())) {
+                try {
+                    const lastMsgs = await mensajesService.listarPorPhone(customerPhone, { limit: 5 }).catch(() => []);
+                    const ultimoSaliente = (Array.isArray(lastMsgs) ? lastMsgs : [])
+                        .filter(m => m.direccion === 'saliente')
+                        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+                    const contenidoUltimo = (ultimoSaliente?.contenido || '').toLowerCase();
+                    const fueSolicitud = /comprobante|adjunta|adjunte|env[ií]ame|env[ií]a|m[áa]ndame|m[áa]ndalo|transferencia|transferir|pago|recibo|voucher/.test(contenidoUltimo);
+                    if (fueSolicitud) {
+                        console.log(`[Ack] 🤫 Cliente respondió ack ("${userText.trim()}") a solicitud previa en ${session.estado}. No responder.`);
+                        return;
+                    }
+                } catch (ackErr) {
+                    console.warn(`[Ack] ⚠️ No se pudo evaluar guard ack: ${ackErr.message}`);
+                }
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════
         // ESTADO: ESPERANDO_APROBACION_ADMIN
         // ═══════════════════════════════════════════════════════
         if (session.estado === sessionsService.STATES.ESPERANDO_APROBACION_ADMIN) {
@@ -724,7 +762,24 @@ const processBufferedMessages = async (customerPhone) => {
                     await sendAndPersist(customerPhone, `🔧 Recibí tu foto. Un asesor la revisará junto a tu cotización.`);
                     return;
                 }
-                // tipo 'otro' → seguimos al flujo de voucher (el cliente envía algo más raro)
+                if (tipoImagen === 'datos_bancarios' || tipoImagen === 'otro') {
+                    // En estado de pago, una imagen que NO es comprobante real (datos
+                    // bancarios, foto reenviada, captura de pantalla, foto random) es
+                    // probablemente una CONSULTA del cliente. Pausamos la IA y marcamos
+                    // alerta para que un humano revise — no insistimos con "mándame el
+                    // comprobante" porque puede ser una pregunta legítima.
+                    const motivo = tipoImagen === 'datos_bancarios' ? 'imagen_datos_bancarios' : 'imagen_no_comprobante';
+                    console.log(`[P1] 🚨 Imagen tipo "${tipoImagen}" en estado de pago. Pausando IA y derivando a vendedor (${motivo}).`);
+                    await sessionsService.updateEntidades(customerPhone, {
+                        agente_pausado: true,
+                        alerta_consulta_pago: true,
+                        alerta_consulta_pago_motivo: motivo,
+                        alerta_consulta_pago_at: new Date().toISOString(),
+                    });
+                    await sendAndPersist(customerPhone, `Recibí tu mensaje 🙏. Un asesor lo revisa y te responde en unos minutos.`);
+                    return;
+                }
+                // tipo 'comprobante' → cae al flujo de voucher abajo
                 // pero validamos que extractVoucherData encuentre datos reales antes de avanzar estado
             } catch (clsErr) {
                 console.warn(`[P1] ⚠️ Clasificación de imagen falló: ${clsErr.message}. Asumiendo comprobante (fallback).`);
@@ -1036,6 +1091,55 @@ const processBufferedMessages = async (customerPhone) => {
         if (!session) {
             console.error(`[CRITICAL] No se pudo actualizar sesión de ${customerPhone} tras respuesta de Gemini. Usando backup local.`);
             session = originalSession; // Mantener estado anterior para no perder el contexto del render
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
+        // LOCK de cotización en estados post-cotización
+        // ──────────────────────────────────────────────────────────────────────
+        // Caso real: cliente reenvía screenshot del vendedor con texto tipo
+        // "frontal $60.000 abono $20.000" → Gemini extrae "frontal" como repuesto
+        // nuevo y lo agrega a la cotización. La cotización está congelada en estos
+        // estados — solo el handler explícito de AGREGAR_REPUESTO puede modificarla.
+        // Acá comparamos repuestos antes vs después del merge y revertimos cualquier
+        // item nuevo que no venga marcado con accion='AGREGAR_REPUESTO'.
+        const ESTADOS_COTIZACION_LOCKED = [
+            sessionsService.STATES.CONFIRMANDO_COMPRA,
+            sessionsService.STATES.ESPERANDO_COMPROBANTE,
+            sessionsService.STATES.ESPERANDO_APROBACION_ADMIN,
+            sessionsService.STATES.PAGO_VERIFICADO,
+            sessionsService.STATES.ESPERANDO_RETIRO,
+            sessionsService.STATES.DESPACHADO,
+            sessionsService.STATES.ENTREGADO,
+            sessionsService.STATES.CICLO_COMPLETO,
+            sessionsService.STATES.ABONO_VERIFICADO,
+            sessionsService.STATES.ENCARGO_SOLICITADO,
+            sessionsService.STATES.ESPERANDO_SALDO,
+        ];
+        if (
+            session &&
+            ESTADOS_COTIZACION_LOCKED.includes(originalSession.estado) &&
+            aiJson.accion !== 'AGREGAR_REPUESTO'
+        ) {
+            const flatPre = [
+                ...(Array.isArray(originalSession.entidades?.repuestos_solicitados) ? originalSession.entidades.repuestos_solicitados : []),
+                ...((Array.isArray(originalSession.entidades?.vehiculos) ? originalSession.entidades.vehiculos : []).flatMap(v => Array.isArray(v?.repuestos_solicitados) ? v.repuestos_solicitados : [])),
+            ];
+            const flatPost = [
+                ...(Array.isArray(session.entidades?.repuestos_solicitados) ? session.entidades.repuestos_solicitados : []),
+                ...((Array.isArray(session.entidades?.vehiculos) ? session.entidades.vehiculos : []).flatMap(v => Array.isArray(v?.repuestos_solicitados) ? v.repuestos_solicitados : [])),
+            ];
+            const norm = (s) => (s || '').toString().toLowerCase().trim();
+            const preNombres = new Set(flatPre.map(r => norm(r.nombre)));
+            const itemsAgregadosPorError = flatPost.filter(r => r && r.nombre && !preNombres.has(norm(r.nombre)));
+
+            if (itemsAgregadosPorError.length > 0) {
+                console.warn(`[Lock] 🔒 ${itemsAgregadosPorError.length} repuesto(s) extraídos por error en estado ${originalSession.estado} para ${customerPhone}. Revirtiendo: ${itemsAgregadosPorError.map(r => r.nombre).join(', ')}`);
+                await sessionsService.updateEntidades(customerPhone, {
+                    repuestos_solicitados: originalSession.entidades?.repuestos_solicitados || [],
+                    vehiculos: originalSession.entidades?.vehiculos || [],
+                });
+                session = await sessionsService.getSession(customerPhone);
+            }
         }
 
         // Safety net anti-huérfanos: si Gemini igual creó repuestos en el root con multi-vehículo

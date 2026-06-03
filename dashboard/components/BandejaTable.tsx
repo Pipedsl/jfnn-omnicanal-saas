@@ -257,6 +257,16 @@ export default function BandejaTable({ quotes, filter, searchQuery, onOpenDetail
                                             ⚠️ DEVOLUCIÓN / GARANTÍA
                                         </span>
                                     )}
+                                    {quote.entidades?.alerta_consulta_pago && (
+                                        <span
+                                            className="text-[9px] text-cyan-300 font-bold mt-0.5 inline-block bg-cyan-500/15 border border-cyan-500/40 rounded px-1.5 py-0.5"
+                                            title={quote.entidades?.alerta_consulta_pago_motivo === 'imagen_datos_bancarios'
+                                                ? 'Cliente envió foto de datos bancarios (no comprobante). Revisar.'
+                                                : 'Cliente envió imagen no identificada en flujo de pago. Revisar.'}
+                                        >
+                                            💬 CONSULTA PAGO
+                                        </span>
+                                    )}
                                     {quote.entidades?.items_nuevos_sin_precio && (
                                         <span
                                             className="text-[9px] text-orange-300 font-bold mt-0.5 inline-block bg-orange-500/15 border border-orange-500/40 rounded px-1.5 py-0.5"

@@ -1670,6 +1670,58 @@ router.patch('/sessions/:phone/entidades', async (req, res) => {
     }
 });
 
+/**
+ * PATCH /api/dashboard/contactos/:phone/nombre
+ * Asigna/actualiza el nombre de un contacto. Persiste en `clientes` (upsert por
+ * phone) y, si existe sesión activa, también actualiza entidades.nombre_cliente
+ * para que la bandeja y el chat reflejen el cambio sin esperar al próximo turno.
+ *
+ * Body: { nombre: string }
+ */
+router.patch('/contactos/:phone/nombre', async (req, res) => {
+    try {
+        const { phone } = req.params;
+        const nombre = (req.body?.nombre || '').toString().trim();
+
+        if (!phone || !/^\d{10,15}$/.test(phone)) {
+            return res.status(400).json({ error: 'phone inválido (esperado dígitos sin formato).' });
+        }
+        if (!nombre) {
+            return res.status(400).json({ error: 'nombre vacío.' });
+        }
+        if (nombre.length > 100) {
+            return res.status(400).json({ error: 'nombre demasiado largo (máx 100).' });
+        }
+
+        // Upsert en clientes (perfil persistente entre sesiones).
+        await db.query(
+            `INSERT INTO clientes (phone, nombre, created_at, updated_at)
+             VALUES ($1, $2, NOW(), NOW())
+             ON CONFLICT (phone) DO UPDATE
+               SET nombre = EXCLUDED.nombre,
+                   updated_at = NOW()`,
+            [phone, nombre]
+        );
+
+        // Si hay sesión activa, actualizar entidades.nombre_cliente.
+        let sesionActualizada = false;
+        try {
+            const session = await sessionsService.getSession(phone).catch(() => null);
+            if (session) {
+                await sessionsService.updateEntidades(phone, { nombre_cliente: nombre });
+                sesionActualizada = true;
+            }
+        } catch (sessErr) {
+            console.warn('[Contactos] Sesión no actualizable (continúa OK clientes):', sessErr.message);
+        }
+
+        res.status(200).json({ success: true, phone, nombre, sesion_actualizada: sesionActualizada });
+    } catch (error) {
+        console.error('[Contactos] Error en PATCH /contactos/:phone/nombre:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
 // ═══════════════════════════════════════════════════════════════
 // HU-7: Entrenador IA — Knowledge Base
 // ═══════════════════════════════════════════════════════════════

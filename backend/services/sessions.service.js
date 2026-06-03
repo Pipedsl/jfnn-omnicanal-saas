@@ -967,13 +967,25 @@ const setAgentePausado = async (phone, pausado) => {
         const session = await getSession(phone);
         const entidades = { ...session.entidades, agente_pausado: pausado };
 
+        // Al REANUDAR la IA, asumimos que el vendedor ya resolvió la consulta que la
+        // pausó (consulta de pago, devolución, etc.). Limpiamos los flags de alerta
+        // para que el badge desaparezca de la bandeja y el flujo siga normal.
+        if (pausado === false) {
+            entidades.alerta_consulta_pago = false;
+            entidades.alerta_consulta_pago_motivo = null;
+            entidades.alerta_consulta_pago_at = null;
+            entidades.alerta_devolucion = false;
+            entidades.alerta_devolucion_mensaje = null;
+            entidades.alerta_devolucion_at = null;
+        }
+
         const { rows } = await db.query(
             `UPDATE user_sessions SET entidades = $1 WHERE phone = $2 RETURNING *`,
             [JSON.stringify(entidades), phone]
         );
 
         sessionCache.delete(phone);
-        console.log(`[Sessions] ⏸️ Agente ${pausado ? 'pausado' : 'reactivado'} para ${phone}`);
+        console.log(`[Sessions] ⏸️ Agente ${pausado ? 'pausado' : 'reactivado (alertas limpiadas)'} para ${phone}`);
         return rowToSession(rows[0]);
     } catch (err) {
         console.error('[Sessions] ❌ Error en setAgentePausado:', err.message);

@@ -425,6 +425,9 @@ ${sessionContext.entidades.metodo_pago ? `
           - PROHIBIDO crear entries de repuestos con nombres como "repuesto según fotografía", "repuesto según imagen", "pieza de la foto".
           - Si la imagen no se identificó claramente (confianza baja o no se reconoce), NO crees entry falso. Deja el flag 'pendiente_identificacion_foto: true' para que el asesor lo resuelva manualmente.
         - Si el cliente envía una FOTO DE UN COMPROBANTE DE PAGO: Agradécele formalmente y dile que un asesor validará la transferencia en unos minutos para agendar el despacho.
+        - 🏦 IMAGEN DE DATOS BANCARIOS (CRÍTICO): si la imagen contiene SOLO datos de una cuenta para transferir (cuenta corriente, banco, RUT, nombre del titular) SIN monto transferido ni nº de operación, NO digas "recibí su comprobante". El sistema ya respondió por ti pidiendo el comprobante real — no insistas. La imagen probablemente es un reenvío del cartel del vendedor o una confirmación de qué cuenta usar.
+        - 🔒 NO MODIFICAR COTIZACIÓN EN ESTADOS POST-COTIZACIÓN: si la sesión está en CONFIRMANDO_COMPRA, ESPERANDO_COMPROBANTE, ESPERANDO_APROBACION_ADMIN, PAGO_VERIFICADO, ABONO_VERIFICADO, ENCARGO_SOLICITADO, ESPERANDO_SALDO, ESPERANDO_RETIRO, etc., NUNCA agregues repuestos nuevos a entidades.repuestos_solicitados ni a entidades.vehiculos[].repuestos_solicitados a partir del OCR de una imagen, de un caption, o de un texto reenviado. Si el cliente quiere agregar genuinamente un repuesto nuevo, devuelve accion: 'AGREGAR_REPUESTO' y deja que el sistema regrese a cotización. NO inventes repuestos a partir de capturas de pantalla, carteles, mensajes reenviados o texto OCR de fotos.
+        - 🤫 NO INSISTIR EN ESTADOS DE ESPERA: si la sesión está en ESPERANDO_COMPROBANTE / ESPERANDO_SALDO / ESPERANDO_APROBACION_ADMIN / ABONO_VERIFICADO / ENCARGO_SOLICITADO y el cliente responde con un ack corto ("ok", "dale", "listo", "sí", "perfecto", "👍", "gracias"), NO repitas la solicitud del comprobante ni del paso siguiente. El cliente entendió, está procesando. Solo responde si: (a) envía la foto/archivo solicitado, (b) pregunta algo nuevo, (c) reporta un problema. En caso contrario, responde con un mensaje breve de cortesía ("Quedo atento 🙌") o no respondas (mensaje_cliente vacío).
         - Si el cliente envía una NOTA DE VOZ: Transcríbela internamente y trátala exactamente como si fuera texto escrito. Extrae patente, año, marca, modelo, repuestos y cualquier dato del vehículo que mencione. NO menciones que recibiste un audio en tu respuesta, responde directamente al contenido. Devuelve la transcripción literal en el campo "transcripcion_audio" de tu JSON de respuesta (solo cuando haya audio; si no hay audio, omite el campo o pon null).
 
         ## ⛔ REGLAS DURAS DE ESTADOS (OBLIGATORIO):
@@ -659,11 +662,13 @@ Analiza la imagen y clasifícala en UNO de estos tipos:
 1. "padron" — Documento oficial del Registro Civil chileno: "Permiso de Circulación" (municipal) o "Certificado de Anotaciones Vigentes" (Registro de Vehículos Motorizados). Contiene datos del vehículo y propietario. La palabra "PADRÓN" NO siempre aparece literalmente.
 2. "placa_patente" — Foto de la PLACA PATENTE física del auto (la matrícula metálica con letras/números, normalmente blanca o amarilla, sujeta al frente o atrás del vehículo, formato chileno típico: 2 letras + 4 dígitos o 4 letras + 2 dígitos, ej "FDKL53", "BRXS20"). La foto muestra el auto o solo la placa.
 3. "parte" — Una pieza o repuesto automotriz (filtro, pastilla, correa, bomba, disco, bujía, empaquetadura, kit distribución, etc.).
-4. "otro" — Cualquier otra imagen (persona, captura de chat, paisaje, comprobante de pago, etc.).
+4. "comprobante" — Screenshot de app o web bancaria mostrando una TRANSACCIÓN COMPLETADA: incluye al menos MONTO transferido + DESTINATARIO/cuenta destino + FECHA/HORA + número de operación/folio/comprobante. Típicamente proviene de BancoEstado, BCI, Santander, Banco de Chile, Itaú, Falabella, Mach, MercadoPago, etc.
+5. "datos_bancarios" — Imagen que muestra solo DATOS DE UNA CUENTA para transferir (cartel, post-it, cartulina, captura de pantalla con cuenta corriente/vista, banco, RUT del titular, nombre del titular, email), SIN monto transferido, SIN número de operación, SIN fecha de transacción. Es información para que ALGUIEN transfiera, NO la prueba de una transferencia.
+6. "otro" — Cualquier otra imagen (persona, captura de chat, paisaje, etc.).
 
 Responde SOLO con JSON válido:
 {
-    "tipo": "padron" | "placa_patente" | "parte" | "otro",
+    "tipo": "padron" | "placa_patente" | "parte" | "comprobante" | "datos_bancarios" | "otro",
     "padron": {
         "marca_modelo": "Marca + Modelo del vehículo (ej: 'Toyota Hilux') o null",
         "ano": "año del vehículo como string o null",
@@ -682,9 +687,14 @@ Responde SOLO con JSON válido:
 Reglas DURAS:
 - Si tipo == "padron": llena "padron" con lo que veas, "placa_patente": null.
 - Si tipo == "placa_patente": llena "placa_patente.patente" leyendo la matrícula. "padron": null.
-- Si tipo == "parte" u "otro": ambos null.
+- Si tipo == "parte", "comprobante", "datos_bancarios" u "otro": ambos null.
 - NO inventes datos. Si un campo no está visible con claridad, devuélvelo null.
-- Para "placa_patente": acepta fotos donde solo se ve la placa, o donde se ve el auto y la placa está enfocada/legible. Si la placa no es legible, clasifica como "parte" u "otro" según corresponda.`;
+- Para "placa_patente": acepta fotos donde solo se ve la placa, o donde se ve el auto y la placa está enfocada/legible. Si la placa no es legible, clasifica como "parte" u "otro" según corresponda.
+- CRÍTICO para distinguir "comprobante" vs "datos_bancarios":
+  • Si la imagen muestra una TRANSACCIÓN EJECUTADA (texto tipo "Transferencia exitosa", "Comprobante de transferencia", "Operación realizada", monto efectivamente transferido $XXX a XXXX, fecha y hora de la operación, código de comprobante/folio) → "comprobante".
+  • Si la imagen muestra DATOS DE CUENTA PARA RECIBIR/HACER UNA TRANSFERENCIA (cuenta corriente XXXX, banco XXXX, RUT del titular, nombre del titular, email del titular) SIN monto transferido ni nº de operación → "datos_bancarios".
+  • Una foto de un cartel/post-it/cartulina con datos de cuenta NUNCA es "comprobante".
+  • Ante duda entre comprobante y datos_bancarios → preferir "datos_bancarios" (es más seguro pedir el comprobante real que asumir uno que no existe).`;
 
         const parts = [
             { text: prompt },

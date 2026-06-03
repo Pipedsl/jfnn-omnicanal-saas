@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { MessageCircle, Image, Mic, Video, FileText, ArrowLeft, User, Bot, Clock, Timer, AlertTriangle, Send, ChevronDown, Plus, X, PauseCircle, PlayCircle, Bookmark, BookmarkCheck, Paperclip, Ban, FileSpreadsheet, Search, PencilLine } from "lucide-react";
+import { MessageCircle, Image, Mic, Video, FileText, ArrowLeft, User, Bot, Clock, Timer, AlertTriangle, Send, ChevronDown, Plus, X, PauseCircle, PlayCircle, Bookmark, BookmarkCheck, Paperclip, Ban, FileSpreadsheet, Search, PencilLine, Pencil, Check } from "lucide-react";
 import { api } from "@/lib/api";
 import { safeGet } from "@/lib/storage";
 import SellerActionForm from "./SellerActionForm";
@@ -178,6 +178,10 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
   const [sendingMessage, setSendingMessage] = useState(false);
   const [showNewConv, setShowNewConv] = useState(false);
   const [newPhone, setNewPhone] = useState("");
+  const [newNombre, setNewNombre] = useState("");
+  const [editingNombre, setEditingNombre] = useState(false);
+  const [nombreDraft, setNombreDraft] = useState("");
+  const [savingNombre, setSavingNombre] = useState(false);
   const [busqueda, setBusqueda] = useState("");
   const busquedaRef = useRef("");
   const [sendingImage, setSendingImage] = useState(false);
@@ -423,11 +427,20 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
     setSendingPlantilla(plantilla.id);
     try {
       const vendedorNombre = safeGet("jfnn_vendedor_nombre");
+      const nombreTrim = newNombre.trim();
+      // Si el vendedor escribió el nombre, persistirlo ANTES de mandar la plantilla
+      // así el HSM puede usarlo como parámetro y la sesión nueva nace con nombre.
+      if (nombreTrim) {
+        try {
+          await api.patch(`${API_URL}/api/dashboard/contactos/${phone}/nombre`, { nombre: nombreTrim });
+        } catch (renameErr) {
+          console.warn("[NuevaConv] No se pudo guardar el nombre (continúa con plantilla):", renameErr);
+        }
+      }
       // Las plantillas HSM requieren rellenar TODOS los params declarados,
-      // sino Meta rechaza. Como es conversación nueva (sin nombre conocido), usamos
-      // placeholders neutros.
+      // sino Meta rechaza. Si el vendedor ingresó nombre, lo usamos; sino fallback.
       const defaultParams: Record<string, string> = {
-        nombre: "",
+        nombre: nombreTrim || "",
         sucursal: "Melipilla",
         cantidad: "tus repuestos"
       };
@@ -440,6 +453,7 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
       });
       setShowNewConv(false);
       setNewPhone("");
+      setNewNombre("");
       setSelectedPhone(phone);
       fetchConversaciones(false);
       fetchChat(phone, true);
@@ -448,6 +462,27 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
       alert("Error al enviar plantilla. Verifica el número y que la plantilla esté aprobada en Meta.");
     } finally {
       setSendingPlantilla(null);
+    }
+  };
+
+  // Renombra el contacto del chat actualmente abierto.
+  const guardarNombreContacto = async () => {
+    if (!selectedPhone) return;
+    const nombre = nombreDraft.trim();
+    if (!nombre) { setEditingNombre(false); return; }
+    if (nombre.length > 100) { alert("Máximo 100 caracteres."); return; }
+    setSavingNombre(true);
+    try {
+      await api.patch(`${API_URL}/api/dashboard/contactos/${selectedPhone}/nombre`, { nombre });
+      // Optimistic: actualizar chat + lista en memoria
+      setChat(prev => prev ? { ...prev, nombre_cliente: nombre } : prev);
+      setConversaciones(prev => prev.map(c => c.phone === selectedPhone ? { ...c, nombre_cliente: nombre } : c));
+      setEditingNombre(false);
+    } catch (err) {
+      console.error("[Contactos] Error renombrando:", err);
+      alert("No se pudo guardar el nombre. Intenta de nuevo.");
+    } finally {
+      setSavingNombre(false);
     }
   };
 
@@ -699,9 +734,50 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
                 </span>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-neutral-200">
-                  {chat?.nombre_cliente || formatPhone(selectedPhone)}
-                </p>
+                {editingNombre ? (
+                  <div className="flex items-center gap-1">
+                    <input
+                      autoFocus
+                      type="text"
+                      value={nombreDraft}
+                      onChange={(e) => setNombreDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") guardarNombreContacto();
+                        if (e.key === "Escape") setEditingNombre(false);
+                      }}
+                      onBlur={guardarNombreContacto}
+                      maxLength={100}
+                      placeholder="Nombre del cliente"
+                      className="text-sm font-semibold bg-white/5 border border-accent/40 rounded px-2 py-0.5 text-neutral-200 focus:outline-none focus:border-accent w-48"
+                      disabled={savingNombre}
+                    />
+                    <button
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={guardarNombreContacto}
+                      disabled={savingNombre}
+                      className="p-1 rounded hover:bg-accent/15 text-accent disabled:opacity-40"
+                      title="Guardar"
+                    >
+                      <Check size={12} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 group">
+                    <p className="text-sm font-semibold text-neutral-200">
+                      {chat?.nombre_cliente || formatPhone(selectedPhone)}
+                    </p>
+                    <button
+                      onClick={() => {
+                        setNombreDraft(chat?.nombre_cliente || "");
+                        setEditingNombre(true);
+                      }}
+                      className="p-1 rounded hover:bg-white/10 text-neutral-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                      title={chat?.nombre_cliente ? "Editar nombre" : "Asignar nombre"}
+                    >
+                      <Pencil size={11} />
+                    </button>
+                  </div>
+                )}
                 <div className="flex items-center gap-2">
                   {chat?.estado && (
                     <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-accent/10 text-accent">
@@ -733,6 +809,16 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
                       title={chat?.entidades?.direccion_envio ? `Dirección: ${chat.entidades.direccion_envio}` : 'Cliente esperando envío a domicilio'}
                     >
                       🚚 Por Despachar
+                    </span>
+                  )}
+                  {chat?.entidades?.alerta_consulta_pago && (
+                    <span
+                      className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/40"
+                      title={chat?.entidades?.alerta_consulta_pago_motivo === 'imagen_datos_bancarios'
+                        ? 'Cliente envió foto de datos bancarios (no comprobante). Revisar.'
+                        : 'Cliente envió imagen no identificada en flujo de pago. Revisar.'}
+                    >
+                      💬 Consulta pago
                     </span>
                   )}
                 </div>
@@ -1119,6 +1205,22 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
               {newPhone && (
                 <p className="text-[10px] text-neutral-500 mt-1">Se enviará a: +{normalizePhone(newPhone)}</p>
               )}
+            </div>
+            <div>
+              <label className="text-xs text-neutral-400 block mb-1">
+                Nombre del cliente <span className="text-neutral-600">(opcional)</span>
+              </label>
+              <input
+                type="text"
+                value={newNombre}
+                onChange={(e) => setNewNombre(e.target.value)}
+                placeholder="Ej: Juan Pérez"
+                maxLength={100}
+                className="w-full rounded-xl bg-white/5 border border-white/10 px-4 py-2.5 text-sm text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-accent/30"
+              />
+              <p className="text-[10px] text-neutral-500 mt-1">
+                Si lo completas, se guarda en el contacto y se usa en la plantilla. Si lo dejas vacío, la plantilla envía sin nombre.
+              </p>
             </div>
             <div>
               <label className="text-xs text-neutral-400 block mb-2">Selecciona una plantilla para iniciar</label>
