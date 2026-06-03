@@ -666,7 +666,31 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura:
  * @param {Object} imageData - { buffer: Buffer, mimeType: string }
  * @returns {Promise<{tipo: string, padron: object|null}>}
  */
+// Cache en memoria de análisis de imagen — TTL 24h, max 200 entries.
+// Clave: SHA-1 del buffer + mimeType (la misma imagen reenviada por el cliente
+// no se re-procesa con Gemini). Si crece > 200 entries, drop el más viejo (LRU naive).
+const _crypto = require('crypto');
+const ANALYZE_IMAGE_CACHE = new Map();
+const ANALYZE_IMAGE_CACHE_TTL = 24 * 60 * 60 * 1000;
+const ANALYZE_IMAGE_CACHE_MAX = 200;
+const hashImageData = (imageData) => _crypto
+    .createHash('sha1')
+    .update(imageData.buffer)
+    .update(imageData.mimeType || '')
+    .digest('hex');
+
 const analyzeImage = async (imageData) => {
+    // Cache hit: misma imagen reenviada por el cliente → evitar segunda llamada a Gemini.
+    let cacheKey;
+    try {
+        cacheKey = hashImageData(imageData);
+        const cached = ANALYZE_IMAGE_CACHE.get(cacheKey);
+        if (cached && (Date.now() - cached.timestamp) < ANALYZE_IMAGE_CACHE_TTL) {
+            console.log(`[Gemini] 🗄️ analyzeImage cache HIT (${cacheKey.slice(0, 8)}): tipo=${cached.result?.tipo}`);
+            return cached.result;
+        }
+    } catch { /* sigue al llamado real si el hash falla */ }
+
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
         const prompt = `Eres un sistema de clasificación y extracción de imágenes para una tienda chilena de repuestos automotrices.
@@ -724,6 +748,14 @@ Reglas DURAS:
             ? ` ${parsed.padron?.marca_modelo || '?'} ${parsed.padron?.ano || ''} ${parsed.padron?.patente || ''}`.trim()
             : '';
         console.log(`[Gemini] 🖼️ analyzeImage: tipo=${parsed.tipo}${resumen ? ' | ' + resumen : ''}`);
+        // Guardar en cache (LRU naive: si está lleno, drop la primera entry insertada).
+        if (cacheKey) {
+            if (ANALYZE_IMAGE_CACHE.size >= ANALYZE_IMAGE_CACHE_MAX) {
+                const oldestKey = ANALYZE_IMAGE_CACHE.keys().next().value;
+                if (oldestKey) ANALYZE_IMAGE_CACHE.delete(oldestKey);
+            }
+            ANALYZE_IMAGE_CACHE.set(cacheKey, { result: parsed, timestamp: Date.now() });
+        }
         return parsed;
     } catch (err) {
         console.error('[Gemini] ❌ Error en analyzeImage:', err.message);
