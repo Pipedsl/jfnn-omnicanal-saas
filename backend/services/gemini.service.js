@@ -149,7 +149,9 @@ const generateResponse = async (userText, sessionContext, imageData = null, audi
         // lo que mandaba a Pro casi cualquier cotización media. Pro cuesta ~5x más
         // que Flash en output tokens; restringir su uso a casos reales bajó el costo
         // proyectado de Gemini de ~CLP 29k/mes a ~10-15k/mes sin afectar la calidad.
-        const sintomasTecnicos = /\b(calienta|recalienta|ruido|fall(a|o)|vibra|golpe|no enciende|no parte|no prende|humo|aceite|chirrido|temblor|p[eé]rdida|fuga)\b/i;
+        // "aceite" solo no marca síntoma (filtro de aceite, litros de aceite). Para que
+        // "pérdida/fuga/mancha de aceite" sí dispare, se cubren con "pérdida" y "fuga".
+        const sintomasTecnicos = /\b(calienta|recalienta|ruido|fall(a|o)|vibra|golpe|no enciende|no parte|no prende|humo|chirrido|temblor|p[eé]rdida|fuga|mancha)\b/i;
         const isComplex = hasAudio || sintomasTecnicos.test(safeText);
         const modelName = isComplex ? "gemini-3.1-pro-preview" : "gemini-3-flash-preview";
         if (process.env.NODE_ENV !== 'production') {
