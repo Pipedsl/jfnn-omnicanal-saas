@@ -92,6 +92,10 @@ Both are injected into Gemini's system prompt on every call.
 ## Critical Rules
 
 - **Never modify Gemini model versions** (`gemini-3.1-pro-preview`, `gemini-3-flash-preview`) without explicit approval
+- **Pro vs Flash — criterio actual de costos (junio 2026)**: Pro 3.1 solo cuando hay audio (transcripción robusta) o el texto contiene síntomas técnicos reales (regex: `calienta|recalienta|ruido|fall(a|o)|vibra|golpe|no enciende|no parte|no prende|humo|aceite|chirrido|temblor|p[eé]rdida|fuga`). Todo el resto va a Flash 3. Cambiar este criterio puede triplicar el costo (Pro es ~5x Flash en output tokens). Ver `backend/services/gemini.service.js` línea ~146.
+- **Cap de output tokens**: `generateResponse` usa `maxOutputTokens: 2048`; clasificadores (`analyzeImage`, `extractVoucherData`, `classifyIntent`, `identifyPartFromImage`, `formularPreguntaAlCliente`) usan `1024`. Sin cap el modelo puede divagar y consumir tokens innecesarios.
+- **Cache `analyzeImage` por hash de buffer** (`ANALYZE_IMAGE_CACHE`, TTL 24h, max 200 entries). Evita re-procesar imágenes reenviadas por el cliente.
+- **Historial al prompt**: 10 mensajes en `listarPorPhone(phone, { limit: 10 })`. 3-5 turnos de conversación, suficiente contexto sin engordar input tokens.
 - **Gemini returns a single string** `mensaje_cliente` — NOT an array. Responses are split into multiple WhatsApp messages by the controller based on newlines/length.
 - **The AI agent never gives prices to customers** — prices are set exclusively by the seller via dashboard
 - **Direcciones de sucursal NO van en el prompt** — Gemini debe abstenerse de incluirlas. La inyección al cliente se hace en backend usando `getDireccionSucursal()` post-respuesta (BUG-POST04 fix). Esto evita alucinaciones y mensajes inconsistentes.

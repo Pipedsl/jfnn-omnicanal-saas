@@ -140,11 +140,23 @@ const generateResponse = async (userText, sessionContext, imageData = null, audi
         const hasAudio = audioList.length > 0;
         const safeText = userText || ''; // Guard: previene ReferenceError si userText es undefined
 
-        // Selección inteligente de modelo:
-        // - Pro: Para razonamiento profundo (diagnósticos, síntomas, cierre de venta complejo, y SIEMPRE con audio)
-        // - Flash: Para velocidad y procesamiento visual estándar
-        const isComplex = hasAudio || state === 'CONFIRMANDO_COMPRA' || (safeText.length > 100 || safeText.toLowerCase().includes('calienta') || safeText.toLowerCase().includes('ruido') || safeText.toLowerCase().includes('falla'));
+        // Selección inteligente de modelo (optimización de costos junio 2026):
+        // - Pro 3.1: Solo cuando hay audio (transcripción robusta) o síntomas técnicos
+        //   reales que requieren diagnóstico (calienta, ruido, falla, vibra, etc.).
+        // - Flash 3: Para todo lo demás — conversación normal, cotización, confirmación
+        //   de compra, multi-turno. Cubre 90%+ de las interacciones.
+        // Antes: CONFIRMANDO_COMPRA + cualquier texto > 100 chars también disparaba Pro,
+        // lo que mandaba a Pro casi cualquier cotización media. Pro cuesta ~5x más
+        // que Flash en output tokens; restringir su uso a casos reales bajó el costo
+        // proyectado de Gemini de ~CLP 29k/mes a ~10-15k/mes sin afectar la calidad.
+        // "aceite" solo no marca síntoma (filtro de aceite, litros de aceite). Para que
+        // "pérdida/fuga/mancha de aceite" sí dispare, se cubren con "pérdida" y "fuga".
+        const sintomasTecnicos = /\b(calienta|recalienta|ruido|fall(a|o)|vibra|golpe|no enciende|no parte|no prende|humo|chirrido|temblor|p[eé]rdida|fuga|mancha)\b/i;
+        const isComplex = hasAudio || sintomasTecnicos.test(safeText);
         const modelName = isComplex ? "gemini-3.1-pro-preview" : "gemini-3-flash-preview";
+        if (process.env.NODE_ENV !== 'production') {
+            console.log(`[Gemini] 🤖 Modelo elegido: ${modelName} (audio=${hasAudio}, sintomas=${sintomasTecnicos.test(safeText)}, estado=${state})`);
+        }
         if (hasAudio) console.log(`[Audio] 🎤 Usando ${modelName} para procesar ${audioList.length} nota(s) de voz de ${sessionContext.phone || 'cliente'}.`);
 
         const model = genAI.getGenerativeModel({ model: modelName });
@@ -540,6 +552,8 @@ ${sessionContext.entidades.metodo_pago ? `
             contents: [{ role: "user", parts }],
             generationConfig: {
                 response_mime_type: "application/json",
+                // Cap defensivo: el JSON del agente cabe en 800-1500 tokens.
+                maxOutputTokens: 2048,
             }
         });
 
@@ -564,6 +578,7 @@ ${sessionContext.entidades.metodo_pago ? `
                     }],
                     generationConfig: {
                         response_mime_type: "application/json",
+                        maxOutputTokens: 2048,
                     }
                 });
 
@@ -632,7 +647,7 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura:
 
         const result = await model.generateContent({
             contents: [{ role: "user", parts }],
-            generationConfig: { response_mime_type: "application/json" }
+            generationConfig: { response_mime_type: "application/json", maxOutputTokens: 1024 }
         });
 
         const parsed = JSON.parse(result.response.text());
@@ -653,7 +668,31 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura:
  * @param {Object} imageData - { buffer: Buffer, mimeType: string }
  * @returns {Promise<{tipo: string, padron: object|null}>}
  */
+// Cache en memoria de análisis de imagen — TTL 24h, max 200 entries.
+// Clave: SHA-1 del buffer + mimeType (la misma imagen reenviada por el cliente
+// no se re-procesa con Gemini). Si crece > 200 entries, drop el más viejo (LRU naive).
+const _crypto = require('crypto');
+const ANALYZE_IMAGE_CACHE = new Map();
+const ANALYZE_IMAGE_CACHE_TTL = 24 * 60 * 60 * 1000;
+const ANALYZE_IMAGE_CACHE_MAX = 200;
+const hashImageData = (imageData) => _crypto
+    .createHash('sha1')
+    .update(imageData.buffer)
+    .update(imageData.mimeType || '')
+    .digest('hex');
+
 const analyzeImage = async (imageData) => {
+    // Cache hit: misma imagen reenviada por el cliente → evitar segunda llamada a Gemini.
+    let cacheKey;
+    try {
+        cacheKey = hashImageData(imageData);
+        const cached = ANALYZE_IMAGE_CACHE.get(cacheKey);
+        if (cached && (Date.now() - cached.timestamp) < ANALYZE_IMAGE_CACHE_TTL) {
+            console.log(`[Gemini] 🗄️ analyzeImage cache HIT (${cacheKey.slice(0, 8)}): tipo=${cached.result?.tipo}`);
+            return cached.result;
+        }
+    } catch { /* sigue al llamado real si el hash falla */ }
+
     try {
         const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
         const prompt = `Eres un sistema de clasificación y extracción de imágenes para una tienda chilena de repuestos automotrices.
@@ -703,7 +742,7 @@ Reglas DURAS:
 
         const result = await model.generateContent({
             contents: [{ role: "user", parts }],
-            generationConfig: { response_mime_type: "application/json" }
+            generationConfig: { response_mime_type: "application/json", maxOutputTokens: 1024 }
         });
 
         const parsed = JSON.parse(result.response.text());
@@ -711,6 +750,14 @@ Reglas DURAS:
             ? ` ${parsed.padron?.marca_modelo || '?'} ${parsed.padron?.ano || ''} ${parsed.padron?.patente || ''}`.trim()
             : '';
         console.log(`[Gemini] 🖼️ analyzeImage: tipo=${parsed.tipo}${resumen ? ' | ' + resumen : ''}`);
+        // Guardar en cache (LRU naive: si está lleno, drop la primera entry insertada).
+        if (cacheKey) {
+            if (ANALYZE_IMAGE_CACHE.size >= ANALYZE_IMAGE_CACHE_MAX) {
+                const oldestKey = ANALYZE_IMAGE_CACHE.keys().next().value;
+                if (oldestKey) ANALYZE_IMAGE_CACHE.delete(oldestKey);
+            }
+            ANALYZE_IMAGE_CACHE.set(cacheKey, { result: parsed, timestamp: Date.now() });
+        }
         return parsed;
     } catch (err) {
         console.error('[Gemini] ❌ Error en analyzeImage:', err.message);
@@ -760,6 +807,7 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura exacta:
             contents: [{ role: "user", parts }],
             generationConfig: {
                 response_mime_type: "application/json",
+                maxOutputTokens: 1024,
             }
         });
 
@@ -799,7 +847,7 @@ Mensaje: "${text}"`;
 
         const result = await model.generateContent({
             contents: [{ role: "user", parts: [{ text: intentPrompt }] }],
-            generationConfig: { response_mime_type: "application/json" }
+            generationConfig: { response_mime_type: "application/json", maxOutputTokens: 1024 }
         });
 
         const parsed = JSON.parse(result.response.text());
