@@ -550,6 +550,8 @@ ${sessionContext.entidades.metodo_pago ? `
             contents: [{ role: "user", parts }],
             generationConfig: {
                 response_mime_type: "application/json",
+                // Cap defensivo: el JSON del agente cabe en 800-1500 tokens.
+                maxOutputTokens: 2048,
             }
         });
 
@@ -574,6 +576,7 @@ ${sessionContext.entidades.metodo_pago ? `
                     }],
                     generationConfig: {
                         response_mime_type: "application/json",
+                        maxOutputTokens: 2048,
                     }
                 });
 
@@ -642,7 +645,7 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura:
 
         const result = await model.generateContent({
             contents: [{ role: "user", parts }],
-            generationConfig: { response_mime_type: "application/json" }
+            generationConfig: { response_mime_type: "application/json", maxOutputTokens: 1024 }
         });
 
         const parsed = JSON.parse(result.response.text());
@@ -713,7 +716,7 @@ Reglas DURAS:
 
         const result = await model.generateContent({
             contents: [{ role: "user", parts }],
-            generationConfig: { response_mime_type: "application/json" }
+            generationConfig: { response_mime_type: "application/json", maxOutputTokens: 1024 }
         });
 
         const parsed = JSON.parse(result.response.text());
@@ -770,6 +773,7 @@ Responde ÚNICAMENTE con un JSON válido con esta estructura exacta:
             contents: [{ role: "user", parts }],
             generationConfig: {
                 response_mime_type: "application/json",
+                maxOutputTokens: 1024,
             }
         });
 
@@ -809,7 +813,7 @@ Mensaje: "${text}"`;
 
         const result = await model.generateContent({
             contents: [{ role: "user", parts: [{ text: intentPrompt }] }],
-            generationConfig: { response_mime_type: "application/json" }
+            generationConfig: { response_mime_type: "application/json", maxOutputTokens: 1024 }
         });
 
         const parsed = JSON.parse(result.response.text());
