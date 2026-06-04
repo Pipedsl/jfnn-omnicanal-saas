@@ -92,6 +92,63 @@ const sendAndPersist = async (phone, text /* opts ignorados: autor/sucursal ya l
 };
 
 /**
+ * Persistir audios del batch a Supabase Storage SIN llamarlos a Gemini.
+ *
+ * Llamado defensivamente antes de cada `return` de los handlers de imagen
+ * (PERFILANDO + estados de pago) — si en el mismo batch llegó imagen + audio,
+ * el handler de imagen retornaba sin tocar el audio y el row quedaba con
+ * media_url=null para siempre. Este helper garantiza la persistencia.
+ *
+ * Reintenta upload 1 vez con backoff 2s si falla la primera. Si todo falla,
+ * el row queda con media_id pero sin media_url — recuperable después vía
+ * endpoint POST /mensajes/:id/recuperar-audio.
+ *
+ * NO transcribe ni llama a Gemini — solo Storage + actualizar media_url.
+ */
+const persistirAudiosDelBatch = async (audios, customerPhone) => {
+    if (!Array.isArray(audios) || audios.length === 0) return;
+    console.log(`[Audio] 💾 Persistiendo ${audios.length} audio(s) del batch (sin Gemini) para ${customerPhone}...`);
+    for (const audioItem of audios) {
+        const mediaId = audioItem?.audioMediaId;
+        const waId = audioItem?.message?.id || null;
+        if (!mediaId) {
+            console.warn(`[Audio] ⚠️ Item sin audioMediaId, saltando.`);
+            continue;
+        }
+        try {
+            const aData = await whatsappService.downloadMedia(mediaId);
+            if (!aData?.buffer) {
+                console.error(`[Audio] ❌ downloadMedia retornó vacío para mediaId=${mediaId} (waId=${waId})`);
+                continue;
+            }
+            let audioPath = null;
+            try {
+                audioPath = await storageService.uploadAudio(customerPhone, aData.buffer, aData.mimeType);
+            } catch (uploadErr) {
+                console.warn(`[Audio] ⚠️ uploadAudio falló (intento 1): ${uploadErr.message}. Reintentando en 2s...`);
+                await new Promise(r => setTimeout(r, 2000));
+                try {
+                    audioPath = await storageService.uploadAudio(customerPhone, aData.buffer, aData.mimeType);
+                } catch (retryErr) {
+                    console.error(`[Audio] ❌ uploadAudio falló también en reintento: ${retryErr.message}`);
+                }
+            }
+            if (audioPath && waId) {
+                await mensajesService.actualizarMedia(waId, {
+                    mediaUrl: audioPath,
+                    mediaMime: aData.mimeType,
+                });
+                console.log(`[Audio] ✅ Persistido waId=${waId} en Storage (${audioPath})`);
+            } else if (!audioPath) {
+                console.error(`[Audio] ❌ No se obtuvo path tras upload para waId=${waId}. Recuperable vía endpoint.`);
+            }
+        } catch (err) {
+            console.error(`[Audio] ❌ Error procesando audio mediaId=${mediaId}:`, err.message);
+        }
+    }
+};
+
+/**
  * Cancela cualquier debounce pendiente para un teléfono. Usado cuando el vendedor
  * envía una cotización formal o un mensaje manual, para evitar que el agente IA
  * responda con contexto desactualizado después de la acción del vendedor.
@@ -403,6 +460,11 @@ const processBufferedMessages = async (customerPhone) => {
         )) {
             console.log(`[ImageID] 📸 ${images.length} imagen(s) recibida(s) de ${customerPhone}. Clasificando...`);
 
+            // Bug-fix audio batch: si el mismo batch trae audio + imagen, el handler de
+            // imagen hacía return sin tocar el audio, dejando media_url=null en BD.
+            // Persistimos defensivamente AHORA, antes de cualquier return.
+            if (hasAudio) await persistirAudiosDelBatch(audios, customerPhone);
+
             // Fase 1: descargar y clasificar cada imagen en paralelo
             // REQ-04 Fase 2: incluir waMessageId para actualizar mensajes tras subida a storage
             const classified = await Promise.all(images.map(async (imgMsg) => {
@@ -698,6 +760,10 @@ const processBufferedMessages = async (customerPhone) => {
             session.estado === sessionsService.STATES.ESPERANDO_SALDO
         )) {
             console.log(`[P1] 🧠 Imagen recibida en estado ${session.estado} de ${customerPhone}. Clasificando antes de asumir comprobante...`);
+
+            // Bug-fix audio batch: persistir defensivamente cualquier audio del mismo
+            // batch (este handler hace return en múltiples puntos y el audio quedaba huérfano).
+            if (hasAudio) await persistirAudiosDelBatch(audios, customerPhone);
 
             // Extraer nombre del cliente del texto si está disponible y aún no se ha capturado
             if (!session.entidades?.nombre_cliente && userText) {

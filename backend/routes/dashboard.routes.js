@@ -2292,7 +2292,7 @@ router.get('/conversaciones/:phone', async (req, res) => {
                 autor_nombre: msg.autor_nombre,
                 created_at: msg.created_at,
                 // Para mostrar botón "🔄 Reintentar" cuando media_url falló pero hay media_id recuperable
-                media_recuperable: !signedUrl && !!msg.media_id && msg.tipo === 'image',
+                media_recuperable: !signedUrl && !!msg.media_id && (msg.tipo === 'image' || msg.tipo === 'audio'),
             };
         }));
 
@@ -2629,27 +2629,38 @@ router.post('/mensajes/:id/reprocesar-media', async (req, res) => {
         const msg = rows[0];
         if (!msg) return res.status(404).json({ error: 'Mensaje no encontrado' });
         if (msg.media_url) return res.json({ success: true, ya_tenia: true, media_url: msg.media_url });
-        if (!msg.media_id) return res.status(400).json({ error: 'Este mensaje no tiene media_id (imagen antigua, no recuperable)' });
+        if (!msg.media_id) return res.status(400).json({ error: 'Este mensaje no tiene media_id (mensaje antiguo, no recuperable)' });
+        if (!['image', 'audio'].includes(msg.tipo)) {
+            return res.status(400).json({ error: `Tipo no soportado para reprocesar: ${msg.tipo}` });
+        }
 
         // Re-descargar de Meta
-        const imageData = await whatsappService.downloadMedia(msg.media_id);
-        if (!imageData) {
+        const mediaData = await whatsappService.downloadMedia(msg.media_id);
+        if (!mediaData) {
             return res.status(502).json({ error: 'No se pudo descargar de Meta. El media_id puede haber expirado (>14 días).' });
         }
 
-        // Subir a storage
-        const subfolder = msg.tipo === 'image' ? 'part-images' : 'media';
-        const objectPath = await storageService.uploadPartImage(msg.phone, imageData.buffer, imageData.mimeType);
+        // Subir a Storage (función específica según tipo)
+        let objectPath = null;
+        try {
+            if (msg.tipo === 'audio') {
+                objectPath = await storageService.uploadAudio(msg.phone, mediaData.buffer, mediaData.mimeType);
+            } else {
+                objectPath = await storageService.uploadPartImage(msg.phone, mediaData.buffer, mediaData.mimeType);
+            }
+        } catch (uploadErr) {
+            console.error('[Dashboard] Upload falló en reprocesar-media:', uploadErr.message);
+        }
         if (!objectPath) {
             return res.status(502).json({ error: 'Falló la subida a Storage. Reintenta en un momento.' });
         }
 
-        await db.query('UPDATE mensajes SET media_url = $1, media_mime = $2 WHERE id = $3', [objectPath, imageData.mimeType, id]);
+        await db.query('UPDATE mensajes SET media_url = $1, media_mime = $2 WHERE id = $3', [objectPath, mediaData.mimeType, id]);
         const signedUrl = await storageService.getSignedUrl(objectPath, 86400);
-        res.json({ success: true, media_url: signedUrl });
+        res.json({ success: true, media_url: signedUrl, tipo: msg.tipo });
     } catch (error) {
         console.error('[Dashboard] Error reprocesando media:', error.message);
-        res.status(500).json({ error: 'Error reprocesando imagen', detalle: error.message });
+        res.status(500).json({ error: 'Error reprocesando media', detalle: error.message });
     }
 });
 

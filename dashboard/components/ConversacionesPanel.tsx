@@ -1008,9 +1008,9 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
                             <button
                               onClick={() => reprocesarMedia(msg.id)}
                               className="text-[10px] font-bold px-2 py-1 rounded-lg bg-accent/15 text-accent hover:bg-accent/25 border border-accent/30 transition-colors flex items-center gap-1 w-fit"
-                              title="Re-descargar la imagen desde WhatsApp (disponible ~14 días)"
+                              title={`Re-descargar este ${msg.tipo === 'audio' ? 'audio' : 'archivo'} desde WhatsApp (disponible ~14 días)`}
                             >
-                              🔄 Recuperar imagen
+                              🔄 Recuperar {msg.tipo === 'audio' ? 'audio' : msg.tipo === 'image' ? 'imagen' : 'archivo'}
                             </button>
                           )}
                         </div>
