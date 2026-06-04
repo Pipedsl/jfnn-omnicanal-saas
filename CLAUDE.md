@@ -77,6 +77,7 @@ PostgreSQL 16 via Docker (local) + Supabase prod (project ID `uzsrvigcuehtzhwzua
 - `pedidos` — Archived completed sales. Columnas multi-sucursal: `sucursal`, `vendedor_nombre`.
 - `vendedores` — Equipo por sucursal (`nombre`, `sucursal`, `activo`). Editable desde `/settings` por admin.
 - `clientes` — Recurring customer profiles
+- `cotizaciones` — Cotizaciones persistentes (PK `quote_id` ej. "JFNN-1A8CCE"). Snapshot al enviar `/cotizaciones/responder`, validez 5 días (`valida_hasta`). Estados: `ACTIVA | ARCHIVADA | EXPIRADA | CERRADA`. Cron interno cada 1h expira las vencidas. Permite recordar cotizaciones sin parsear el chat (ver `services/cotizaciones.service.js`).
 - `training_examples` — HU-7 learned AI rules (soft-delete with `activo` boolean)
 
 **Migraciones a producción**: usar MCP Supabase `apply_migration` (NO `psql` directo — el rol `jfnn_app` no tiene permisos DDL sobre tablas existentes).

@@ -7,6 +7,31 @@ Convención: si necesitas revertir, primero intentá `git revert <hash>`. Si el 
 
 ---
 
+## 2026-06-04 — Rama `feature/cotizaciones-persistentes` (PENDIENTE merge)
+
+**Commits internos** en la rama (no en main aún):
+
+| Hash | Cambio | Archivos principales |
+|------|--------|----------------------|
+| `7303176` | Tabla `cotizaciones` (PK quote_id, validez 5d, estados) + service + endpoints `/cotizaciones-store/*` + upsert al enviar `/cotizaciones/responder` + cron expiración cada 1h. Migración aplicada en Supabase prod. | `backend/services/cotizaciones.service.js` (nuevo), `backend/routes/dashboard.routes.js`, `backend/index.js`, `backend/sql/migrations/20260604_cotizaciones.sql` |
+| `6787eaf` | Fix audio batch: helper `persistirAudiosDelBatch` con reintento; ejecutado al inicio de los 2 handlers de imagen. Endpoint `/reprocesar-media` ahora soporta audio. Botón "🔄 Recuperar audio" en chat. | `backend/controllers/whatsapp.controller.js`, `backend/routes/dashboard.routes.js`, `dashboard/components/ConversacionesPanel.tsx` |
+| `824a606` | Re-engage tras ≥60min sin respuesta o petición textual "nueva cotización" → guard pregunta "¿continuar o nueva?" → si nueva, pregunta "¿guardar anterior?" → archiva o cierra `cotizaciones`. Flags `re_engage_pending` + `guardar_anterior_pending`. Refuerzo prompt Gemini. | `backend/controllers/whatsapp.controller.js`, `backend/services/gemini.service.js` |
+| `604c28a` | Vista `/cotizaciones` para vendedores/admin: tabla con filtros, buscador, modal detalle, acciones manuales (archivar/cerrar/reactivar). | `dashboard/app/cotizaciones/page.tsx` (nuevo) |
+
+**Riesgo combinado**: medio. Cambios coordinados pero cada commit es revertible:
+- Si el guard de re-engage molesta → `git revert 824a606`.
+- Si la UI causa errores → `git revert 604c28a`.
+- Si el fix de audio rompe algo → `git revert 6787eaf` (vuelve al bug original, peor caso).
+- Si la tabla cotizaciones tiene problemas → `git revert 7303176` (no se rompe nada, solo deja de persistir).
+
+**Cómo revertir el merge completo** (cuando se mergee):
+```bash
+# Suponiendo que el merge a main tendrá hash MERGE_HASH:
+git revert -m 1 MERGE_HASH && git push origin main
+```
+
+---
+
 ## 2026-06-03 — `80f04f0` — Optimización de costos Gemini
 
 **Merge commit**: `80f04f0`
