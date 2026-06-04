@@ -7,7 +7,25 @@ Convención: si necesitas revertir, primero intentá `git revert <hash>`. Si el 
 
 ---
 
-## 2026-06-04 — Rama `feature/cotizaciones-persistentes` (PENDIENTE merge)
+## 2026-06-04 — Fix: padron reconoce screenshots de consulta vehicular
+
+**Commit**: (siguiente push)
+
+**Bug**: cliente +56 9 8312 2389 envió screenshot de Autoseguros.cl / app de consulta vehicular con datos KIA Frontier 2019 (Tipo/Marca/Modelo/Año/Color/N° Motor/N° Chasis). La IA respondió "Recibí tu foto. ¿Me das marca, año y patente?" — no reconoció que ya tenía todos los datos.
+
+**Causa**: el prompt de `analyzeImage` solo definía `padron` como Permiso de Circulación o Certificado de Anotaciones Vigentes (documentos físicos). Screenshots de apps/webs caían a `parte` u `otro`.
+
+**Fix**: ampliar la definición de `padron` para incluir screenshots de Autoseguros.cl, Autohelper, Permisos.cl, app Registro Civil, etc. con estructura tabular reconocible (Marca/Modelo/Año/Patente/RUT propietario).
+
+**Archivo**: `backend/services/gemini.service.js` (regla en `analyzeImage`).
+
+**Riesgo**: bajo. El handler de padrón ya valida que la imagen tenga al menos `marca_modelo`, `patente` o `vin` antes de capturar datos (línea 395 del controller). Si Gemini falsea un positivo y la imagen no tiene esos campos, el flujo cae al fallback normal.
+
+**Cómo revertir**: `git revert <hash>` después del push.
+
+---
+
+## 2026-06-04 — `46772cc` — Merge feature/cotizaciones-persistentes
 
 **Commits internos** en la rama (no en main aún):
 
