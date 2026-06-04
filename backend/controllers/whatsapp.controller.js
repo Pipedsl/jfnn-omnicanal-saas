@@ -92,6 +92,63 @@ const sendAndPersist = async (phone, text /* opts ignorados: autor/sucursal ya l
 };
 
 /**
+ * Persistir audios del batch a Supabase Storage SIN llamarlos a Gemini.
+ *
+ * Llamado defensivamente antes de cada `return` de los handlers de imagen
+ * (PERFILANDO + estados de pago) — si en el mismo batch llegó imagen + audio,
+ * el handler de imagen retornaba sin tocar el audio y el row quedaba con
+ * media_url=null para siempre. Este helper garantiza la persistencia.
+ *
+ * Reintenta upload 1 vez con backoff 2s si falla la primera. Si todo falla,
+ * el row queda con media_id pero sin media_url — recuperable después vía
+ * endpoint POST /mensajes/:id/recuperar-audio.
+ *
+ * NO transcribe ni llama a Gemini — solo Storage + actualizar media_url.
+ */
+const persistirAudiosDelBatch = async (audios, customerPhone) => {
+    if (!Array.isArray(audios) || audios.length === 0) return;
+    console.log(`[Audio] 💾 Persistiendo ${audios.length} audio(s) del batch (sin Gemini) para ${customerPhone}...`);
+    for (const audioItem of audios) {
+        const mediaId = audioItem?.audioMediaId;
+        const waId = audioItem?.message?.id || null;
+        if (!mediaId) {
+            console.warn(`[Audio] ⚠️ Item sin audioMediaId, saltando.`);
+            continue;
+        }
+        try {
+            const aData = await whatsappService.downloadMedia(mediaId);
+            if (!aData?.buffer) {
+                console.error(`[Audio] ❌ downloadMedia retornó vacío para mediaId=${mediaId} (waId=${waId})`);
+                continue;
+            }
+            let audioPath = null;
+            try {
+                audioPath = await storageService.uploadAudio(customerPhone, aData.buffer, aData.mimeType);
+            } catch (uploadErr) {
+                console.warn(`[Audio] ⚠️ uploadAudio falló (intento 1): ${uploadErr.message}. Reintentando en 2s...`);
+                await new Promise(r => setTimeout(r, 2000));
+                try {
+                    audioPath = await storageService.uploadAudio(customerPhone, aData.buffer, aData.mimeType);
+                } catch (retryErr) {
+                    console.error(`[Audio] ❌ uploadAudio falló también en reintento: ${retryErr.message}`);
+                }
+            }
+            if (audioPath && waId) {
+                await mensajesService.actualizarMedia(waId, {
+                    mediaUrl: audioPath,
+                    mediaMime: aData.mimeType,
+                });
+                console.log(`[Audio] ✅ Persistido waId=${waId} en Storage (${audioPath})`);
+            } else if (!audioPath) {
+                console.error(`[Audio] ❌ No se obtuvo path tras upload para waId=${waId}. Recuperable vía endpoint.`);
+            }
+        } catch (err) {
+            console.error(`[Audio] ❌ Error procesando audio mediaId=${mediaId}:`, err.message);
+        }
+    }
+};
+
+/**
  * Cancela cualquier debounce pendiente para un teléfono. Usado cuando el vendedor
  * envía una cotización formal o un mensaje manual, para evitar que el agente IA
  * responda con contexto desactualizado después de la acción del vendedor.
@@ -378,6 +435,124 @@ const processBufferedMessages = async (customerPhone) => {
         }
 
         // ═══════════════════════════════════════════════════════
+        // GUARD: DECISIÓN PENDIENTE — continuar / nueva cotización
+        // ═══════════════════════════════════════════════════════
+        // Si en un turno anterior preguntamos "¿continuar o nueva?" o
+        // "¿guardo la anterior?", interceptamos la respuesta acá ANTES de
+        // mandar a Gemini para mantener la decisión determinista.
+        if (session.entidades?.re_engage_pending && userText && !hasImage && !hasAudio) {
+            const t = userText.toLowerCase().trim();
+            const quiereContinuar = /\b(continuar|seguir|la misma|con esa|esa|dale|sigamos|continue|si\b|sí\b|claro)\b/i.test(t);
+            const quiereNueva = /\b(nueva|otra|empezar|de cero|olvid|nuevo pedido|nueva cotizaci[oó]n|otra cotizaci[oó]n|cotizar otro|distinto)\b/i.test(t);
+            const quoteIdAnterior = session.entidades?.re_engage_quote_id || null;
+            if (quiereContinuar) {
+                await sessionsService.updateEntidades(customerPhone, {
+                    re_engage_pending: false, re_engage_quote_id: null,
+                });
+                await sendAndPersist(customerPhone, `Perfecto, seguimos con la cotización${quoteIdAnterior ? ' *' + quoteIdAnterior + '*' : ''}. Quedo atento. 🙌`);
+                return;
+            }
+            if (quiereNueva) {
+                await sessionsService.updateEntidades(customerPhone, {
+                    re_engage_pending: false,
+                    guardar_anterior_pending: true,
+                    guardar_anterior_quote_id: quoteIdAnterior,
+                });
+                await sendAndPersist(customerPhone, `Perfecto.${quoteIdAnterior ? ` ¿Te guardo la cotización anterior *${quoteIdAnterior}* por 5 días por si la necesitas más adelante?` : ' ¿Te guardo la cotización anterior por 5 días por si la necesitas más adelante?'}`);
+                return;
+            }
+            // Si la respuesta es ambigua, dejamos el flag activo y dejamos pasar al flujo normal
+            // (Gemini puede responder mientras el cliente aclara). Otro turno volverá a este guard.
+        }
+
+        if (session.entidades?.guardar_anterior_pending && userText && !hasImage && !hasAudio) {
+            const t = userText.toLowerCase().trim();
+            const cotizacionesService = require('../services/cotizaciones.service');
+            const qId = session.entidades?.guardar_anterior_quote_id;
+            const si = /\b(s[ií]|claro|dale|por favor|gu[áa]rdala|gu[áa]rdame|si por favor|porfa)\b/i.test(t);
+            const no = /\b(no|nop|descart|b[oó]rrala|olvidalo|no gracias)\b/i.test(t);
+            if (si && qId) {
+                await cotizacionesService.setEstado(qId, 'ARCHIVADA');
+                await sessionsService.updateEntidades(customerPhone, {
+                    guardar_anterior_pending: false, guardar_anterior_quote_id: null,
+                });
+                await sessionsService.resetSession(customerPhone);
+                await sendAndPersist(customerPhone, `Listo, guardé la cotización *${qId}* por 5 días. Ahora cuéntame qué necesitas para esta nueva cotización 🙌`);
+                return;
+            }
+            if (no && qId) {
+                await cotizacionesService.setEstado(qId, 'CERRADA');
+                await sessionsService.updateEntidades(customerPhone, {
+                    guardar_anterior_pending: false, guardar_anterior_quote_id: null,
+                });
+                await sessionsService.resetSession(customerPhone);
+                await sendAndPersist(customerPhone, `De acuerdo, descarté la cotización anterior. Cuéntame qué necesitas para esta nueva 🙌`);
+                return;
+            }
+            // Si la respuesta es ambigua, seguimos esperando otra confirmación.
+        }
+
+        // ═══════════════════════════════════════════════════════
+        // GUARD: RE-ENGAGE TRAS INACTIVIDAD (≥1h) o "nueva cotización" textual
+        // ═══════════════════════════════════════════════════════
+        // Si la sesión tiene cotización enviada (CONFIRMANDO_COMPRA / ESPERANDO_COMPROBANTE)
+        // Y el cliente vuelve a escribir tras ≥1h, le preguntamos si quiere continuar
+        // o empezar nueva. Mismo flujo si menciona literalmente "nueva cotización".
+        const ESTADOS_COT_VIVA = [
+            sessionsService.STATES.CONFIRMANDO_COMPRA,
+            sessionsService.STATES.ESPERANDO_COMPROBANTE,
+        ];
+        if (
+            ESTADOS_COT_VIVA.includes(session.estado) &&
+            !session.entidades?.re_engage_pending &&
+            !session.entidades?.guardar_anterior_pending &&
+            !hasImage // imágenes (comprobantes) tienen flujo aparte
+        ) {
+            const textoBaja = (userText || '').toLowerCase();
+            const pideNuevaTextual = /\b(nueva cotizaci[oó]n|otra cotizaci[oó]n|cotizar otro|empezar de cero|olvid[aá] (lo anterior|la anterior)|nuevo pedido|distinta cotizaci[oó]n)\b/i.test(textoBaja);
+
+            // Calcular minutos desde el último mensaje saliente
+            let minutosDesdeSaliente = 0;
+            try {
+                const lastMsgs = await mensajesService.listarPorPhone(customerPhone, { limit: 5 }).catch(() => []);
+                const ultimoSaliente = (Array.isArray(lastMsgs) ? lastMsgs : [])
+                    .filter(m => m.direccion === 'saliente')
+                    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0];
+                if (ultimoSaliente) {
+                    minutosDesdeSaliente = Math.floor((Date.now() - new Date(ultimoSaliente.created_at).getTime()) / 60000);
+                }
+            } catch (_) { /* fallback: minutos = 0, no dispara por tiempo */ }
+
+            const dispararPorTiempo = minutosDesdeSaliente >= 60;
+            if (pideNuevaTextual || dispararPorTiempo) {
+                const cotizacionesService = require('../services/cotizaciones.service');
+                const cotActiva = await cotizacionesService.getCotizacionActivaPorPhone(customerPhone);
+                if (cotActiva) {
+                    const qId = cotActiva.quote_id;
+                    const motivo = pideNuevaTextual ? 'pedido textual de "nueva cotización"' : `${minutosDesdeSaliente}min desde último mensaje`;
+                    console.log(`[ReEngage] 🔄 Activando decisión continuar/nueva para ${customerPhone} (${motivo}). Quote activa: ${qId}`);
+                    await sessionsService.updateEntidades(customerPhone, {
+                        re_engage_pending: true,
+                        re_engage_quote_id: qId,
+                    });
+                    const nombre = session.entidades?.nombre_cliente
+                        ? ` ${session.entidades.nombre_cliente.split(/\s+/)[0]}`
+                        : '';
+                    const tiempoMsg = dispararPorTiempo && !pideNuevaTextual
+                        ? minutosDesdeSaliente >= 1440 ? ` (hace ${Math.floor(minutosDesdeSaliente/1440)} día${Math.floor(minutosDesdeSaliente/1440) > 1 ? 's' : ''})`
+                        : minutosDesdeSaliente >= 60 ? ` (hace ${Math.floor(minutosDesdeSaliente/60)}h ${minutosDesdeSaliente%60}min)`
+                        : ''
+                        : '';
+                    const intro = pideNuevaTextual
+                        ? `¡Hola${nombre}! Veo que tienes la cotización *${qId}* abierta.`
+                        : `¡Hola${nombre}! Veo que la cotización *${qId}* sigue pendiente${tiempoMsg}.`;
+                    await sendAndPersist(customerPhone, `${intro} ¿Quieres continuar con esa cotización o iniciar una nueva?`);
+                    return;
+                }
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════
         // ESTADO: ESPERANDO_APROBACION_ADMIN
         // ═══════════════════════════════════════════════════════
         if (session.estado === sessionsService.STATES.ESPERANDO_APROBACION_ADMIN) {
@@ -402,6 +577,11 @@ const processBufferedMessages = async (customerPhone) => {
             session.estado === sessionsService.STATES.ESPERANDO_VENDEDOR
         )) {
             console.log(`[ImageID] 📸 ${images.length} imagen(s) recibida(s) de ${customerPhone}. Clasificando...`);
+
+            // Bug-fix audio batch: si el mismo batch trae audio + imagen, el handler de
+            // imagen hacía return sin tocar el audio, dejando media_url=null en BD.
+            // Persistimos defensivamente AHORA, antes de cualquier return.
+            if (hasAudio) await persistirAudiosDelBatch(audios, customerPhone);
 
             // Fase 1: descargar y clasificar cada imagen en paralelo
             // REQ-04 Fase 2: incluir waMessageId para actualizar mensajes tras subida a storage
@@ -698,6 +878,10 @@ const processBufferedMessages = async (customerPhone) => {
             session.estado === sessionsService.STATES.ESPERANDO_SALDO
         )) {
             console.log(`[P1] 🧠 Imagen recibida en estado ${session.estado} de ${customerPhone}. Clasificando antes de asumir comprobante...`);
+
+            // Bug-fix audio batch: persistir defensivamente cualquier audio del mismo
+            // batch (este handler hace return en múltiples puntos y el audio quedaba huérfano).
+            if (hasAudio) await persistirAudiosDelBatch(audios, customerPhone);
 
             // Extraer nombre del cliente del texto si está disponible y aún no se ha capturado
             if (!session.entidades?.nombre_cliente && userText) {

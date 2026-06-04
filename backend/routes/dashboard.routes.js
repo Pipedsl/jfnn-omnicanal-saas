@@ -12,6 +12,7 @@ const mensajesService = require('../services/mensajes.service');
 const auditService = require('../services/audit.service');
 const { requireSoporte } = require('../middleware/auth.middleware');
 const storageService = require('../services/storage.service');
+const cotizacionesService = require('../services/cotizaciones.service');
 const { getDireccionSucursal } = require('../utils/sucursales');
 const { cancelDebounce } = require('../controllers/whatsapp.controller');
 
@@ -695,6 +696,29 @@ router.post('/cotizaciones/responder', async (req, res) => {
             cleanupUpdate.abono_minimo = null;
         }
         await sessionsService.updateEntidades(phone, cleanupUpdate);
+
+        // ─── Persistir cotización en tabla `cotizaciones` (snapshot, validez 5 días) ───
+        // Permite que el agente y el vendedor recuperen cotizaciones sin parsear el chat.
+        try {
+            const sessionPost = await sessionsService.getSession(phone).catch(() => null);
+            const flatRepuestos = items || (vehiculos || []).flatMap(v => v.repuestos_solicitados || []);
+            const totalAprox = flatRepuestos.reduce((acc, r) => acc + ((parseInt(r.precio) || 0) * (parseInt(r.cantidad) || 1)), 0);
+            const tieneEncargo = flatRepuestos.some(r => r && r.disponibilidad === 'POR_ENCARGO');
+            await cotizacionesService.upsertCotizacion({
+                quote_id: quoteId,
+                phone,
+                nombre_cliente: sessionPost?.entidades?.nombre_cliente || null,
+                sucursal: sessionPost?.sucursal || null,
+                vendedor_nombre: vendedor_nombre || sessionPost?.entidades?.vendedor_nombre || null,
+                repuestos: items || [],
+                vehiculos: vehiculos || [],
+                total_aproximado: totalAprox,
+                tiene_encargo: tieneEncargo,
+                abono_minimo: cleanupUpdate.abono_minimo,
+            });
+        } catch (cotErr) {
+            console.error('[Cotizaciones] ⚠️ No se pudo persistir snapshot en tabla (flujo continúa):', cotErr.message);
+        }
 
         res.status(200).json({ success: true, quoteId });
     } catch (error) {
@@ -2268,7 +2292,7 @@ router.get('/conversaciones/:phone', async (req, res) => {
                 autor_nombre: msg.autor_nombre,
                 created_at: msg.created_at,
                 // Para mostrar botón "🔄 Reintentar" cuando media_url falló pero hay media_id recuperable
-                media_recuperable: !signedUrl && !!msg.media_id && msg.tipo === 'image',
+                media_recuperable: !signedUrl && !!msg.media_id && (msg.tipo === 'image' || msg.tipo === 'audio'),
             };
         }));
 
@@ -2605,27 +2629,95 @@ router.post('/mensajes/:id/reprocesar-media', async (req, res) => {
         const msg = rows[0];
         if (!msg) return res.status(404).json({ error: 'Mensaje no encontrado' });
         if (msg.media_url) return res.json({ success: true, ya_tenia: true, media_url: msg.media_url });
-        if (!msg.media_id) return res.status(400).json({ error: 'Este mensaje no tiene media_id (imagen antigua, no recuperable)' });
+        if (!msg.media_id) return res.status(400).json({ error: 'Este mensaje no tiene media_id (mensaje antiguo, no recuperable)' });
+        if (!['image', 'audio'].includes(msg.tipo)) {
+            return res.status(400).json({ error: `Tipo no soportado para reprocesar: ${msg.tipo}` });
+        }
 
         // Re-descargar de Meta
-        const imageData = await whatsappService.downloadMedia(msg.media_id);
-        if (!imageData) {
+        const mediaData = await whatsappService.downloadMedia(msg.media_id);
+        if (!mediaData) {
             return res.status(502).json({ error: 'No se pudo descargar de Meta. El media_id puede haber expirado (>14 días).' });
         }
 
-        // Subir a storage
-        const subfolder = msg.tipo === 'image' ? 'part-images' : 'media';
-        const objectPath = await storageService.uploadPartImage(msg.phone, imageData.buffer, imageData.mimeType);
+        // Subir a Storage (función específica según tipo)
+        let objectPath = null;
+        try {
+            if (msg.tipo === 'audio') {
+                objectPath = await storageService.uploadAudio(msg.phone, mediaData.buffer, mediaData.mimeType);
+            } else {
+                objectPath = await storageService.uploadPartImage(msg.phone, mediaData.buffer, mediaData.mimeType);
+            }
+        } catch (uploadErr) {
+            console.error('[Dashboard] Upload falló en reprocesar-media:', uploadErr.message);
+        }
         if (!objectPath) {
             return res.status(502).json({ error: 'Falló la subida a Storage. Reintenta en un momento.' });
         }
 
-        await db.query('UPDATE mensajes SET media_url = $1, media_mime = $2 WHERE id = $3', [objectPath, imageData.mimeType, id]);
+        await db.query('UPDATE mensajes SET media_url = $1, media_mime = $2 WHERE id = $3', [objectPath, mediaData.mimeType, id]);
         const signedUrl = await storageService.getSignedUrl(objectPath, 86400);
-        res.json({ success: true, media_url: signedUrl });
+        res.json({ success: true, media_url: signedUrl, tipo: msg.tipo });
     } catch (error) {
         console.error('[Dashboard] Error reprocesando media:', error.message);
-        res.status(500).json({ error: 'Error reprocesando imagen', detalle: error.message });
+        res.status(500).json({ error: 'Error reprocesando media', detalle: error.message });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// Cotizaciones persistentes — listado + detalle + archivar/cerrar manual
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * GET /api/dashboard/cotizaciones-store
+ * Listado de cotizaciones persistidas. Filtros opcionales por query string:
+ *   ?estado=ACTIVA|ARCHIVADA|EXPIRADA|CERRADA  ?phone=XXX  ?sucursal=XXX
+ *   ?vendedor=XXX  ?limit=100
+ */
+router.get('/cotizaciones-store', async (req, res) => {
+    try {
+        const data = await cotizacionesService.listar({
+            estado: req.query.estado || undefined,
+            phone: req.query.phone || undefined,
+            sucursal: req.query.sucursal || undefined,
+            vendedor: req.query.vendedor || undefined,
+            limit: Math.min(parseInt(req.query.limit, 10) || 100, 500),
+        });
+        res.status(200).json({ cotizaciones: data });
+    } catch (error) {
+        console.error('Error en GET /cotizaciones-store:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+/**
+ * GET /api/dashboard/cotizaciones-store/:quoteId
+ */
+router.get('/cotizaciones-store/:quoteId', async (req, res) => {
+    try {
+        const cot = await cotizacionesService.getByQuoteId(req.params.quoteId);
+        if (!cot) return res.status(404).json({ error: 'No encontrada' });
+        res.status(200).json(cot);
+    } catch (error) {
+        console.error('Error en GET /cotizaciones-store/:quoteId:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+/**
+ * PATCH /api/dashboard/cotizaciones-store/:quoteId/estado
+ * Body: { estado: 'ACTIVA'|'ARCHIVADA'|'EXPIRADA'|'CERRADA' }
+ */
+router.patch('/cotizaciones-store/:quoteId/estado', async (req, res) => {
+    try {
+        const { estado } = req.body || {};
+        if (!estado) return res.status(400).json({ error: 'Falta estado' });
+        const updated = await cotizacionesService.setEstado(req.params.quoteId, estado);
+        if (!updated) return res.status(404).json({ error: 'No encontrada' });
+        res.status(200).json(updated);
+    } catch (error) {
+        console.error('Error en PATCH /cotizaciones-store/:quoteId/estado:', error);
+        res.status(400).json({ error: error.message || 'Error interno' });
     }
 });
 
