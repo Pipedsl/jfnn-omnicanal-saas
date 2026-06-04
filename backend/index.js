@@ -111,6 +111,14 @@ const server = app.listen(port, () => {
     }, ARCHIVE_INTERVAL_MS);
 
     console.log(`[AutoArchive] ⏰ Programado cada 4h (umbral: ${ARCHIVE_HOURS}h de inactividad)`);
+
+    // ─── Expiración automática de cotizaciones (validez 5 días) ────────
+    // Cada 1h marcamos como EXPIRADA cualquier cotización ACTIVA cuya valida_hasta < NOW().
+    const cotizacionesService = require('./services/cotizaciones.service');
+    const EXPIRAR_INTERVAL_MS = 60 * 60 * 1000; // 1h
+    setTimeout(() => { cotizacionesService.expirarAntiguas(); }, 45_000);
+    setInterval(() => { cotizacionesService.expirarAntiguas(); }, EXPIRAR_INTERVAL_MS);
+    console.log(`[Cotizaciones] ⏰ Expiración programada cada 1h (validez ${cotizacionesService.VALIDEZ_DIAS} días)`);
 });
 
 // ─── Graceful shutdown: vaciar buffers de debounce antes de morir ───
