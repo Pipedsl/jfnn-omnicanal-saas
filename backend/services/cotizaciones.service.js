@@ -97,8 +97,8 @@ const setEstado = async (quote_id, nuevoEstado) => {
     try {
         const { rows } = await db.query(
             `UPDATE cotizaciones
-             SET estado_cotizacion = $1,
-                 cerrada_en = CASE WHEN $1 = 'CERRADA' THEN NOW() ELSE cerrada_en END,
+             SET estado_cotizacion = $1::varchar,
+                 cerrada_en = CASE WHEN $1::varchar = 'CERRADA' THEN NOW() ELSE cerrada_en END,
                  updated_at = NOW()
              WHERE quote_id = $2
              RETURNING *`,
