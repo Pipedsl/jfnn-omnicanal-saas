@@ -6,7 +6,7 @@ require('dotenv').config();
 // Importar rutas
 const whatsappRoutes = require('./routes/whatsapp.routes');
 const dashboardRoutes = require('./routes/dashboard.routes');
-const { verifyJWT } = require('./middleware/auth.middleware');
+const { verifyJWT, requireNotObserver } = require('./middleware/auth.middleware');
 const sessionsService = require('./services/sessions.service');
 const { flushAllBuffers, recoverUnansweredSessions } = require('./controllers/whatsapp.controller');
 const db = require('./config/db');
@@ -46,7 +46,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Registro de rutas
 app.use('/api/whatsapp', whatsappRoutes);
-app.use('/api/dashboard', apiLimiter, verifyJWT, dashboardRoutes);
+app.use('/api/dashboard', apiLimiter, verifyJWT, requireNotObserver, dashboardRoutes);
 
 // Reporte de errores de cliente del dashboard (público, sin JWT: el crash puede
 // ocurrir con token expirado/ausente). Loguea a consola para verlo en Railway y poder
