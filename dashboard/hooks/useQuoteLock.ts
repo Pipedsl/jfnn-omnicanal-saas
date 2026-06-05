@@ -2,6 +2,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { api } from "@/lib/api";
 import { BACKEND_URL } from '@/lib/api';
+import { isObservador } from '@/lib/observadores';
 
 interface UseQuoteLockResult {
     isLocked: boolean;      // true si OTRO vendedor lo tiene
@@ -23,6 +24,9 @@ export function useQuoteLock(phone: string | null, vendedor: string | null): Use
 
     useEffect(() => {
         if (!phone || !vendedor) return;
+        // Vendedor observador (entrenamiento) → no genera lock. Puede abrir el card
+        // sin bloquear a otros vendedores que realmente quieran cotizar.
+        if (isObservador(vendedor)) return;
         let mounted = true;
         let renewInterval: ReturnType<typeof setInterval> | undefined;
 
