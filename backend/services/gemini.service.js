@@ -743,7 +743,10 @@ Reglas DURAS:
 
         const result = await model.generateContent({
             contents: [{ role: "user", parts }],
-            generationConfig: { response_mime_type: "application/json", maxOutputTokens: 1024 }
+            // 2048 (no 1024) porque el JSON de padron puede incluir 9 campos con strings
+            // largos (nombre_propietario completo, rut con formato, marca_modelo + ano + ...).
+            // Bug detectado en logs 2026-06-06: "Unterminated string at position 74" por cap.
+            generationConfig: { response_mime_type: "application/json", maxOutputTokens: 2048 }
         });
 
         const parsed = JSON.parse(result.response.text());
