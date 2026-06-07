@@ -1107,7 +1107,21 @@ const rangeToSql = (range, column) => {
     }
 };
 
+// Cache en memoria de KPIs (Tier 2 perf): TTL 60s por combinación (range +
+// sucursal + vendedor). Hits típicos: admin abre el home → polling automático
+// + refresh manual. Sin cache: 6 queries pesadas cada vez. Con cache: 1 sola
+// cada 60s. Si las métricas cambian (nueva venta cerrada), el cache se
+// invalida implícitamente por TTL.
+const METRICS_CACHE = new Map();
+const METRICS_CACHE_TTL_MS = 60 * 1000;
+const _metricsCacheKey = (range, filters) => `${range}|${filters?.sucursal || ''}|${filters?.vendedor || ''}`;
+
 const getDashboardMetrics = async (range = 'hoy', filters = {}) => {
+    const cacheKey = _metricsCacheKey(range, filters);
+    const cached = METRICS_CACHE.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < METRICS_CACHE_TTL_MS) {
+        return cached.data;
+    }
     try {
         const tiempoRespuestaSeg = parseInt(process.env.IA_TIEMPO_RESPUESTA_SEG || '30', 10);
 
@@ -1200,7 +1214,7 @@ const getDashboardMetrics = async (range = 'hoy', filters = {}) => {
             : 0;
         const ticketPromedio = cantidadVentas > 0 ? Math.round(totalVendido / cantidadVentas) : 0;
 
-        return {
+        const result = {
             // Compatibilidad con dashboard principal (rango = hoy)
             totalVendidoHoy: totalVendido,
             cantidadVentasHoy: cantidadVentas,
@@ -1222,6 +1236,8 @@ const getDashboardMetrics = async (range = 'hoy', filters = {}) => {
             tasaConversion,
             cantidadEsperandoVendedor
         };
+        METRICS_CACHE.set(cacheKey, { data: result, timestamp: Date.now() });
+        return result;
     } catch (err) {
         console.error('[Sessions Analytics] ❌ Error en getDashboardMetrics:', err.message);
         return {

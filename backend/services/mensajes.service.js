@@ -193,8 +193,10 @@ const listarConversacionesActivas = async ({ sucursal = null, q = null } = {}) =
             )`);
         }
         const whereClause = conds.length > 0 ? 'WHERE ' + conds.join(' AND ') : '';
-        // Cuando hay búsqueda, limitar resultados; sin búsqueda, traer todo (con LIMIT defensivo)
-        const limitClause = q && q.trim() ? 'LIMIT 50' : 'LIMIT 500';
+        // Limit conservador: bandeja muestra las 100 conversaciones más recientes por
+        // ultimo_mensaje. Las viejas siguen accesibles vía búsqueda (LIMIT 50 al filtrar).
+        // Reducción de payload + queries más rápidas vs el viejo LIMIT 500.
+        const limitClause = q && q.trim() ? 'LIMIT 50' : 'LIMIT 100';
 
         const query = `
             WITH agg AS (
