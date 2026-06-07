@@ -679,7 +679,12 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                             <div key={rIdx} className="flex items-center justify-between text-xs bg-black/20 p-2 rounded-lg hover:bg-black/40 transition-colors">
                                                                 <div className="flex flex-col">
                                                                     <span className="text-neutral-300 font-bold">• {r.cantidad && r.cantidad > 1 ? `${r.cantidad}x ` : ''}{r.nombre}</span>
-                                                                    {r.codigo && <span className="text-xs text-neutral-500 font-mono">Código: {r.codigo}</span>}
+                                                                    <span
+                                                                        className={`text-xs font-mono ${r.codigo ? 'text-neutral-500' : 'text-neutral-700 italic'}`}
+                                                                        title={r.codigo ? undefined : 'Sin código registrado por el vendedor'}
+                                                                    >
+                                                                        Código: {r.codigo || '—'}
+                                                                    </span>
                                                                     {estado === 'ESPERANDO_VENDEDOR' && (
                                                                         <div className="mt-2 flex gap-2 flex-wrap">
                                                                             {!v.patente && (
@@ -840,7 +845,12 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                                 )}
                                                                 <div className="flex flex-col">
                                                                     <span className="text-neutral-300 font-bold">• {r.cantidad && r.cantidad > 1 ? `${r.cantidad}x ` : ''}{r.nombre}</span>
-                                                                    {r.codigo && <span className="text-xs text-neutral-500 font-mono">Código: {r.codigo}</span>}
+                                                                    <span
+                                                                        className={`text-xs font-mono ${r.codigo ? 'text-neutral-500' : 'text-neutral-700 italic'}`}
+                                                                        title={r.codigo ? undefined : 'Sin código registrado por el vendedor'}
+                                                                    >
+                                                                        Código: {r.codigo || '—'}
+                                                                    </span>
                                                                     {estado === 'ESPERANDO_VENDEDOR' && (
                                                                         <div className="mt-2 flex gap-2 flex-wrap">
                                                                             {!entidades.patente && (

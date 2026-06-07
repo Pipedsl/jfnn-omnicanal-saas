@@ -74,10 +74,11 @@ const RenderItemInput = ({ item, isSinStock, onChange, onRemove }: { item: Item,
                 </div>
                 <input
                     type="text"
-                    placeholder="Código"
-                    className="bg-neutral-800/80 text-white text-xs border border-white/5 rounded-lg block w-full pl-6 p-2 focus:ring-accent focus:border-accent"
+                    placeholder="Código (ej. K-12345)"
+                    className={`bg-neutral-800/80 text-white text-xs rounded-lg block w-full pl-6 p-2 focus:ring-accent focus:border-accent border ${(!item.codigo && !isSinStock && item.precio) ? 'border-orange-500/40 focus:border-orange-400' : 'border-white/5'}`}
                     value={item.codigo || ""}
                     onChange={(e) => onChange("codigo", e.target.value)}
+                    title={!item.codigo && !isSinStock && item.precio ? 'Falta el código del producto (recomendado)' : 'Código interno del producto'}
                 />
             </div>
             <div className="relative flex-1">
@@ -299,6 +300,27 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
             if (!ok) return false;
         }
 
+        // Validación BLANDA del código: items DISPONIBLES con precio pero sin código.
+        // Es un recordatorio para entrenamiento del equipo y para que las cotizaciones
+        // queden trazables al inventario. No bloquea el envío.
+        const sinCodigo = itemsValidos.filter(i =>
+            (i.disponibilidad || 'DISPONIBLE') === 'DISPONIBLE' &&
+            i.precio && Number(i.precio) > 0 &&
+            !(i.codigo || '').trim()
+        );
+        if (sinCodigo.length > 0) {
+            const nombres = sinCodigo.map(i => i.nombre).join(', ');
+            const ok = confirm(
+                `💡 Hay ${sinCodigo.length} ítem(s) sin código de producto:\n\n${nombres}\n\n` +
+                `Los códigos ayudan a:\n` +
+                `• Entrenamiento de vendedores nuevos\n` +
+                `• Identificar productos en el inventario / catálogo\n` +
+                `• Trazabilidad de la venta\n\n` +
+                `¿Enviar de todas formas?`
+            );
+            if (!ok) return false;
+        }
+
         return true;
     };
 
@@ -412,7 +434,10 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
     return (
         <form onSubmit={handleSubmit} className="flex flex-col h-full bg-black/20">
             <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-4">
-                <h4 className="text-[10px] font-black text-accent uppercase tracking-widest mb-4">Completar Cotización</h4>
+                <h4 className="text-[10px] font-black text-accent uppercase tracking-widest mb-2">Completar Cotización</h4>
+                <div className="mb-3 px-3 py-1.5 rounded-lg bg-amber-500/5 border border-amber-500/20 text-[10px] text-amber-300/90 leading-relaxed">
+                    💡 <strong>Tip:</strong> ingresa el <strong>código del producto</strong> en cada ítem disponible. Ayuda a los vendedores nuevos a aprender el catálogo y rastrear productos en el inventario.
+                </div>
                 {formVehiculos.length > 0 ? (
                     formVehiculos.map((v, vIdx) => (
                         <div key={vIdx} className="space-y-3 bg-neutral-900/30 p-3 rounded-xl border border-white/5">
