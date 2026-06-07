@@ -2025,7 +2025,7 @@ router.get('/vendedores', async (req, res) => {
  * Body: { nombre: string, sucursal: string }
  * Retorna 201 + vendedor creado
  */
-router.post('/vendedores', async (req, res) => {
+router.post('/vendedores', requireSoporte, async (req, res) => {
     try {
         const { nombre, sucursal } = req.body;
 
@@ -2052,7 +2052,7 @@ router.post('/vendedores', async (req, res) => {
  * Body: { activo: boolean }
  * Retorna el vendedor actualizado o 404 si no existe
  */
-router.patch('/vendedores/:id', async (req, res) => {
+router.patch('/vendedores/:id', requireSoporte, async (req, res) => {
     try {
         const id = parseInt(req.params.id, 10);
         if (isNaN(id)) {
@@ -2081,7 +2081,7 @@ router.patch('/vendedores/:id', async (req, res) => {
  * Soft delete: pone activo=false en lugar de borrar la fila.
  * Retorna 200 { ok: true } o 404
  */
-router.delete('/vendedores/:id', async (req, res) => {
+router.delete('/vendedores/:id', requireSoporte, async (req, res) => {
     try {
         const id = parseInt(req.params.id, 10);
         if (isNaN(id)) {

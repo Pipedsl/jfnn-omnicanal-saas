@@ -44,7 +44,9 @@ export default function EquipoSection() {
   }, []);
 
   useEffect(() => {
-    if (role === "admin") fetchVendedores();
+    // Solo soporte (super-admin) puede gestionar el equipo. Admin tiene rol más
+    // restringido (solo lectura de operación, sin edición de vendedores/sucursales).
+    if (role === "soporte") fetchVendedores();
   }, [role, fetchVendedores]);
 
   const handleAgregar = async (sucursal: Sucursal, nombre: string, onDone: () => void) => {
@@ -82,7 +84,7 @@ export default function EquipoSection() {
     }
   };
 
-  if (role !== "admin") return null;
+  if (role !== "soporte") return null;
 
   return (
     <section className="glass p-6 sm:p-8 rounded-3xl space-y-6">
