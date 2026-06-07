@@ -531,7 +531,9 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
 
   useEffect(() => {
     fetchConversaciones(true);
-    const interval = setInterval(() => fetchConversaciones(false), 4000);
+    // Bandeja: poll cada 8s (antes 4s). Reduce ~50% requests al backend sin
+    // afectar UX percibida — los mensajes nuevos siguen disparando el badge.
+    const interval = setInterval(() => fetchConversaciones(false), 8000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sucursalFilter]);
