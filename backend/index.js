@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const compression = require('compression');
 const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
@@ -17,6 +18,14 @@ const port = process.env.PORT || 4000;
 // Railway pone el servicio detrás de un reverse proxy y agrega X-Forwarded-For.
 // Confiamos en 1 hop para que express-rate-limit use la IP real del cliente.
 app.set('trust proxy', 1);
+
+// Gzip compression para JSON responses. Reduce egress ~65% en payloads grandes
+// (listados de conversaciones, mensajes, métricas). Express maneja Accept-Encoding
+// automáticamente — si el cliente no soporta gzip, sirve sin comprimir.
+app.use(compression({
+    threshold: 1024, // solo comprimir respuestas > 1KB
+    level: 6,        // balance velocidad/ratio (default)
+}));
 
 app.use(cors({
     origin: [

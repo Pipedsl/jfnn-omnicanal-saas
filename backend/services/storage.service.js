@@ -206,9 +206,22 @@ const uploadDocument = async (phone, docBuffer, mimeType) => {
     return _upload('documents', phone, docBuffer, mimeType);
 };
 
+// Cache en memoria de signed URLs por objectPath. TTL = expiresIn - 5 minutos
+// de margen. Evita pedir signed URL al Storage en cada poll del dashboard
+// (bandeja + chat actualizan cada 4-8s).
+const SIGNED_URL_CACHE = new Map();
+const SIGNED_URL_CACHE_MAX = 500;
+const SIGNED_URL_SAFETY_MARGIN_MS = 5 * 60 * 1000;
+
 const getSignedUrl = async (objectPath, expiresIn = 3600) => {
     const client = _getClient();
     if (!client || !objectPath) return null;
+
+    // Cache hit: si la URL en cache aún tiene >5min de vida, reusar.
+    const cached = SIGNED_URL_CACHE.get(objectPath);
+    if (cached && cached.expiresAt > Date.now()) {
+        return cached.signedUrl;
+    }
 
     // Retry: Supabase devuelve Gateway Timeout intermitente al firmar URLs.
     const maxIntentos = 2;
@@ -218,7 +231,18 @@ const getSignedUrl = async (objectPath, expiresIn = 3600) => {
                 .from(BUCKET)
                 .createSignedUrl(objectPath, expiresIn);
 
-            if (!error && data?.signedUrl) return data.signedUrl;
+            if (!error && data?.signedUrl) {
+                // Guardar en cache. LRU naive: si está lleno, drop el más viejo.
+                if (SIGNED_URL_CACHE.size >= SIGNED_URL_CACHE_MAX) {
+                    const oldestKey = SIGNED_URL_CACHE.keys().next().value;
+                    if (oldestKey) SIGNED_URL_CACHE.delete(oldestKey);
+                }
+                SIGNED_URL_CACHE.set(objectPath, {
+                    signedUrl: data.signedUrl,
+                    expiresAt: Date.now() + (expiresIn * 1000) - SIGNED_URL_SAFETY_MARGIN_MS,
+                });
+                return data.signedUrl;
+            }
             if (error) console.error(`[Storage] ⚠️ Intento ${intento}/${maxIntentos} firmando ${objectPath}:`, error.message);
         } catch (err) {
             console.error(`[Storage] ⚠️ Excepción intento ${intento}/${maxIntentos} en getSignedUrl:`, err.message);
@@ -226,6 +250,12 @@ const getSignedUrl = async (objectPath, expiresIn = 3600) => {
         if (intento < maxIntentos) await _sleep(500);
     }
     return null;
+};
+
+// Invalidar cache manualmente (cuando un archivo se borra/reemplaza).
+const invalidateSignedUrlCache = (objectPath) => {
+    if (objectPath) SIGNED_URL_CACHE.delete(objectPath);
+    else SIGNED_URL_CACHE.clear();
 };
 
 module.exports = {
@@ -236,4 +266,5 @@ module.exports = {
     uploadVideo,
     uploadDocument,
     getSignedUrl,
+    invalidateSignedUrlCache,
 };
