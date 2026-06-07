@@ -7,6 +7,7 @@ import axios from "axios";
 
 import { BACKEND_URL } from "@/lib/api";
 import EquipoSection from "@/components/EquipoSection";
+import { safeGet } from "@/lib/storage";
 
 const API = `${BACKEND_URL}/api/dashboard`;
 
@@ -20,6 +21,8 @@ interface Regla {
 export default function SettingsPage() {
     const [rubro, setRubro] = useState("repuestos");
     const [seccion, setSeccion] = useState<"personalidad" | "entrenamiento" | "feriados" | "equipo">("personalidad");
+    const [role, setRole] = useState<string | null>(null);
+    useEffect(() => { setRole(safeGet("jfnn_role")); }, []);
 
     // Feriados
     interface Feriado { id: number; fecha: string; nombre: string; }
@@ -184,15 +187,18 @@ export default function SettingsPage() {
                             <CalendarDays size={18} />
                             Feriados
                         </button>
-                        <button
-                            onClick={() => setSeccion("equipo")}
-                            className={`w-full text-left px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-3 transition-colors ${seccion === "equipo"
-                                ? "bg-green-500/10 border border-green-500/20 text-green-400"
-                                : "hover:bg-white/5 text-neutral-500 border border-transparent"
-                                }`}
-                        >
-                            👥 Equipo
-                        </button>
+                        {role === "soporte" && (
+                            <button
+                                onClick={() => setSeccion("equipo")}
+                                className={`w-full text-left px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-3 transition-colors ${seccion === "equipo"
+                                    ? "bg-green-500/10 border border-green-500/20 text-green-400"
+                                    : "hover:bg-white/5 text-neutral-500 border border-transparent"
+                                    }`}
+                                title="Solo soporte (super-admin): gestión de vendedores por sucursal"
+                            >
+                                👥 Equipo
+                            </button>
+                        )}
                     </div>
 
                     {/* Main Content */}
