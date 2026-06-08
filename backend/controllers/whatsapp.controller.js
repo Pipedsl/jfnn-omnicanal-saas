@@ -1268,6 +1268,35 @@ const processBufferedMessages = async (customerPhone) => {
         }
 
         // 4. Actualizar entidades en la sesión
+        // ── Filtro anti-basura: items con nombres tipo pronombre/referencia/frase corta
+        // se descartan ANTES del merge. Bug real (jun 2026): cliente envía foto + "Es algo
+        // como esta" → Gemini creaba un item llamado "Es algo como esta" que terminaba en
+        // la cotización formal como "❌ Es algo como esta - Agotado momentáneamente".
+        const ITEM_BLACKLIST_RE = /^\s*(eso|esto|esos|esas|este|esta|estos|estas|el otro|los otros|es algo como esta|es algo como esto|como el de la foto|como (la|el) que mande|parecido a|lo que mande|lo que envi[eé]|lo de la foto)[\s.,!?¡¿]*$/i;
+        const sanitizarItems = (lista) => Array.isArray(lista) ? lista.filter(r => {
+            const n = (r?.nombre || '').trim();
+            if (n.length < 5) {
+                console.warn(`[Items] 🧹 Descartando item con nombre <5 chars: "${n}"`);
+                return false;
+            }
+            if (ITEM_BLACKLIST_RE.test(n)) {
+                console.warn(`[Items] 🧹 Descartando item con nombre pronombre/referencial: "${n}"`);
+                return false;
+            }
+            return true;
+        }) : lista;
+        if (aiJson.entidades) {
+            if (Array.isArray(aiJson.entidades.repuestos_solicitados)) {
+                aiJson.entidades.repuestos_solicitados = sanitizarItems(aiJson.entidades.repuestos_solicitados);
+            }
+            if (Array.isArray(aiJson.entidades.vehiculos)) {
+                aiJson.entidades.vehiculos = aiJson.entidades.vehiculos.map(v => ({
+                    ...v,
+                    repuestos_solicitados: sanitizarItems(v?.repuestos_solicitados),
+                }));
+            }
+        }
+
         const originalSession = JSON.parse(JSON.stringify(session)); // Backup
         session = await sessionsService.updateEntidades(customerPhone, aiJson.entidades);
 
