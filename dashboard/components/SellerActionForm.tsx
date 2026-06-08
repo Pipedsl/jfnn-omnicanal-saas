@@ -369,6 +369,45 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
             onResponded();
         } catch (error) {
             console.error("Error al guardar:", error);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const err = error as any;
+            const status = err?.response?.status;
+            const data = err?.response?.data;
+            // Caso especial: backend bloqueó por ventana 24h cerrada (409 ventana_cerrada).
+            // Educamos al vendedor con instrucciones paso a paso y le ofrecemos enviar la
+            // plantilla retomar_cotizacion de un solo click.
+            if (status === 409 && data?.error === 'ventana_cerrada') {
+                const horas = data.horas_offline;
+                const horasStr = horas ? `hace ~${horas}h` : 'hace más de 24h';
+                const ok = confirm(
+                    `⚠️ NO SE ENVIÓ LA COTIZACIÓN\n\n` +
+                    `La ventana de WhatsApp de 24h está cerrada. El cliente lleva ${horasStr} sin responder, y si enviáramos la cotización ahora Meta la aceptaría pero NO llegaría al cliente (entrega silenciosa fallida).\n\n` +
+                    `QUÉ HACER (paso a paso):\n` +
+                    `1. Te enviaré ahora la plantilla 📨 "retomar_cotizacion" al cliente.\n` +
+                    `2. La plantilla es un mensaje pre-aprobado por Meta que SÍ se entrega aunque la ventana esté cerrada.\n` +
+                    `3. Cuando el cliente responda, la ventana de 24h se reabre.\n` +
+                    `4. AHÍ recién podrás reenviar tu cotización.\n\n` +
+                    `¿Envío la plantilla "retomar_cotizacion" ahora?`
+                );
+                if (ok) {
+                    try {
+                        const vendedorNombre = safeGet('jfnn_vendedor_nombre');
+                        await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/template`, {
+                            phone,
+                            templateName: 'retomar_cotizacion',
+                            nombre: 'cliente',
+                            repuesto: 'los repuestos solicitados',
+                            vendedor_nombre: vendedorNombre || undefined,
+                        });
+                        alert(`✅ Plantilla "retomar_cotizacion" enviada.\n\nEspera a que el cliente responda. Cuando lo haga, vuelve a entrar al chat y podrás enviar la cotización.`);
+                        onResponded();
+                    } catch (sendErr) {
+                        console.error('Error enviando plantilla retomar:', sendErr);
+                        alert('No se pudo enviar la plantilla. Intenta enviarla manualmente desde el chat (sección Plantillas HSM).');
+                    }
+                }
+                return;
+            }
             alert(esAjusteVentaFinal ? "Error al guardar la venta final" : "Error al enviar la cotización");
         } finally {
             setLoading(false);

@@ -533,6 +533,37 @@ router.post('/cotizaciones/responder', async (req, res) => {
             return res.status(400).json({ error: 'Faltan campos obligatorios' });
         }
 
+        // ── Guard ventana 24h ─────────────────────────────────────────────
+        // Si el último mensaje entrante del cliente fue hace >23h50min, la
+        // ventana de WhatsApp está prácticamente cerrada y Meta entrega el
+        // mensaje "exitosamente" sin que llegue al cliente. Bloqueamos el
+        // envío de la cotización formal (texto libre) y guiamos al vendedor a
+        // enviar la plantilla retomar_cotizacion primero para reabrir la
+        // conversación.
+        try {
+            const { rows: ult } = await db.query(
+                `SELECT created_at FROM mensajes
+                 WHERE phone = $1 AND direccion = 'entrante'
+                 ORDER BY created_at DESC LIMIT 1`,
+                [phone]
+            );
+            const ultEntranteMs = ult.length > 0 ? new Date(ult[0].created_at).getTime() : 0;
+            const MARGEN_MS = 23 * 60 * 60 * 1000 + 50 * 60 * 1000; // 23h50m
+            if (ultEntranteMs === 0 || (Date.now() - ultEntranteMs) > MARGEN_MS) {
+                const horas = ultEntranteMs > 0 ? Math.round((Date.now() - ultEntranteMs) / 3600000) : null;
+                console.warn(`[Ventana] 🚫 Cotización rechazada para ${phone} (último entrante hace ${horas ?? '∞'}h). Sugiriendo HSM retomar_cotizacion.`);
+                return res.status(409).json({
+                    error: 'ventana_cerrada',
+                    detalle: 'La ventana de WhatsApp (24h) está cerrada. El cliente NO recibirá la cotización como mensaje libre.',
+                    accion_sugerida: 'envia_plantilla_retomar',
+                    plantilla_id: 'retomar_cotizacion',
+                    horas_offline: horas,
+                });
+            }
+        } catch (ventErr) {
+            console.error('[Ventana] ⚠️ Error chequeando ventana 24h (se permite el envío como fallback):', ventErr.message);
+        }
+
         // Cancelar cualquier debounce pendiente: evita que la IA responda con contexto
         // viejo después de que el vendedor envíe la cotización formal.
         cancelDebounce(phone);
