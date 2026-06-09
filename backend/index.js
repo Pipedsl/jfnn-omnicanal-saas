@@ -106,20 +106,17 @@ const server = app.listen(port, () => {
     }, 15_000);
 
     // ─── Auto-Archivado de Sesiones Abandonadas ────────────────
-    const ARCHIVE_HOURS = parseInt(process.env.AUTO_ARCHIVE_HOURS) || 48;
+    // Grupos (configurable por env, defaults seguros):
+    //   PERFILANDO/ESPERANDO_VENDEDOR: 48h → ABANDONADO
+    //   CONFIRMANDO_COMPRA/ESPERANDO_COMPROBANTE: 120h (5d) → NO_RESPONDIO_CIERRE
+    //   CICLO_COMPLETO: 120h (5d) → CIERRE_TIMEOUT
+    // Snapshot completo va a `pedidos` con phone + quote_id + repuestos + entidades
+    // para mantener trazabilidad de "qué pidieron los clientes" aunque se limpie
+    // la bandeja del vendedor.
     const ARCHIVE_INTERVAL_MS = 4 * 60 * 60 * 1000; // Cada 4 horas
-
-    // Ejecutar una vez al iniciar (despues de 30s para dar tiempo a la DB)
-    setTimeout(() => {
-        sessionsService.autoArchiveStaleSessions(ARCHIVE_HOURS);
-    }, 30_000);
-
-    // Programar ejecución periódica
-    setInterval(() => {
-        sessionsService.autoArchiveStaleSessions(ARCHIVE_HOURS);
-    }, ARCHIVE_INTERVAL_MS);
-
-    console.log(`[AutoArchive] ⏰ Programado cada 4h (umbral: ${ARCHIVE_HOURS}h de inactividad)`);
+    setTimeout(() => { sessionsService.autoArchiveStaleSessions(); }, 30_000);
+    setInterval(() => { sessionsService.autoArchiveStaleSessions(); }, ARCHIVE_INTERVAL_MS);
+    console.log('[AutoArchive] ⏰ Programado cada 4h. Grupos: perfilado=48h, cotización=120h, cierre=120h (configurable por env).');
 
     // ─── Expiración automática de cotizaciones (validez 5 días) ────────
     // Cada 1h marcamos como EXPIRADA cualquier cotización ACTIVA cuya valida_hasta < NOW().

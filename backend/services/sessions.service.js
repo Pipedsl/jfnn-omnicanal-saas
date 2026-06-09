@@ -1334,74 +1334,125 @@ const patchSellerData = async (phone, patch) => {
  * @param {number} hoursThreshold - Horas de inactividad para archivar (default: 48)
  * @returns {Promise<{archived: number, details: Array}>} - Resultado del archivado
  */
-const autoArchiveStaleSessions = async (hoursThreshold = 48) => {
-    try {
-        const stalableStates = [STATES.PERFILANDO, STATES.ESPERANDO_VENDEDOR];
+// Grupos de archivado: cada uno con sus estados, umbral en horas y estado_final
+// con que se persiste el snapshot en `pedidos`. La idea es:
+// - Sesiones que nunca se cerraron en perfilado/cotización: 48h → ABANDONADO.
+// - Cotizaciones enviadas que el cliente nunca confirmó/pagó: 5 días → NO_RESPONDIO_CIERRE.
+// - Compras casi cerradas (vendedor esperaba pago presencial en caja): 5 días → CIERRE_TIMEOUT.
+// Esto limpia la bandeja del vendedor a la vez que preserva todo el contexto
+// (phone + quote_id + repuestos JSON + entidades_completas) en `pedidos` para análisis.
+const ARCHIVE_GROUPS = [
+    {
+        nombre: 'perfilado_sin_respuesta',
+        estados: [STATES.PERFILANDO, STATES.ESPERANDO_VENDEDOR],
+        umbralHorasDefault: 48,
+        envOverride: 'AUTO_ARCHIVE_HOURS',
+        estadoFinal: 'ABANDONADO',
+    },
+    {
+        nombre: 'cotizacion_sin_cierre',
+        estados: [STATES.CONFIRMANDO_COMPRA, STATES.ESPERANDO_COMPROBANTE],
+        umbralHorasDefault: 120,
+        envOverride: 'AUTO_ARCHIVE_COTIZACION_HOURS',
+        estadoFinal: 'NO_RESPONDIO_CIERRE',
+    },
+    {
+        nombre: 'cierre_pendiente_vendedor',
+        estados: [STATES.CICLO_COMPLETO],
+        umbralHorasDefault: 120,
+        envOverride: 'AUTO_ARCHIVE_CIERRE_HOURS',
+        estadoFinal: 'CIERRE_TIMEOUT',
+    },
+];
 
-        const { rows: staleSessions } = await db.query(
-            `SELECT * FROM user_sessions
-             WHERE estado = ANY($1)
-             AND ultimo_mensaje < NOW() - INTERVAL '1 hour' * $2`,
-            [stalableStates, hoursThreshold]
-        );
+const _resolveUmbral = (group, hoursOverride) => {
+    if (Number.isFinite(hoursOverride) && hoursOverride > 0) return hoursOverride;
+    const envVal = parseInt(process.env[group.envOverride], 10);
+    return Number.isFinite(envVal) && envVal > 0 ? envVal : group.umbralHorasDefault;
+};
 
-        if (staleSessions.length === 0) {
-            console.log(`[AutoArchive] ✅ No hay sesiones inactivas (umbral: ${hoursThreshold}h).`);
-            return { archived: 0, details: [] };
-        }
+const autoArchiveStaleSessions = async (hoursOverride) => {
+    let totalArchivados = 0;
+    const allDetails = [];
 
-        console.log(`[AutoArchive] 🔍 Encontradas ${staleSessions.length} sesiones inactivas. Archivando...`);
-        const details = [];
-
-        for (const row of staleSessions) {
-            const session = rowToSession(row);
-            const e = session.entidades || {};
-
-            // Guardar snapshot en pedidos con estado_final = 'ABANDONADO'
-            await db.query(
-                `INSERT INTO pedidos (phone, quote_id, estado_final, marca_modelo, ano, patente, vin,
-                 repuestos, total_cotizacion, metodo_pago, metodo_entrega, direccion_envio,
-                 tipo_documento, datos_factura, comprobante_url, datos_comprobante, entidades_completas,
-                 mensajes_ia_total, mensajes_vendedor_total, created_at, archivado_en)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
-                [
-                    session.phone, e.quote_id || null, 'ABANDONADO',
-                    e.marca_modelo || null, e.ano || null, e.patente || null, e.vin || null,
-                    JSON.stringify(e.repuestos_solicitados || []), 0,
-                    e.metodo_pago || null, e.metodo_entrega || null, e.direccion_envio || null,
-                    e.tipo_documento || null, JSON.stringify(e.datos_factura || {}),
-                    null, JSON.stringify({}),
-                    JSON.stringify(e),
-                    row.mensajes_ia || 0, row.mensajes_vendedor || 0,
-                    session.created_at || null, row.ultimo_mensaje || null
-                ]
+    for (const group of ARCHIVE_GROUPS) {
+        const umbral = _resolveUmbral(group, hoursOverride);
+        try {
+            const { rows: staleSessions } = await db.query(
+                `SELECT * FROM user_sessions
+                 WHERE estado = ANY($1)
+                 AND ultimo_mensaje < NOW() - INTERVAL '1 hour' * $2`,
+                [group.estados, umbral]
             );
 
-            // Cambiar estado a ARCHIVADO (no resetear para poder retomar)
-            await db.query(
-                `UPDATE user_sessions SET estado = $1, ultimo_mensaje = NOW()
-                 WHERE phone = $2`,
-                [STATES.ARCHIVADO, session.phone]
-            );
+            if (staleSessions.length === 0) continue;
 
-            sessionCache.delete(session.phone);
-            details.push({
-                phone: session.phone,
-                previousState: session.estado,
-                repuestos: (e.repuestos_solicitados || []).map(r => r.nombre).join(', ') || 'Sin repuestos',
-                inactiveSince: row.ultimo_mensaje
-            });
+            console.log(`[AutoArchive] 🔍 [${group.nombre}] ${staleSessions.length} sesion(es) > ${umbral}h. Archivando como ${group.estadoFinal}...`);
 
-            console.log(`[AutoArchive] 📦 ${session.phone} archivado (era: ${session.estado}, inactivo desde: ${row.ultimo_mensaje})`);
+            for (const row of staleSessions) {
+                const session = rowToSession(row);
+                const e = session.entidades || {};
+
+                // Snapshot del pedido. El total se calcula sumando precios*cant para que
+                // queden trazables las ventas casi-cerradas que se archivaron sin confirmar.
+                const flatReps = [
+                    ...(Array.isArray(e.repuestos_solicitados) ? e.repuestos_solicitados : []),
+                    ...((Array.isArray(e.vehiculos) ? e.vehiculos : []).flatMap(v => Array.isArray(v?.repuestos_solicitados) ? v.repuestos_solicitados : [])),
+                ];
+                const total = flatReps.reduce((acc, r) => acc + ((parseInt(r?.precio) || 0) * (parseInt(r?.cantidad) || 1)), 0);
+
+                await db.query(
+                    `INSERT INTO pedidos (phone, quote_id, estado_final, marca_modelo, ano, patente, vin,
+                     repuestos, total_cotizacion, metodo_pago, metodo_entrega, direccion_envio,
+                     tipo_documento, datos_factura, comprobante_url, datos_comprobante, entidades_completas,
+                     mensajes_ia_total, mensajes_vendedor_total, sucursal, vendedor_nombre, created_at, archivado_en)
+                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
+                    [
+                        session.phone, e.quote_id || null, group.estadoFinal,
+                        e.marca_modelo || null, e.ano || null, e.patente || null, e.vin || null,
+                        JSON.stringify(flatReps), total,
+                        e.metodo_pago || null, e.metodo_entrega || null, e.direccion_envio || null,
+                        e.tipo_documento || null, JSON.stringify(e.datos_factura || {}),
+                        null, JSON.stringify({}),
+                        JSON.stringify(e),
+                        row.mensajes_ia || 0, row.mensajes_vendedor || 0,
+                        derivarSucursal(e), e.vendedor_nombre || null,
+                        session.created_at || null, row.ultimo_mensaje || null
+                    ]
+                );
+
+                await db.query(
+                    `UPDATE user_sessions SET estado = $1, ultimo_mensaje = NOW()
+                     WHERE phone = $2`,
+                    [STATES.ARCHIVADO, session.phone]
+                );
+
+                sessionCache.delete(session.phone);
+                allDetails.push({
+                    phone: session.phone,
+                    previousState: session.estado,
+                    finalState: group.estadoFinal,
+                    quoteId: e.quote_id || null,
+                    repuestos: flatReps.map(r => r.nombre).filter(Boolean).join(', ') || 'Sin repuestos',
+                    total,
+                    inactiveSince: row.ultimo_mensaje,
+                });
+                totalArchivados++;
+
+                console.log(`[AutoArchive] 📦 ${session.phone} → ${group.estadoFinal} (era: ${session.estado}, inactivo desde: ${row.ultimo_mensaje}, quote: ${e.quote_id || 'sin-id'})`);
+            }
+        } catch (err) {
+            console.error(`[AutoArchive] ❌ Error en grupo "${group.nombre}":`, err.message);
         }
-
-        globalPendingCache = { data: null, timestamp: 0 };
-        console.log(`[AutoArchive] ✅ ${details.length} sesiones archivadas exitosamente.`);
-        return { archived: details.length, details };
-    } catch (err) {
-        console.error('[AutoArchive] ❌ Error:', err.message);
-        return { archived: 0, details: [], error: err.message };
     }
+
+    if (totalArchivados === 0) {
+        console.log('[AutoArchive] ✅ No hay sesiones inactivas que cumplan los umbrales.');
+    } else {
+        globalPendingCache = { data: null, timestamp: 0 };
+        console.log(`[AutoArchive] ✅ ${totalArchivados} sesiones archivadas en total.`);
+    }
+    return { archived: totalArchivados, details: allDetails };
 };
 
 // ─── getArchivedSessionForResume ──────────────────────────────────
