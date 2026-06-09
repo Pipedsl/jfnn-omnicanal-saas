@@ -1434,6 +1434,41 @@ const processBufferedMessages = async (customerPhone) => {
         let finalMessage = aiJson.mensaje_cliente;
 
         // ──────────────────────────────────────────────────────────────────────
+        // Detección: fallback genérico de Gemini ("Disculpe, tuvimos un inconveniente")
+        // ──────────────────────────────────────────────────────────────────────
+        // Si Gemini falla parseando JSON o tira excepción, devuelve un mensaje genérico
+        // pidiendo al cliente repetir. PERO el mensaje del cliente sí está en BD — solo
+        // que el agente no pudo procesarlo. Sin marcar, el vendedor no sabe que hay un
+        // caso colgado. Lo marcamos para que aparezca destacado en la bandeja.
+        const ES_FALLBACK_GEMINI = typeof finalMessage === 'string'
+            && /Disculpe, tuvimos un inconveniente t[eé]cnico moment[aá]neo/i.test(finalMessage);
+        if (ES_FALLBACK_GEMINI) {
+            console.warn(`[FallbackGemini] ⚠️ Gemini cayó al fallback genérico para ${customerPhone}. Marcando para atención del vendedor.`);
+            try {
+                await sessionsService.updateEntidades(customerPhone, {
+                    requiere_atencion_vendedor: true,
+                    atencion_motivo: 'fallback_gemini',
+                    atencion_at: new Date().toISOString(),
+                    agente_pausado: true,
+                });
+                // Si la sesión no estaba ya en ESPERANDO_VENDEDOR o estados post-cotización,
+                // bumpearla para que el vendedor la priorice en bandeja.
+                const estadosOk = [
+                    sessionsService.STATES.ESPERANDO_VENDEDOR,
+                    sessionsService.STATES.CONFIRMANDO_COMPRA,
+                    sessionsService.STATES.ESPERANDO_COMPROBANTE,
+                    sessionsService.STATES.PAGO_VERIFICADO,
+                    sessionsService.STATES.CICLO_COMPLETO,
+                ];
+                if (!estadosOk.includes(session.estado)) {
+                    session = await sessionsService.setEstado(customerPhone, sessionsService.STATES.ESPERANDO_VENDEDOR);
+                }
+            } catch (e) {
+                console.error('[FallbackGemini] No se pudo marcar la sesión:', e.message);
+            }
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
         // Detección determinista: items nuevos sin precio en estado post-cotización
         // ──────────────────────────────────────────────────────────────────────
         // Si el cliente agrega repuestos después de que la cotización ya fue enviada

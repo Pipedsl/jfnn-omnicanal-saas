@@ -267,6 +267,22 @@ export default function BandejaTable({ quotes, filter, searchQuery, onOpenDetail
                                             💬 CONSULTA PAGO
                                         </span>
                                     )}
+                                    {quote.entidades?.consulta_pendiente?.texto && (() => {
+                                        const consultaAt = quote.entidades.consulta_pendiente.created_at || quote.entidades.consulta_pendiente.fecha;
+                                        const diffMin = consultaAt ? Math.floor((Date.now() - new Date(consultaAt).getTime()) / 60000) : 0;
+                                        const hace = diffMin >= 60 ? `${Math.floor(diffMin/60)}h ${diffMin%60}m` : `${diffMin}m`;
+                                        const urgente = diffMin >= 60;
+                                        return (
+                                            <span
+                                                className={`text-[9px] font-bold mt-0.5 inline-block rounded px-1.5 py-0.5 ${urgente
+                                                    ? 'text-red-200 bg-red-600/25 border border-red-500/60 animate-pulse'
+                                                    : 'text-fuchsia-200 bg-fuchsia-500/15 border border-fuchsia-500/40'}`}
+                                                title={`Consulta del cliente sin responder: "${quote.entidades.consulta_pendiente.texto}"${consultaAt ? `\n(hace ${hace})` : ''}`}
+                                            >
+                                                ❓ CONSULTA PENDIENTE{consultaAt ? ` · ${hace}` : ''}
+                                            </span>
+                                        );
+                                    })()}
                                     {quote.entidades?.items_nuevos_sin_precio && (
                                         <span
                                             className="text-[9px] text-orange-300 font-bold mt-0.5 inline-block bg-orange-500/15 border border-orange-500/40 rounded px-1.5 py-0.5"
@@ -282,6 +298,14 @@ export default function BandejaTable({ quotes, filter, searchQuery, onOpenDetail
                                             title={quote.entidades?.direccion_envio ? `Dirección: ${quote.entidades.direccion_envio}` : 'Cliente esperando envío a domicilio'}
                                         >
                                             🚚 POR DESPACHAR
+                                        </span>
+                                    )}
+                                    {quote.entidades?.requiere_atencion_vendedor && (
+                                        <span
+                                            className="text-[9px] text-red-200 font-bold mt-0.5 inline-block bg-red-600/25 border border-red-500/60 rounded px-1.5 py-0.5 animate-pulse"
+                                            title={`La IA tuvo un error procesando el último mensaje (${quote.entidades?.atencion_motivo || 'desconocido'}). El mensaje del cliente está en la conversación — revisa y responde manualmente.`}
+                                        >
+                                            ⚠️ IA CAÍDA · ATENDER
                                         </span>
                                     )}
                                 </div>
