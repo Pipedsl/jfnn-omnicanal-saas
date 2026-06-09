@@ -11,6 +11,7 @@ const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
 interface ConsultaPendiente {
   texto: string;
   momento?: string;
+  created_at?: string;
   item_relacionado?: string | null;
 }
 
@@ -247,6 +248,27 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
 
   const resolverConsulta = async () => {
     if (!selectedPhone) return;
+    // Validación: chequear que el vendedor haya enviado al menos UN mensaje
+    // saliente DESPUÉS del momento en que se levantó la consulta. Si no, fue
+    // un click accidental — la consulta sigue sin responderse.
+    const consultaAt = chat?.consulta_pendiente?.created_at || chat?.consulta_pendiente?.momento;
+    const consultaTs = consultaAt ? new Date(consultaAt).getTime() : 0;
+    const huboRespuestaVendedor = (chat?.mensajes || []).some(m =>
+        m.direccion === 'saliente'
+        && m.autor === 'vendedor'
+        && new Date(m.created_at).getTime() > consultaTs
+    );
+    if (!huboRespuestaVendedor) {
+        const textoConsulta = chat?.consulta_pendiente?.texto || '';
+        const ok = confirm(
+            `⚠️ No detecté un mensaje TUYO respondiendo esta consulta:\n\n` +
+            `   "${textoConsulta}"\n\n` +
+            `Si marcas la consulta como RESUELTA sin haber respondido, el cliente se queda sin respuesta y el caso desaparece de la bandeja.\n\n` +
+            `Recomendación: escribe primero la respuesta al cliente en el chat, después marca como resuelta.\n\n` +
+            `¿Marcar como RESUELTA igual? (no recomendado)`
+        );
+        if (!ok) return;
+    }
     try {
       await api.post(`${API_URL}/api/dashboard/sessions/${selectedPhone}/consulta-resuelta`);
       setChat(prev => prev ? { ...prev, consulta_pendiente: null, agente_pausado: false } : prev);
