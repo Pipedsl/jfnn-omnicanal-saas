@@ -453,6 +453,46 @@ const processBufferedMessages = async (customerPhone) => {
                 return;
             }
             if (quiereNueva) {
+                // Antes de preguntar "¿guardo la anterior?", chequear si la cotización
+                // tiene al menos 1 item DISPONIBLE con precio. Si no tiene nada vendible
+                // (todos AGOTADOS o sin precio), no tiene sentido ofrecerla — la
+                // descartamos directo y arrancamos la nueva sin preguntar.
+                let tieneStock = false;
+                if (quoteIdAnterior) {
+                    try {
+                        const cotizacionesService = require('../services/cotizaciones.service');
+                        const cot = await cotizacionesService.getByQuoteId(quoteIdAnterior);
+                        const flat = [
+                            ...(Array.isArray(cot?.repuestos) ? cot.repuestos : []),
+                            ...((Array.isArray(cot?.vehiculos) ? cot.vehiculos : []).flatMap(v => Array.isArray(v?.repuestos_solicitados) ? v.repuestos_solicitados : [])),
+                        ];
+                        tieneStock = flat.some(r => r
+                            && (r.disponibilidad || 'DISPONIBLE') === 'DISPONIBLE'
+                            && Number(r.precio) > 0);
+                    } catch (chkErr) {
+                        console.warn('[ReEngage] ⚠️ No se pudo evaluar stock de cotización anterior:', chkErr.message);
+                        tieneStock = true; // fallback conservador: preguntar igual
+                    }
+                }
+
+                if (!tieneStock) {
+                    // Cotización anterior sin productos vendibles → descartar directo y arrancar nueva.
+                    console.log(`[ReEngage] 🗑️ Cotización ${quoteIdAnterior} sin stock vendible. Descartando sin preguntar al cliente.`);
+                    if (quoteIdAnterior) {
+                        try {
+                            const cotizacionesService = require('../services/cotizaciones.service');
+                            await cotizacionesService.setEstado(quoteIdAnterior, 'CERRADA');
+                        } catch (_) { /* best-effort */ }
+                    }
+                    await sessionsService.updateEntidades(customerPhone, {
+                        re_engage_pending: false, re_engage_quote_id: null,
+                        guardar_anterior_pending: false, guardar_anterior_quote_id: null,
+                    });
+                    await sessionsService.resetSession(customerPhone);
+                    await sendAndPersist(customerPhone, `Dale, empezamos de cero. Cuéntame qué necesitas para esta nueva cotización 🙌`);
+                    return;
+                }
+
                 await sessionsService.updateEntidades(customerPhone, {
                     re_engage_pending: false,
                     guardar_anterior_pending: true,
