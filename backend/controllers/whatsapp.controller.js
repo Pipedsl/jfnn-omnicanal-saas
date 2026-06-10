@@ -882,9 +882,15 @@ const processBufferedMessages = async (customerPhone) => {
             }
 
             // Caso solo partes → mensaje original según estado
+            // Recargar session: el procesamiento del padrón / placa patente más arriba
+            // persistió marca_modelo/ano/patente/vin en BD pero la variable local `session`
+            // estaba cargada al inicio del handler. Sin esta recarga, tieneVehiculo daba
+            // false aunque el cliente acabara de enviar el padrón en el mismo batch.
+            session = await sessionsService.getSession(customerPhone);
             const e = session.entidades;
             const tieneVehiculo = (e.ano && (e.patente || e.vin)) ||
-                (Array.isArray(e.vehiculos) && e.vehiculos.some(v => v.ano && (v.patente || v.vin)));
+                (e.marca_modelo && (e.patente || e.vin)) ||
+                (Array.isArray(e.vehiculos) && e.vehiculos.some(v => (v.ano || v.marca_modelo) && (v.patente || v.vin)));
             const nFotos = partesResults.length;
             // Mencionar la patente capturada si la hubo en este mismo lote
             const patenteCapturadaMsg = placasPatente.length > 0 ? ' Recibí también la patente.' : '';
@@ -1181,6 +1187,13 @@ const processBufferedMessages = async (customerPhone) => {
             if (needsManualVin || needsManualPatente) {
                 session = await sessionsService.setEstado(customerPhone, sessionsService.STATES.PERFILANDO);
                 console.log(`[Session] 🔓 Modo bloqueante ${needsManualVin ? 'VIN' : 'patente'} activo para ${customerPhone}. Forzando PERFILANDO sin classifyIntent.`);
+            } else if (session.entidades?.items_nuevos_sin_precio === true) {
+                // El bump a ESPERANDO_VENDEDOR vino del filtro items_nuevos_sin_precio
+                // (cliente agregó algo durante CONFIRMANDO_COMPRA). El vendedor ya está
+                // revisando — no mandar el genérico "estamos buscando los precios", porque
+                // confunde al cliente que YA tiene una cotización entregada.
+                console.log(`[Hand-off] 🤫 ESPERANDO_VENDEDOR con items_nuevos_sin_precio activo. Silencio para ${customerPhone}.`);
+                return;
             } else {
                 const intentResult = await geminiService.classifyIntent(userText);
                 if (!intentResult.es_compra) {
@@ -1312,7 +1325,7 @@ const processBufferedMessages = async (customerPhone) => {
         // se descartan ANTES del merge. Bug real (jun 2026): cliente envía foto + "Es algo
         // como esta" → Gemini creaba un item llamado "Es algo como esta" que terminaba en
         // la cotización formal como "❌ Es algo como esta - Agotado momentáneamente".
-        const ITEM_BLACKLIST_RE = /^\s*(eso|esto|esos|esas|este|esta|estos|estas|el otro|los otros|es algo como esta|es algo como esto|como el de la foto|como (la|el) que mande|parecido a|lo que mande|lo que envi[eé]|lo de la foto)[\s.,!?¡¿]*$/i;
+        const ITEM_BLACKLIST_RE = /^\s*(eso|esto|esos|esas|este|esta|estos|estas|el otro|los otros|es algo como esta|es algo como esto|como el de la foto|como (la|el) que mande|parecido a|lo que mande|lo que envi[eé]|lo de la foto|comprar[eé] lo que tenga|comprar[eé] lo disponible|lo que tenga|lo que tengas|los disponibles|lo disponible|los que tengas|lo que haya|eso disponible|eso nom[aá]s|lo que sea|todo lo disponible|todo)[\s.,!?¡¿]*$/i;
         const sanitizarItems = (lista) => Array.isArray(lista) ? lista.filter(r => {
             const n = (r?.nombre || '').trim();
             if (n.length < 5) {
