@@ -1209,8 +1209,12 @@ const processBufferedMessages = async (customerPhone) => {
 
         // ── Capa 1: aviso determinista fuera de horario ──
         // Si está cerrado/colación Y la sesión está en perfilado temprano sin cotización
-        // con precios Y aún no avisamos en esta conversación → enviar el mensaje exacto
-        // de horario y NO llamar a Gemini en este turno. El flag se autoresetea al abrir.
+        // con precios Y aún no avisamos en esta conversación → enviar el mensaje de horario.
+        // IMPORTANTE: NO retornamos. Seguimos procesando con Gemini para extraer entidades
+        // (vehículo, repuestos) y bumpear a ESPERANDO_VENDEDOR si corresponde. El vendedor
+        // necesita ver el lead en su bandeja al volver del horario, aunque no se le responda
+        // textualmente al cliente. Solo suprimimos el mensaje_cliente al final del flujo.
+        let suppressGeminiReply = false;
         try {
             const estadoAtencion = await scheduleService.getEstadoAtencion();
             const entidades = session.entidades || {};
@@ -1228,10 +1232,21 @@ const processBufferedMessages = async (customerPhone) => {
                 && (session.estado === sessionsService.STATES.PERFILANDO || session.estado === sessionsService.STATES.ESPERANDO_VENDEDOR)
                 && !tieneCotizacionConPrecios
             ) {
-                console.log(`[Horario] 🌙 Cerrado (${estadoAtencion.estado}). Enviando aviso determinista a ${customerPhone} y omitiendo Gemini.`);
+                console.log(`[Horario] 🌙 Cerrado (${estadoAtencion.estado}). Aviso determinista a ${customerPhone}. Sigo procesando lote con Gemini en silencio para capturar el lead.`);
                 await sendAndPersist(customerPhone, estadoAtencion.mensaje);
                 await sessionsService.updateEntidades(customerPhone, { aviso_horario_enviado: true });
-                return;
+                suppressGeminiReply = true;
+            } else if (
+                !estadoAtencion.abierto
+                && entidades.aviso_horario_enviado
+                && (session.estado === sessionsService.STATES.PERFILANDO || session.estado === sessionsService.STATES.ESPERANDO_VENDEDOR)
+                && !tieneCotizacionConPrecios
+            ) {
+                // Cliente sigue escribiendo fuera de horario tras el primer aviso. No
+                // reenviar el aviso, pero igual procesar Gemini en silencio para acumular
+                // entidades nuevas (puede haber agregado el año, el vehículo, etc.).
+                console.log(`[Horario] 🤐 Cerrado, aviso ya enviado a ${customerPhone}. Procesando Gemini en silencio para acumular lead.`);
+                suppressGeminiReply = true;
             }
         } catch (horarioErr) {
             console.error(`[Horario] ⚠️ Error en guard determinista (continúa flujo normal):`, horarioErr.message);
@@ -1655,14 +1670,21 @@ const processBufferedMessages = async (customerPhone) => {
         // cuando Gemini no devuelve mensaje_cliente).
         const messagesToSend = (Array.isArray(finalMessage) ? finalMessage : [finalMessage])
             .filter(m => m && typeof m === 'string' && m.trim());
-        for (const msg of messagesToSend) {
-            const delayMs = Math.min(msg.length * 25, 3500);
-            await new Promise(resolve => setTimeout(resolve, delayMs));
-            // 7. Enviar respuesta vía WhatsApp
-            await sendAndPersist(customerPhone, msg);
-        }
-        if (messagesToSend.length > 0) {
-            await sessionsService.incrementMessageCounter(customerPhone, 'ia');
+        if (suppressGeminiReply) {
+            // Estamos fuera de horario y ya enviamos el aviso determinista. El procesamiento
+            // de Gemini ocurrió igual para extraer entidades y el bump a ESPERANDO_VENDEDOR
+            // (lead capturado). Solo silenciamos el mensaje_cliente para no duplicar respuestas.
+            console.log(`[Horario] 🤫 ${messagesToSend.length} mensaje(s) de Gemini suprimido(s) para ${customerPhone} (aviso de horario ya entregado).`);
+        } else {
+            for (const msg of messagesToSend) {
+                const delayMs = Math.min(msg.length * 25, 3500);
+                await new Promise(resolve => setTimeout(resolve, delayMs));
+                // 7. Enviar respuesta vía WhatsApp
+                await sendAndPersist(customerPhone, msg);
+            }
+            if (messagesToSend.length > 0) {
+                await sessionsService.incrementMessageCounter(customerPhone, 'ia');
+            }
         }
 
     } catch (error) {
