@@ -408,7 +408,24 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
                 }
                 return;
             }
-            alert(esAjusteVentaFinal ? "Error al guardar la venta final" : "Error al enviar la cotización");
+            // Error genérico: distinguir 5xx de Meta (outage temporal) de otros errores
+            // para dar instrucciones accionables al vendedor en vez de un alert opaco.
+            const metaStatus: number | undefined = data?.meta_status;
+            const detalle: string | undefined = data?.detalle;
+            if (esAjusteVentaFinal) {
+                alert("Error al guardar la venta final");
+            } else if (metaStatus && metaStatus >= 500) {
+                alert(
+                    `⚠️ La cotización NO fue enviada.\n\n` +
+                    `WhatsApp (Meta) respondió con error temporal (${metaStatus}) tras 3 reintentos.\n\n` +
+                    `Esto suele ser un problema temporal de Meta. Espera 1-2 min y vuelve a pulsar "Enviar cotización".\n\n` +
+                    `Si persiste >5 min, avisa al equipo técnico.`
+                );
+            } else if (detalle) {
+                alert(`Error al enviar la cotización:\n\n${detalle}`);
+            } else {
+                alert("Error al enviar la cotización");
+            }
         } finally {
             setLoading(false);
         }

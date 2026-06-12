@@ -689,9 +689,18 @@ router.post('/cotizaciones/responder', async (req, res) => {
             const recordatorioCodigo =
                 `\n\n📌 *Recuerda:* para facilitar tu atención presencial, menciona tu número de cotización *${quoteId}* al llegar al local. 🙌`;
             await new Promise(r => setTimeout(r, 1200));
-            await whatsappService.sendSellerMessage(phone, preguntaConfirmacion + recordatorioCodigo, {
-                autorNombre: vendedor_nombre || 'Asesor JFNN'
-            });
+            // Tolerar fallo del 2do mensaje: el cliente YA recibió la cotización formal.
+            // Si reventamos aquí, el vendedor reintenta y se genera otro quote_id → cliente
+            // recibe duplicado (caso real 2026-06-12: JFNN-CF4020 + JFNN-A68DE6 al mismo
+            // número durante outage de Meta). Mejor seguir persistiendo y loguear warning.
+            try {
+                await whatsappService.sendSellerMessage(phone, preguntaConfirmacion + recordatorioCodigo, {
+                    autorNombre: vendedor_nombre || 'Asesor JFNN'
+                });
+            } catch (segMsgErr) {
+                console.warn(`[Cotizaciones] ⚠️ Cotización formal ${quoteId} enviada a ${phone}, pero pregunta de confirmación falló (${segMsgErr.message}). Persistiendo sesión igual para evitar duplicado en reintento.`);
+                res.locals.warning_pregunta_confirmacion = true;
+            }
         }
 
         // Actualizar sesión: Guardar ID de cotización, total, horario, precios y pasar al flujo de cierre
@@ -751,10 +760,22 @@ router.post('/cotizaciones/responder', async (req, res) => {
             console.error('[Cotizaciones] ⚠️ No se pudo persistir snapshot en tabla (flujo continúa):', cotErr.message);
         }
 
-        res.status(200).json({ success: true, quoteId });
+        const payload = { success: true, quoteId };
+        if (res.locals.warning_pregunta_confirmacion) {
+            payload.warning = 'pregunta_confirmacion_no_enviada';
+        }
+        res.status(200).json(payload);
     } catch (error) {
         console.error('Error respondiendo al cliente:', error);
-        res.status(500).json({ error: 'Error al enviar mensaje' });
+        const metaStatus = error?.response?.status;
+        const metaCode = error?.response?.data?.error?.code;
+        const body = { error: 'Error al enviar mensaje' };
+        if (metaStatus) body.meta_status = metaStatus;
+        if (metaCode) body.meta_code = metaCode;
+        if (metaStatus >= 500) {
+            body.detalle = 'WhatsApp (Meta) respondió con error temporal tras reintentos. Espera 1-2 min y reintenta.';
+        }
+        res.status(500).json(body);
     }
 });
 

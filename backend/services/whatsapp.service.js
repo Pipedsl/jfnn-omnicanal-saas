@@ -31,6 +31,18 @@ const WINDOW_CLOSED_ERROR = 'WHATSAPP_WINDOW_CLOSED';
 const API_VERSION = process.env.WHATSAPP_API_VERSION || 'v21.0';
 const GRAPH_BASE = `https://graph.facebook.com/${API_VERSION}`;
 
+// Retry para errores 5xx de Meta y errores de red (ej: outage parcial 2026-06-12
+// con "OAuth Facebook Platform / unknown_error / HTTP 500"). NO reintenta 4xx
+// (incluido 130472 que tiene fallback HSM dedicado). Backoff exponencial 1s/3s/9s.
+const TRANSIENT_RETRY_MAX = 3;
+const TRANSIENT_RETRY_BACKOFF_MS = [1000, 3000, 9000];
+const _isTransientMetaError = (err) => {
+    if (!err.response) return true; // network: ECONNRESET, ETIMEDOUT, ENOTFOUND, etc.
+    const s = err.response.status;
+    return s >= 500 && s < 600;
+};
+const _sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 // Templates HSM aprobados por Meta. Centralizados aquí para que el fallback
 // automático fuera de la ventana de 24h pueda usar el correcto sin tocar callers.
 const TEMPLATES = {
@@ -43,27 +55,45 @@ const TEMPLATES = {
  * configurado, intenta automáticamente enviar la plantilla aprobada como fallback.
  */
 const sendTextMessage = async (to, text) => {
-    try {
-        const response = await axios.post(
-            `${GRAPH_BASE}/${process.env.WHATSAPP_PHONE_ID}/messages`,
-            {
-                messaging_product: "whatsapp",
-                recipient_type: "individual",
-                to: to,
-                type: "text",
-                text: {
-                    preview_url: false,
-                    body: text
+    let lastError;
+    let response;
+    for (let attempt = 0; attempt < TRANSIENT_RETRY_MAX; attempt++) {
+        try {
+            response = await axios.post(
+                `${GRAPH_BASE}/${process.env.WHATSAPP_PHONE_ID}/messages`,
+                {
+                    messaging_product: "whatsapp",
+                    recipient_type: "individual",
+                    to: to,
+                    type: "text",
+                    text: {
+                        preview_url: false,
+                        body: text
+                    }
+                },
+                {
+                    headers: {
+                        'Authorization': `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
+                        'Content-Type': 'application/json'
+                    }
                 }
-            },
-            {
-                headers: {
-                    'Authorization': `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}`,
-                    'Content-Type': 'application/json'
-                }
+            );
+            lastError = null;
+            break;
+        } catch (err) {
+            lastError = err;
+            if (_isTransientMetaError(err) && attempt < TRANSIENT_RETRY_MAX - 1) {
+                const wait = TRANSIENT_RETRY_BACKOFF_MS[attempt];
+                const status = err.response?.status || 'NETERR';
+                console.warn(`⏳ [WhatsApp] retry ${attempt + 1}/${TRANSIENT_RETRY_MAX - 1} para ${to} tras ${status} de Meta. Esperando ${wait}ms...`);
+                await _sleep(wait);
+                continue;
             }
-        );
-
+            break;
+        }
+    }
+    try {
+        if (lastError) throw lastError;
         const messageId = response.data?.messages?.[0]?.id || 'ID no disponible';
         console.log(`✅ [WhatsApp] Mensaje entregado a Meta para ${to} | message_id: ${messageId}`);
         return response.data;
