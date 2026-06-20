@@ -169,7 +169,8 @@ export default function BandejaTable({ quotes, filter, searchQuery, onOpenDetail
             };
             const diff = prioridad(a.estado) - prioridad(b.estado);
             if (diff !== 0) return diff;
-            return new Date(a.created_at || a.ultimo_mensaje || 0).getTime() - new Date(b.created_at || b.ultimo_mensaje || 0).getTime();
+            // Dentro del mismo estado: primero los que llevan más tiempo esperando (ultimo_mensaje más antiguo)
+            return new Date(a.ultimo_mensaje || 0).getTime() - new Date(b.ultimo_mensaje || 0).getTime();
         });
 
     if (filtered.length === 0) {
