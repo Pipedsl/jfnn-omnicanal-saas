@@ -843,7 +843,7 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
                           const nuevoEstado = e.target.value;
                           if (confirm(`¿Cambiar manualmente el estado de esta sesión a "${ESTADO_LABELS[nuevoEstado] || nuevoEstado}"?`)) {
                             try {
-                              await api.patch(`${BACKEND_URL}/api/dashboard/soporte/sesion/${encodeURIComponent(selectedPhone)}/estado`, {
+                              await api.patch(`${API_URL}/api/dashboard/soporte/sesion/${encodeURIComponent(selectedPhone)}/estado`, {
                                 estado: nuevoEstado,
                                 motivo: "Cambio manual desde el chat de soporte"
                               });
