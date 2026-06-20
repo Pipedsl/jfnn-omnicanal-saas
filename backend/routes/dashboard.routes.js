@@ -978,9 +978,16 @@ router.patch('/pedidos/:pedidoId/ajustar', async (req, res) => {
             });
         }
         const repuestosJson = JSON.stringify(items || (vehiculos || []).flatMap(v => v.repuestos_solicitados || []));
+        // Actualizar también entidades_completas: getHistoricalSessions() carga desde ahí, no desde repuestos
+        const entidadesPath = vehiculos && vehiculos.length > 0 ? '{vehiculos}' : '{repuestos_solicitados}';
+        const entidadesVal = JSON.stringify(vehiculos && vehiculos.length > 0 ? vehiculos : items);
         const { rowCount } = await db.query(
-            `UPDATE pedidos SET repuestos = $1, total_cotizacion = $2 WHERE id = $3`,
-            [repuestosJson, total, pedidoId]
+            `UPDATE pedidos
+             SET repuestos = $1,
+                 total_cotizacion = $2,
+                 entidades_completas = jsonb_set(entidades_completas, $3, $4::jsonb)
+             WHERE id = $5`,
+            [repuestosJson, total, entidadesPath, entidadesVal, pedidoId]
         );
         if (rowCount === 0) {
             return res.status(404).json({ error: 'Pedido no encontrado.' });
