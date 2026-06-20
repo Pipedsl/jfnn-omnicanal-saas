@@ -765,6 +765,15 @@ router.post('/cotizaciones/responder', async (req, res) => {
             console.error('[Cotizaciones] ⚠️ No se pudo persistir snapshot en tabla (flujo continúa):', cotErr.message);
         }
 
+        // Auto-archivar cuando todos los items están sin stock — el cliente no recibirá
+        // pregunta de confirmación, así que la sesión nunca avanzaría sola.
+        if (todosSinStock) {
+            console.log(`[Cotizaciones] 🔴 Todos los items SIN_STOCK para ${phone} — archivando sesión.`);
+            await sessionsService.archiveSession(phone).catch(err =>
+                console.error(`[Cotizaciones] ❌ Error al auto-archivar SIN_STOCK ${phone}:`, err.message)
+            );
+        }
+
         const payload = { success: true, quoteId };
         if (res.locals.warning_pregunta_confirmacion) {
             payload.warning = 'pregunta_confirmacion_no_enviada';
