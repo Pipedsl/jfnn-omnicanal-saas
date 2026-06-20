@@ -71,6 +71,7 @@ interface QuoteCardProps {
     onResponded: () => void;
     autoOpen?: boolean;
     onClose?: () => void;
+    pedidoId?: number | null;
 }
 
 function useElapsed(since?: string) {
@@ -91,7 +92,7 @@ function useElapsed(since?: string) {
     return elapsed;
 }
 
-export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMensaje, onResponded, autoOpen = false, onClose }: QuoteCardProps) {
+export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMensaje, onResponded, autoOpen = false, onClose, pedidoId }: QuoteCardProps) {
     const elapsed = useElapsed(ultimoMensaje);
     const arrivalTime = ultimoMensaje ? new Date(ultimoMensaje).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : null;
     const arrivalDate = ultimoMensaje ? new Date(ultimoMensaje).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' }) : null;
@@ -950,6 +951,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                         items={repuestos}
                                         vehiculos={vehiculos}
                                         estado={isEditing && isSilentRegistro ? 'PAGO_VERIFICADO' : estado}
+                                        pedidoId={pedidoId ?? null}
                                         onResponded={async () => {
                                             if (isSilentRegistro) {
                                                 try {
@@ -1119,14 +1121,15 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                 </button>
                             )}
 
-                                {/* Ajustar venta final: visible cuando el cliente ya pagó/retiró (compras extras en local) */}
-                                {['PAGO_VERIFICADO', 'ABONO_VERIFICADO', 'ESPERANDO_RETIRO', 'DESPACHADO', 'ENTREGADO', 'CICLO_COMPLETO'].includes(estado) && (
+                                {/* Ajustar venta final: activo → todos los roles; historial (pedidoId) → solo soporte */}
+                                {['PAGO_VERIFICADO', 'ABONO_VERIFICADO', 'ESPERANDO_RETIRO', 'DESPACHADO', 'ENTREGADO', 'CICLO_COMPLETO'].includes(estado) &&
+                                    (!pedidoId || role === 'soporte') && (
                                     <button
                                         onClick={() => setIsEditing(true)}
                                         className="w-full py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold uppercase tracking-widest hover:bg-emerald-500/20 transition-all flex items-center justify-center gap-2"
-                                        title="Agregar items extras que el cliente compró en el local — actualiza el total para KPIs internos. No envía mensaje al cliente."
+                                        title={pedidoId ? 'Editar registro histórico (solo soporte) — no envía mensajes al cliente.' : 'Agregar items extras que el cliente compró en el local — actualiza el total para KPIs internos. No envía mensaje al cliente.'}
                                     >
-                                        💰 Ajustar Venta Final (Compras Extra en Local)
+                                        {pedidoId ? '✏️ Editar Registro Histórico (Soporte)' : '💰 Ajustar Venta Final (Compras Extra en Local)'}
                                     </button>
                                 )}
 

@@ -467,6 +467,7 @@ export default function Home() {
               entidades={selectedQuote.entidades}
               sucursal={selectedQuote.sucursal ?? null}
               ultimoMensaje={selectedQuote.ultimo_mensaje}
+              pedidoId={typeof selectedQuote.id === 'number' ? selectedQuote.id : null}
               onResponded={() => { setSelectedQuote(null); view === 'historial' ? fetchHistorial() : fetchPendientes('onResponded_Modal'); }}
               autoOpen={true}
               onClose={() => setSelectedQuote(null)}

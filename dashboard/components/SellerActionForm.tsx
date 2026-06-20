@@ -32,6 +32,7 @@ interface SellerActionFormProps {
     onResponded: () => void;
     footerActions?: React.ReactNode;
     estado?: string;
+    pedidoId?: number | null;
 }
 
 const RenderItemInput = ({ item, isSinStock, onChange, onRemove }: { item: Item, isSinStock: boolean, onChange: (field: keyof Item, val: string | number | null | boolean) => void, onRemove?: () => void }) => (
@@ -133,7 +134,7 @@ const RenderItemInput = ({ item, isSinStock, onChange, onRemove }: { item: Item,
     </div>
 );
 
-export default function SellerActionForm({ phone, items = [], vehiculos = [], onResponded, footerActions, estado }: SellerActionFormProps) {
+export default function SellerActionForm({ phone, items = [], vehiculos = [], onResponded, footerActions, estado, pedidoId }: SellerActionFormProps) {
     const esRectificacion = estado === 'CONFIRMANDO_COMPRA'
         || estado === 'ESPERANDO_COMPROBANTE'
         || estado === 'ESPERANDO_APROBACION_ADMIN';
@@ -346,7 +347,13 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
             const itemsPayload = formVehiculos.length === 0 ? cleanItems(formItems) : null;
             const vehiculosPayload = formVehiculos.length > 0 ? cleanVehiculos : null;
 
-            if (esAjusteVentaFinal) {
+            if (pedidoId) {
+                // Editar registro histórico en tabla pedidos (sesión ya archivada). Solo soporte.
+                await api.patch(`${BACKEND_URL}/api/dashboard/pedidos/${pedidoId}/ajustar`, {
+                    items: itemsPayload,
+                    vehiculos: vehiculosPayload
+                });
+            } else if (esAjusteVentaFinal) {
                 // Ajuste interno: actualiza items finales y total. NO envía mensaje al cliente.
                 await api.post(`${BACKEND_URL}/api/dashboard/cotizaciones/ajustar-venta-final`, {
                     phone,
@@ -679,8 +686,8 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
                         }`}
                     >
                         {loading
-                            ? (esAjusteVentaFinal ? 'Guardando...' : esRectificacion ? 'Rectificando...' : 'Calculando Precios...')
-                            : (esAjusteVentaFinal ? '💰 Guardar Venta Final' : esRectificacion ? 'Rectificar y Reenviar' : 'Enviar Cotización')}
+                            ? (pedidoId ? 'Actualizando...' : esAjusteVentaFinal ? 'Guardando...' : esRectificacion ? 'Rectificando...' : 'Calculando Precios...')
+                            : (pedidoId ? '💾 Actualizar Registro' : esAjusteVentaFinal ? '💰 Guardar Venta Final' : esRectificacion ? 'Rectificar y Reenviar' : 'Enviar Cotización')}
                     </button>
 
                     {esRectificacion && (

@@ -949,6 +949,51 @@ router.post('/cotizaciones/ajustar-venta-final', async (req, res) => {
 });
 
 /**
+ * PATCH /api/dashboard/pedidos/:pedidoId/ajustar
+ * Actualiza repuestos y total de un pedido ya archivado en tabla pedidos (historial).
+ * Solo soporte. No envía mensajes al cliente.
+ * Body: { items? | vehiculos? }
+ */
+router.patch('/pedidos/:pedidoId/ajustar', async (req, res) => {
+    try {
+        if (req.user?.role !== 'soporte') {
+            return res.status(403).json({ error: 'Solo soporte puede editar registros históricos.' });
+        }
+        const pedidoId = parseInt(req.params.pedidoId, 10);
+        const { items, vehiculos } = req.body;
+        if (isNaN(pedidoId) || (!items && !vehiculos)) {
+            return res.status(400).json({ error: 'Faltan campos: pedidoId + items o vehiculos' });
+        }
+        const parsePrecio = (p) => (p ? parseInt(String(p).replace(/[^\d]/g, '')) || 0 : 0);
+        let total = 0;
+        if (vehiculos && vehiculos.length > 0) {
+            vehiculos.forEach(v => (v.repuestos_solicitados || []).forEach(r => {
+                if ((r.disponibilidad || 'DISPONIBLE') !== 'SIN_STOCK')
+                    total += parsePrecio(r.precio) * (r.cantidad || 1);
+            }));
+        } else if (items) {
+            items.forEach(r => {
+                if ((r.disponibilidad || 'DISPONIBLE') !== 'SIN_STOCK')
+                    total += parsePrecio(r.precio) * (r.cantidad || 1);
+            });
+        }
+        const repuestosJson = JSON.stringify(items || (vehiculos || []).flatMap(v => v.repuestos_solicitados || []));
+        const { rowCount } = await db.query(
+            `UPDATE pedidos SET repuestos = $1, total_cotizacion = $2 WHERE id = $3`,
+            [repuestosJson, total, pedidoId]
+        );
+        if (rowCount === 0) {
+            return res.status(404).json({ error: 'Pedido no encontrado.' });
+        }
+        console.log(`[Pedidos] ✏️  Ajuste historial pedido #${pedidoId} — total $${total}`);
+        res.json({ success: true, total });
+    } catch (error) {
+        console.error('[Pedidos] Error ajustando pedido historial:', error);
+        res.status(500).json({ error: 'Error ajustando pedido' });
+    }
+});
+
+/**
  * POST /api/dashboard/sessions/:phone/marcar
  * Marca una conversación para seguimiento del vendedor (tipo "pin").
  * Body: { vendedor_nombre, nota? }
