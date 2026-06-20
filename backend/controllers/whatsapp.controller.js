@@ -572,6 +572,21 @@ const processBufferedMessages = async (customerPhone) => {
             const textoBaja = (userText || '').toLowerCase();
             const pideNuevaTextual = /\b(nueva cotizaci[oó]n|otra cotizaci[oó]n|cotizar otro|empezar de cero|olvid[aá] (lo anterior|la anterior)|nuevo pedido|distinta cotizaci[oó]n)\b/i.test(textoBaja);
 
+            // Detectar si cliente menciona una marca diferente a la de su sesión actual.
+            // Solo en CONFIRMANDO_COMPRA (no ESPERANDO_COMPROBANTE — cliente va a pagar, sería intrusivo).
+            const marcasSesion = [
+                session.entidades?.marca_modelo,
+                ...(Array.isArray(session.entidades?.vehiculos) ? session.entidades.vehiculos.map(v => v.marca_modelo) : [])
+            ].filter(Boolean).map(m => m.toLowerCase().split(/[\s-]/)[0]);
+            const BRANDS_RE = /\b(toyota|nissan|chevrolet|kia|hyundai|ford|suzuki|mitsubishi|honda|fiat|peugeot|volkswagen|renault|subaru|jeep|dodge|ssangyong|chery|geely|byd|volvo|bmw|mercedes|audi|haval|mazda|seat|skoda|dacia|changan|isuzu|citroen|citro[eé]n)\b/i;
+            const brandMatch = textoBaja.match(BRANDS_RE);
+            const mencionaMarcaDiferente = !!(
+                session.estado === sessionsService.STATES.CONFIRMANDO_COMPRA &&
+                brandMatch &&
+                marcasSesion.length > 0 &&
+                !marcasSesion.some(m => textoBaja.includes(m))
+            );
+
             // Calcular minutos desde el último mensaje saliente
             let minutosDesdeSaliente = 0;
             try {
@@ -585,7 +600,7 @@ const processBufferedMessages = async (customerPhone) => {
             } catch (_) { /* fallback: minutos = 0, no dispara por tiempo */ }
 
             const dispararPorTiempo = minutosDesdeSaliente >= 60;
-            if (pideNuevaTextual || dispararPorTiempo) {
+            if (pideNuevaTextual || dispararPorTiempo || mencionaMarcaDiferente) {
                 const cotizacionesService = require('../services/cotizaciones.service');
                 const cotActiva = await cotizacionesService.getCotizacionActivaPorPhone(customerPhone);
                 if (cotActiva) {
@@ -1387,7 +1402,7 @@ const processBufferedMessages = async (customerPhone) => {
         }
 
         const originalSession = JSON.parse(JSON.stringify(session)); // Backup
-        session = await sessionsService.updateEntidades(customerPhone, aiJson.entidades);
+        session = await sessionsService.updateEntidades(customerPhone, aiJson.entidades || {});
 
         // -- GUARDIA CRÍTICA CONTRA TIMEOUTS DE DB --
         if (!session) {
@@ -1515,6 +1530,8 @@ const processBufferedMessages = async (customerPhone) => {
             } catch (e) {
                 console.error('[FallbackGemini] No se pudo marcar la sesión:', e.message);
             }
+            // Suprimir el mensaje de error al cliente — el vendedor ya recibe ALERTA IA en bandeja.
+            suppressGeminiReply = true;
         }
 
         // ──────────────────────────────────────────────────────────────────────
