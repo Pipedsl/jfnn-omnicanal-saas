@@ -1194,6 +1194,14 @@ const getDashboardMetrics = async (range = 'hoy', filters = {}) => {
             SELECT COUNT(*)::int AS cantidad_esperando FROM user_sessions WHERE estado = 'ESPERANDO_VENDEDOR'${sesionesExtra}
         `, sesionesParams);
 
+        // 7. Clientes nuevos creados en el rango
+        const clientesNuevosResult = await db.query(`
+            SELECT COUNT(*)::int AS total_clientes_nuevos
+            FROM clientes
+            WHERE ${rangeToSql(range, 'created_at')}
+        `);
+        const totalClientesNuevos = parseInt(clientesNuevosResult.rows[0].total_clientes_nuevos, 10);
+
         const cantidadVentas = parseInt(ventasResult.rows[0].cantidad_ventas, 10);
         const totalVendido = parseInt(ventasResult.rows[0].total_vendido, 10);
         const mensajesIaPedidos = parseInt(ventasResult.rows[0].mensajes_ia_pedidos, 10);
@@ -1222,6 +1230,7 @@ const getDashboardMetrics = async (range = 'hoy', filters = {}) => {
             sesionesActivas,
             tiempoPromedioEsperaVendedorMins: Math.round(minsEspera),
             tasaConversionHoy: tasaConversion,
+            clientesNuevos: totalClientesNuevos,
             // Métricas reales del agente IA
             range,
             mensajesIa: mensajesIaTotal,

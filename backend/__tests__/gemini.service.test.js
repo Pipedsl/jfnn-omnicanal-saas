@@ -157,7 +157,9 @@ describe('geminiService — generateResponse', () => {
 
         // Verifica el mensaje de fallback definido en el catch del servicio
         expect(result.mensaje_cliente).toMatch(/inconveniente técnico/i);
-        expect(result.entidades).toEqual({});
+        expect(result.estado_cotizacion).toBe('ESPERANDO_VENDEDOR');
+        expect(result.entidades.consulta_pendiente).toHaveProperty('texto');
+        expect(result.entidades.consulta_pendiente.item_relacionado).toBe('ERROR_SISTEMA');
     });
 
     test('T06: Estado CONFIRMANDO_COMPRA → generateContent se invoca (modelo seleccionado correctamente)', async () => {

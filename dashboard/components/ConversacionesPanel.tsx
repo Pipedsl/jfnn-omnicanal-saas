@@ -32,6 +32,8 @@ interface Conversacion {
   total_entrantes: number;
   agente_pausado: boolean;
   consulta_pendiente: ConsultaPendiente | null;
+  pesquisa_pendiente?: any | null;
+  es_cliente_nuevo?: boolean;
   marca: MarcaConversacion | null;
 }
 
@@ -188,6 +190,7 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
   const [sendingImage, setSendingImage] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [showCotizarModal, setShowCotizarModal] = useState(false);
+  const role = typeof window !== 'undefined' ? safeGet("jfnn_role") : null;
 
   useEffect(() => {
     const timer = setInterval(() => setTick(t => t + 1), 60000);
@@ -661,40 +664,46 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
               <button
                 key={conv.phone}
                 onClick={() => handleSelectConv(conv.phone)}
-                className={`w-full text-left px-4 py-3 border-b border-white/5 hover:bg-white/5 transition-colors border-l-2 ${
+                className={`group w-full text-left px-4 py-3 border-b border-white/[0.03] transition-all duration-200 border-l-[3px] hover:bg-white/[0.02] hover:pl-5 ease-out ${
                   selectedPhone === conv.phone
-                    ? "bg-accent/10 border-l-accent"
+                    ? "bg-accent/[0.08] border-l-accent pl-5 shadow-inner shadow-accent/5"
                     : conv.consulta_pendiente
-                      ? "border-l-red-500/60 bg-red-500/[0.04]"
+                      ? "border-l-red-500/60 bg-red-500/[0.02]"
                       : conv.marca
-                        ? "border-l-purple-500/60 bg-purple-500/[0.03]"
+                        ? "border-l-purple-500/60 bg-purple-500/[0.02]"
                         : conv.agente_pausado
-                          ? "border-l-yellow-500/50 bg-yellow-500/[0.02]"
+                          ? "border-l-yellow-500/50 bg-yellow-500/[0.01]"
                           : "border-l-transparent"
                 }`}
               >
                 <div className="flex items-start justify-between mb-1">
                   <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0">
-                      <span className="text-xs font-bold text-accent">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-transform group-hover:scale-105 border ${
+                      selectedPhone === conv.phone
+                        ? 'bg-accent/15 border-accent/30 text-accent'
+                        : 'bg-white/5 border-white/5 text-neutral-400'
+                    }`}>
+                      <span className="text-xs font-bold uppercase">
                         {conv.nombre_cliente ? conv.nombre_cliente.charAt(0).toUpperCase() : "#"}
                       </span>
                     </div>
                     <div className="min-w-0">
-                      <p className="text-sm font-semibold text-neutral-200 truncate">
+                      <p className={`text-sm font-semibold truncate transition-colors ${
+                        selectedPhone === conv.phone ? "text-accent" : "text-neutral-200 group-hover:text-white"
+                      }`}>
                         {conv.nombre_cliente || formatPhone(conv.phone)}
                       </p>
                       {conv.nombre_cliente && (
-                        <p className="text-[10px] text-neutral-500">{formatPhone(conv.phone)}</p>
+                        <p className="text-[10px] text-neutral-500 font-medium">{formatPhone(conv.phone)}</p>
                       )}
                     </div>
                   </div>
-                  <span className="text-[10px] text-neutral-500 flex-shrink-0 ml-2">
+                  <span className="text-[10px] text-neutral-500 font-medium flex-shrink-0 ml-2">
                     {timeAgo(conv.ultimo_mensaje_at)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between mt-1 pl-10 gap-2">
-                  <p className="text-xs text-neutral-500 truncate max-w-[200px]">
+                  <p className="text-xs text-neutral-500 truncate max-w-[200px] transition-colors group-hover:text-neutral-400">
                     {conv.ultimo_contenido || "📎 Media"}
                   </p>
                   <div className="flex items-center gap-1 flex-shrink-0">
@@ -706,12 +715,35 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
                         🔖
                       </span>
                     )}
-                    {conv.consulta_pendiente && (
+                    {conv.consulta_pendiente && (() => {
+                      const esFalloIa = (conv.consulta_pendiente.texto || '').includes('FALLO_IA');
+                      return (
+                        <span
+                          className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border flex items-center gap-1 animate-pulse ${
+                            esFalloIa
+                              ? 'bg-amber-950/40 text-amber-300 border-amber-500/40'
+                              : 'bg-red-500/20 text-red-400 border-red-500/40'
+                          }`}
+                          title={esFalloIa ? `Fallo del sistema recuperado: "${conv.consulta_pendiente.texto}"` : `Consulta del cliente: "${conv.consulta_pendiente.texto}"`}
+                        >
+                          {esFalloIa ? '🚨 ALERTA IA' : '❓ Consulta'}
+                        </span>
+                      );
+                    })()}
+                    {role === 'soporte' && conv.pesquisa_pendiente && (
                       <span
-                        className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/40 flex items-center gap-1 animate-pulse"
-                        title={`Consulta del cliente: "${conv.consulta_pendiente.texto}"`}
+                        className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-cyan-950/50 text-cyan-300 border border-cyan-500/40 flex items-center gap-1 animate-pulse"
+                        title="Pesquisa pendiente — El cliente mencionó que fue al local de forma presencial"
                       >
-                        ❓ Consulta
+                        🕵️ Pesquisa
+                      </span>
+                    )}
+                    {role === 'soporte' && conv.es_cliente_nuevo && (
+                      <span
+                        className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-950/45 text-blue-300 border border-blue-500/30 flex items-center gap-1"
+                        title="Cliente nuevo — Primer contacto en el negocio (sin historial previo)"
+                      >
+                        🆕 Nuevo
                       </span>
                     )}
                     {!conv.consulta_pendiente && conv.agente_pausado && (
@@ -804,9 +836,36 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
                 )}
                 <div className="flex items-center gap-2">
                   {chat?.estado && (
-                    <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-accent/10 text-accent">
-                      {ESTADO_LABELS[chat.estado] || chat.estado}
-                    </span>
+                    role === 'soporte' ? (
+                      <select
+                        value={chat.estado}
+                        onChange={async (e) => {
+                          const nuevoEstado = e.target.value;
+                          if (confirm(`¿Cambiar manualmente el estado de esta sesión a "${ESTADO_LABELS[nuevoEstado] || nuevoEstado}"?`)) {
+                            try {
+                              await api.patch(`${BACKEND_URL}/api/dashboard/soporte/sesion/${encodeURIComponent(selectedPhone)}/estado`, {
+                                estado: nuevoEstado,
+                                motivo: "Cambio manual desde el chat de soporte"
+                              });
+                              await fetchChat(selectedPhone, false);
+                              await fetchConversaciones(false);
+                            } catch (err) {
+                              alert("Error al cambiar de estado. Verifica tus permisos de soporte.");
+                            }
+                          }
+                        }}
+                        className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-purple-950/40 text-purple-300 border border-purple-500/30 focus:outline-none cursor-pointer"
+                        title="Cambiar estado manual (Soporte)"
+                      >
+                        {Object.entries(ESTADO_LABELS).map(([k, v]) => (
+                          <option key={k} value={k} className="bg-neutral-950 text-neutral-200">{v}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-accent/10 text-accent">
+                        {ESTADO_LABELS[chat.estado] || chat.estado}
+                      </span>
+                    )
                   )}
                   {chat?.sucursal && (
                     <span className="text-[10px] text-neutral-500">📍 {chat.sucursal}</span>
@@ -900,27 +959,40 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
             </div>
 
             {/* Banner consulta pendiente */}
-            {chat?.consulta_pendiente && (
-              <div className="px-4 py-3 bg-red-500/10 border-b border-red-500/30 flex items-start gap-3">
-                <div className="w-7 h-7 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <AlertTriangle size={14} className="text-red-400" />
+            {chat?.consulta_pendiente && (() => {
+              const esFalloIa = (chat.consulta_pendiente.texto || '').includes('FALLO_IA');
+              return (
+                <div className={`px-4 py-3 border-b flex items-start gap-3 ${
+                  esFalloIa 
+                    ? 'bg-amber-500/10 border-amber-500/30' 
+                    : 'bg-red-500/10 border-red-500/30'
+                }`}>
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                    esFalloIa ? 'bg-amber-500/20' : 'bg-red-500/20'
+                  }`}>
+                    <AlertTriangle size={14} className={esFalloIa ? 'text-amber-400' : 'text-red-400'} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${
+                      esFalloIa ? 'text-amber-400' : 'text-red-400'
+                    }`}>
+                      {esFalloIa ? '🚨 SISTEMA — ERROR EN BOT DE IA (RECUPERADO POR BASE DE DATOS)' : 'Consulta del cliente — IA derivó al vendedor'}
+                    </p>
+                    <p className="text-sm text-neutral-200 break-words">&ldquo;{chat.consulta_pendiente.texto}&rdquo;</p>
+                    {chat.consulta_pendiente.item_relacionado && (
+                      <p className="text-[11px] text-neutral-500 mt-1">📦 Sobre: {chat.consulta_pendiente.item_relacionado}</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={resolverConsulta}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-[10px] font-bold uppercase tracking-wider hover:bg-emerald-500/25 transition-colors flex-shrink-0"
+                    title="Marca la consulta resuelta y reanuda la IA"
+                  >
+                    ✅ Resuelta
+                  </button>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-red-400 mb-0.5">Consulta del cliente — IA derivó al vendedor</p>
-                  <p className="text-sm text-neutral-200 break-words">&ldquo;{chat.consulta_pendiente.texto}&rdquo;</p>
-                  {chat.consulta_pendiente.item_relacionado && (
-                    <p className="text-[11px] text-neutral-500 mt-1">📦 Sobre: {chat.consulta_pendiente.item_relacionado}</p>
-                  )}
-                </div>
-                <button
-                  onClick={resolverConsulta}
-                  className="px-3 py-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-[10px] font-bold uppercase tracking-wider hover:bg-emerald-500/25 transition-colors flex-shrink-0"
-                  title="Marca la consulta resuelta y reanuda la IA"
-                >
-                  ✅ Resuelta
-                </button>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Messages */}
             <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">

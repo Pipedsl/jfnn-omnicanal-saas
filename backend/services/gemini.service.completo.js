@@ -131,53 +131,6 @@ const formatHistorialParaPrompt = (mensajes = [], sesionIniciadaAt = null) => {
     return out;
 };
 
-const recuperarContextoFallo = (errorMessage, sessionContext, userText, historialMensajes) => {
-    let repuestosStr = "sus repuestos";
-    let vehiculoStr = "su vehículo";
-
-    // 1. Extraer de las entidades guardadas en la sesión en la DB
-    if (sessionContext?.entidades?.repuestos_solicitados?.length > 0) {
-        repuestosStr = sessionContext.entidades.repuestos_solicitados.map(r => r.nombre).join(", ");
-    }
-    if (sessionContext?.entidades?.marca_modelo) {
-        vehiculoStr = sessionContext.entidades.marca_modelo;
-    }
-
-    // 2. Si las entidades de la DB están vacías, parsear el texto actual y los últimos mensajes
-    if (vehiculoStr === "su vehículo" || repuestosStr === "sus repuestos") {
-        const textToSearch = [
-            userText || "",
-            ...(Array.isArray(historialMensajes) ? historialMensajes : []).map(m => m.contenido || m.texto || "")
-        ].join(" ").toLowerCase();
-
-        if (vehiculoStr === "su vehículo") {
-            const matchVeh = textToSearch.match(/\b(santa fe|corsa|hilux|v16|sail|corolla|yaris|l200|ranger|swift|rio|accent|tucson|sportage|aveo|spark|orlando|tracker|captiva|nissan|toyota|chevrolet|hyundai|kia|suzuki|ford|mitsubishi|fiat|peugeot|honda)\b/i);
-            if (matchVeh) {
-                vehiculoStr = matchVeh[0].toUpperCase();
-            }
-        }
-        if (repuestosStr === "sus repuestos") {
-            const matchRep = textToSearch.match(/\b(pastillas|discos|amortiguadores|filtros|bujias|bobinas|correa|radiador|termostato|embrague|cremallera|soporte|guardafangos|foco|freno|frenos|optica|espejo|parachoques|puerta|capot|guardabarros|bomba)\b/i);
-            if (matchRep) {
-                repuestosStr = matchRep[0];
-            }
-        }
-    }
-
-    return {
-        mensaje_cliente: `Disculpe, tuvimos un inconveniente técnico momentáneo procesando su solicitud, pero no se preocupe: ya registramos su consulta por los repuestos (${repuestosStr}) para su ${vehiculoStr} en nuestro sistema.\n\nUn asesor humano revisará los mensajes en breve para confirmarle los precios y disponibilidad. ¡Gracias por su paciencia! 😊`,
-        estado_cotizacion: "ESPERANDO_VENDEDOR",
-        entidades: {
-            ...(sessionContext?.entidades || {}),
-            consulta_pendiente: {
-                texto: `FALLO_IA_RECUPERADO: Error "${errorMessage}". El bot falló, pero recuperó el contexto de la base de datos/historial. El cliente busca: "${repuestosStr}" para "${vehiculoStr}".`,
-                momento: new Date().toISOString(),
-                item_relacionado: "ERROR_SISTEMA"
-            }
-        }
-    };
-};
-
 const generateResponse = async (userText, sessionContext, imageData = null, audioDataList = [], historialMensajes = []) => {
     try {
         const state = sessionContext.estado;
@@ -406,14 +359,14 @@ ${entidadesTienenEncargo ? (() => {
            - Si paga online: Pregunta si desea 'Retiro en local' o 'Envío a domicilio'.
            - Si elige envío: Solicita la dirección exacta de despacho.
         3. **Documento**: SOLO SI elige envío a domicilio o pago online, pregunta si requiere 'Boleta' o 'Factura'. (Si es Factura: Pide RUT, Razón Social y Giro). Si el pago es Presencial o Retiro en local, OMITE la pregunta de documento, se hará en caja.
-        4. **Nombre (NUNCA OBLIGATORIO)**: NO preguntes al cliente por su nombre si no lo tienes. El cliente se identificará en caja simplemente mostrando su código de cotización. Captura el nombre solo si el cliente lo ofrece espontáneamente en la conversación.
+        4. **Nombre (CRÍTICO)**: Si el cliente elige pago presencial en el local o 'Retiro en local' y NO conoces su nombre (${sessionContext.entidades.nombre_cliente ? 'Ya lo sé: ' + sessionContext.entidades.nombre_cliente : 'AÚN NO LO SÉ'}), solicítalo amablemente: "Para agilizar su atención al llegar, ¿podría confirmarme su nombre completo?".
         5. **ELIMINAR REPUESTO (HU-1)**: Si el cliente indica que NO quiere llevar algún ítem (ej: 'no voy a llevar las bujías', 'sácame el filtro', 'quita ese repuesto'), confirma la eliminación y muestra el nuevo subtotal. Incluye en el JSON: { accion: 'REMOVER_REPUESTO', repuesto_a_remover: '<nombre exacto del repuesto>' }.
         6. **AGREGAR REPUESTO (BUG-3)**: Si el cliente quiere añadir un producto nuevo AHORA MISMO, confirma amablemente que verificarás el stock de ese nuevo ítem y devuelve en el JSON: { accion: 'AGREGAR_REPUESTO' }.
         7. **OPCIONES MÚLTIPLES**: Si la cotización incluye varias alternativas para el mismo tipo de repuesto (ej: "Pastilla Bosch $15.990" y "Pastilla Brembo $22.990"), preséntale las opciones al cliente y pídele que elija. Cuando el cliente elige, devuelve: { accion: 'SELECCION_OPCION', opcion_elegida: '<nombre exacto>', opciones_descartadas: ['<nombre exacto>', ...] }.
         8. **Instrucciones finales**:
 ${sessionContext.entidades.metodo_pago ? `
 ⚠️ MÉTODO DE PAGO YA CAPTURADO (${sessionContext.entidades.metodo_pago}). NO repitas los datos bancarios. Solo confirma la logística (retiro/envío) y pregunta por boleta/factura.
-` : '           - Si el cliente elige o insinúa Pago por Transferencia, o si la cotización contiene repuestos con stock o con abono de pre-order (por encargo), envía INMEDIATAMENTE los datos bancarios para transferencia (banco, número de cuenta, RUT, email y el MONTO TOTAL o abono mínimo a reservar) junto con la solicitud de comprobante para poder reservar los productos de inmediato.'}
+` : '           - Si es Transferencia: PRIMERO envía los datos para la transferencia (banco, número de cuenta, RUT, email y el MONTO TOTAL a pagar). Luego pídele que envíe el comprobante por este chat. Los datos están en la base de conocimiento del negocio.'}
            - 🚚 ENVÍO A DOMICILIO: Si el cliente menciona una ciudad/comuna o dirección de destino, "envío", "despacho", "que llegue a", "por correo", o un courier (Starken/Chilexpress/Bluexpress/Movistar), captura \`metodo_entrega: 'domicilio'\` y guarda la \`direccion_envio\` (dirección o ciudad). NO asumas retiro en local si hay señales de envío.
            - Si el cliente elige RETIRO EN LOCAL: solo puede retirar en Melipilla (San Felipe está cerrada presencialmente, solo delivery). Captura \`metodo_entrega: 'retiro'\` y \`sucursal_retiro: 'Melipilla'\`. **NO incluyas la dirección ni el horario en tu mensaje**, el sistema los agrega automáticamente.
            - 🏪 RETIRO COLOQUIAL CHILENO — DETECCIÓN AUTOMÁTICA: si el cliente expresa intención de retirar usando frases coloquiales como "paso", "voy", "paso en la mañana", "paso en la tarde", "paso un rato", "voy a buscar", "voy a buscarlo", "voy a pasar", "voy a pasar a buscarlo", "voy al local", "voy ahí", "paso por allá", "lo retiro", "lo busco", "mañana paso", "ahora paso", "lo paso a buscar" — captura AUTOMÁTICAMENTE \`metodo_entrega: 'retiro'\` + \`sucursal_retiro: 'Melipilla'\`. NO le preguntes "¿transferencia online o pago en el local?" porque el cliente YA decidió retiro. Avanza al siguiente paso: confirma nombre del cliente (si no lo tienes) y pregunta tipo de documento (boleta o factura).
@@ -649,14 +602,20 @@ ${sessionContext.entidades.metodo_pago ? `
 
         // Si aún no hay JSON válido, fallback genérico
         if (!parsed) {
-            console.error(`[Gemini] ❌ JSON parse falló después del reintento. Usando fallback genérico y recuperando contexto.`);
-            return recuperarContextoFallo("JSON parse falló", sessionContext, userText, historialMensajes);
+            console.error(`[Gemini] ❌ JSON parse falló después del reintento. Usando fallback genérico.`);
+            return {
+                mensaje_cliente: "Disculpe, tuvimos un inconveniente técnico momentáneo. ¿Podría repetirme lo último, por favor?",
+                entidades: {}
+            };
         }
 
         return parsed;
     } catch (error) {
         console.error("Error en Gemini Service:", error.message);
-        return recuperarContextoFallo(error.message, sessionContext, userText, historialMensajes);
+        return {
+            mensaje_cliente: "Disculpe, tuvimos un inconveniente técnico momentáneo. ¿Podría repetirme lo último, por favor?",
+            entidades: {}
+        };
     }
 };
 

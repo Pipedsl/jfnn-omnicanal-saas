@@ -226,12 +226,16 @@ const listarConversacionesActivas = async ({ sucursal = null, q = null } = {}) =
                 s.entidades->>'marca_modelo' AS marca_modelo,
                 COALESCE((s.entidades->>'agente_pausado')::boolean, false) AS agente_pausado,
                 s.entidades->'consulta_pendiente' AS consulta_pendiente,
+                s.entidades->'pesquisa_pendiente' AS pesquisa_pendiente,
+                (c.phone IS NULL OR COALESCE(c.total_compras, 0) = 0) AS es_cliente_nuevo,
                 s.entidades->'marca' AS marca
             FROM agg a
             LEFT JOIN ultimo u ON u.phone = a.phone
             LEFT JOIN user_sessions s ON s.phone = a.phone
             LEFT JOIN clientes c ON c.phone = a.phone
-            ORDER BY a.ultimo_mensaje_at DESC
+            ORDER BY 
+                (s.estado = 'ESPERANDO_VENDEDOR' OR s.entidades->'consulta_pendiente' IS NOT NULL) DESC,
+                a.ultimo_mensaje_at DESC
             ${limitClause}
         `;
 

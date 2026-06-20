@@ -326,7 +326,12 @@ router.post('/soporte/cerrar-venta', requireSoporte, async (req, res) => {
         const anterior = session.estado;
         await sessionsService.setEstado(phone, estadoFinal);
 
-        if (enviar_resena) {
+        // Omitir encuesta de evaluación de Google al ser un cierre administrativo de Soporte (Pesquisa/Auditoría)
+        const atencion = await scheduleService.getEstadoAtencion();
+        const fueraDeHorario = !atencion.abierto;
+        const omitirResenaSoporte = true; // Al ser realizado por Soporte, omitimos siempre por precaución (evitar spam al cliente)
+
+        if (enviar_resena && !omitirResenaSoporte) {
             setTimeout(() => { whatsappService.sendGoogleReviewRequest(phone).catch(() => {}); }, 3000);
         }
         // Archivar a pedidos (KPIs).
@@ -1239,7 +1244,17 @@ router.patch('/cotizaciones/estado', async (req, res) => {
             // ENTREGADO sin mensaje_logistica: el cliente ya fue notificado (venía de ESPERANDO_RETIRO)
             // o está físicamente en el local (cash+retiro). No enviamos mensaje — solo reseña.
 
-            if (message) {
+            // Control de omisión de notificaciones para Soporte o Fuera de Horario (Auditoría/Pesquisa)
+            const atencion = await scheduleService.getEstadoAtencion();
+            const esSoporte = req.user?.role === 'soporte';
+            const fueraDeHorario = !atencion.abierto;
+            const omitirNotificaciones = esSoporte || fueraDeHorario;
+
+            if (omitirNotificaciones) {
+                console.log(`[Cierre] 🤫 Omitiendo mensaje de agradecimiento y reseña para ${phone} (Causa: ${esSoporte ? 'Soporte' : 'Fuera de Horario'}).`);
+            }
+
+            if (message && !omitirNotificaciones) {
                 await whatsappService.sendSellerMessage(phone, message);
                 await sessionsService.incrementMessageCounter(phone, 'vendedor');
             }
@@ -1247,13 +1262,17 @@ router.patch('/cotizaciones/estado', async (req, res) => {
             // HU-6: Solicitud de reseña en Google Maps al cierre + archivado del pedido para KPIs.
             // Ambos estados terminales: ENTREGADO (retiro) y DESPACHADO (envío a domicilio).
             if (estado === 'ENTREGADO' || estado === 'DESPACHADO') {
-                setTimeout(() => {
-                    whatsappService.sendGoogleReviewRequest(phone).catch(err => {
-                        console.error('Error enviando solicitud de reseña Google:', err);
-                    });
-                }, 5000);
+                if (!omitirNotificaciones) {
+                    setTimeout(() => {
+                        whatsappService.sendGoogleReviewRequest(phone).catch(err => {
+                            console.error('Error enviando solicitud de reseña Google:', err);
+                        });
+                    }, 5000);
+                }
+                
                 // Archivar la sesión a la tabla pedidos para que sume a KPIs (con delay
                 // para no interferir con la reseña ni con un re-engage temprano del cliente).
+                // SIEMPRE se archiva para registrar KPIs de venta.
                 setTimeout(() => {
                     sessionsService.archiveSession(phone).catch(err => {
                         console.error(`[Archive] Error archivando sesión ${phone} tras ${estado}:`, err);
@@ -2304,6 +2323,8 @@ router.get('/conversaciones', async (req, res) => {
             total_entrantes: parseInt(conv.total_entrantes, 10) || 0,
             agente_pausado: conv.agente_pausado === true,
             consulta_pendiente: conv.consulta_pendiente || null,
+            pesquisa_pendiente: conv.pesquisa_pendiente || null,
+            es_cliente_nuevo: conv.es_cliente_nuevo === true,
             marca: conv.marca || null,
         }));
 

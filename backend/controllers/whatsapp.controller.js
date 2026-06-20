@@ -202,6 +202,27 @@ const processBufferedMessages = async (customerPhone) => {
         // 1. Obtener o crear sesión
         let session = await sessionsService.getSession(customerPhone);
 
+        // 🕵️ DETECCIÓN DE CLIENTE FUE AL LOCAL (SOPORTE PESQUISA AUTOMÁTICA)
+        if (userText) {
+            const checkText = userText.toLowerCase();
+            const clientWentToLocal = /\b(fui al local|fui a buscar|fui a retirar|ya fui|ya pase|ya pasé|ya retire|ya retiré|ya lo tengo|ya lo compre|ya lo compré|lo compre en el local|lo compré en el local|ya lo retire en la tienda|ya lo retiré en la tienda|fui hoy|fui ayer|fui al negocio|fui a la sucursal|fui a la tienda|pase a buscar|pasé a buscar|retire en el local|retiré en el local|fui personalmente)\b/i.test(checkText);
+            const clientWillGoToLocal = /\b(ire al local|iré al local|voy a ir|voy al local|ire mañana|iré mañana|voy mañana|ire a buscar|iré a buscar|ire a retirar|iré a retirar|paso mañana|paso más tarde|paso mas tarde|voy a pasar|ire a la sucursal|iré a la sucursal|ire a la tienda|iré a la tienda|paso por alla|paso por allá)\b/i.test(checkText);
+
+            const estadoEsCierre = ['CICLO_COMPLETO', 'ESPERANDO_RETIRO', 'DESPACHADO', 'ENTREGADO'].includes(session?.estado);
+
+            if ((clientWentToLocal || (clientWillGoToLocal && !estadoEsCierre)) && session) {
+                const entidades = session.entidades || {};
+                if (!entidades.pesquisa_pendiente) {
+                    entidades.pesquisa_pendiente = {
+                        momento: new Date().toISOString(),
+                        texto_cliente: userText
+                    };
+                    session = await sessionsService.updateEntidades(customerPhone, entidades);
+                    console.log(`[Soporte] 🕵️ Marca de pesquisa automática activada para ${customerPhone} - Cliente mencionó que fue o irá al local.`);
+                }
+            }
+        }
+
         // ═══════════════════════════════════════════════════════
         // MEJORA #2b: Pre-carga de nombre_cliente desde tabla clientes
         // ═══════════════════════════════════════════════════════
@@ -1653,12 +1674,13 @@ const processBufferedMessages = async (customerPhone) => {
                         : '';
 
                     if (nombreCliente) {
-                        finalMessage = `¡Muchas gracias, ${nombreCliente}! 🎉 Su pedido está confirmado.${direccionBlock}\n\nAl acercarse a nuestra tienda, puede identificarse con:\n• Código de cotización: *${quoteId}*\n• O simplemente con su nombre: *${nombreCliente}*\n\n¡Lo atenderemos de inmediato! 🔧`;
+                        finalMessage = `Al acercarse a nuestra tienda, por favor identifíquese en caja para atenderlo de inmediato con:\n• Código de cotización: *${quoteId}*\n• O con su nombre: *${nombreCliente}*\n\n¡Muchas gracias, ${nombreCliente}! 🎉 Su pedido está confirmado.${direccionBlock}\n\n¡Lo atenderemos de inmediato! 🔧`;
                         await sessionsService.setEstado(customerPhone, 'CICLO_COMPLETO');
                         console.log(`[Venta] Ciclo de cierre completado para ${customerPhone} (Pago presencial)`);
                     } else {
-                        finalMessage = `¡Perfecto! 🎉 Su pedido está confirmado.${direccionBlock}\nPara agilizar su atención al llegar a la tienda, ¿podría decirme su nombre completo?`;
-                        // Mantenemos el estado actual para que en el próximo mensaje Gemini nos extraiga el nombre
+                        finalMessage = `Al acercarse a nuestra tienda, por favor muestre su código de cotización en caja para atenderlo de inmediato:\n• Código de cotización: *${quoteId}*\n\n¡Perfecto! 🎉 Su pedido está confirmado.${direccionBlock}\n\n¡Lo atenderemos rápido! 🔧`;
+                        await sessionsService.setEstado(customerPhone, 'CICLO_COMPLETO');
+                        console.log(`[Venta] Ciclo de cierre completado sin nombre para ${customerPhone} (Pago presencial)`);
                     }
                 }
             }
