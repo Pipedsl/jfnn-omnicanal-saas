@@ -28,6 +28,8 @@ async function loadFeriados() {
             })),
             loadedAt: Date.now()
         };
+        // Exclusión forzada: el cliente indicó que hoy (2026-06-20) sí atienden.
+        feriadosCache.dates.delete('2026-06-20');
         console.log(`[Schedule] ✅ Feriados cargados: ${feriadosCache.dates.size} fechas.`);
     } catch (err) {
         console.error('[Schedule] ⚠️ Error cargando feriados:', err.message);
