@@ -104,6 +104,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
     const lockVendedor = role === 'admin' ? null : vendedorNombre;
     const { isLocked, lockedBy, lockToken } = useQuoteLock(isModalOpen ? phone : null, lockVendedor);
     const [isEditing, setIsEditing] = useState(false);
+    const [isSilentRegistro, setIsSilentRegistro] = useState(false);
     const [showLogisticsModal, setShowLogisticsModal] = useState(false);
     const [mensajeLogistica, setMensajeLogistica] = useState("");
     const [loadingPago, setLoadingPago] = useState(false);
@@ -948,8 +949,22 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                         phone={phone}
                                         items={repuestos}
                                         vehiculos={vehiculos}
-                                        estado={estado}
-                                        onResponded={() => {
+                                        estado={isEditing && isSilentRegistro ? 'PAGO_VERIFICADO' : estado}
+                                        onResponded={async () => {
+                                            if (isSilentRegistro) {
+                                                try {
+                                                    await api.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, {
+                                                        phone,
+                                                        estado: 'ENTREGADO',
+                                                        notify: true,
+                                                        ...(vendedorNombre ? { vendedor_nombre: vendedorNombre } : {})
+                                                    });
+                                                } catch (e) {
+                                                    console.error('[QuoteCard] Error cerrando venta silenciosamente:', e);
+                                                    alert('Productos guardados. No se pudo cerrar la venta — ciérrala manualmente desde la bandeja.');
+                                                }
+                                                setIsSilentRegistro(false);
+                                            }
                                             setIsEditing(false);
                                             closeModal();
                                             onResponded();
@@ -959,7 +974,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                 {isEditing && (
                                                     <button
                                                         type="button"
-                                                        onClick={() => setIsEditing(false)}
+                                                        onClick={() => { setIsEditing(false); setIsSilentRegistro(false); }}
                                                         className="w-full mb-2 py-2 rounded-xl text-xs text-neutral-500 font-bold uppercase hover:bg-red-500/10 hover:text-red-400 transition-colors"
                                                     >
                                                         Cancelar edición
@@ -1091,6 +1106,17 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                         <CheckCircle size={12} /> {loadingPago ? 'Procesando...' : (hayEncargo ? 'Confirmar Pago en Efectivo (Abono)' : (esEnvio ? 'Confirmar Pago en Efectivo (Total)' : 'Pago Efectivo Total y Cerrar Venta'))}
                                     </button>
                                 </div>
+                            )}
+
+                            {/* Registro presencial silencioso: solo soporte, en CONFIRMANDO_COMPRA */}
+                            {estado === 'CONFIRMANDO_COMPRA' && !isEditing && role === 'soporte' && (
+                                <button
+                                    onClick={() => { setIsSilentRegistro(true); setIsEditing(true); }}
+                                    className="w-full py-2 rounded-xl bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-bold uppercase tracking-widest hover:bg-blue-500/20 transition-all flex items-center justify-center gap-2"
+                                    title="Registra todos los productos comprados en el local y cierra la venta SIN enviar mensajes al cliente."
+                                >
+                                    📋 Registrar Compra Presencial (sin notificar)
+                                </button>
                             )}
 
                                 {/* Ajustar venta final: visible cuando el cliente ya pagó/retiró (compras extras en local) */}
