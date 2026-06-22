@@ -5,6 +5,7 @@ import { MessageCircle, Image, Mic, Video, FileText, ArrowLeft, User, Bot, Clock
 import { api } from "@/lib/api";
 import { safeGet } from "@/lib/storage";
 import SellerActionForm from "./SellerActionForm";
+import SoporteDataEditor from "./SoporteDataEditor";
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
 
@@ -190,6 +191,7 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
   const [sendingImage, setSendingImage] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [showCotizarModal, setShowCotizarModal] = useState(false);
+  const [showSoporteEditor, setShowSoporteEditor] = useState(false);
   const role = typeof window !== 'undefined' ? safeGet("jfnn_role") : null;
 
   useEffect(() => {
@@ -907,6 +909,15 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
                 </div>
               </div>
               <div className="ml-auto flex items-center gap-2">
+                {role === 'soporte' && ['PERFILANDO', 'ESPERANDO_VENDEDOR'].includes(chat?.estado || '') && (
+                  <button
+                    onClick={() => setShowSoporteEditor(true)}
+                    className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 border border-blue-500/30 flex items-center gap-1.5 transition-colors"
+                    title="Completar datos del vehículo y repuestos para el vendedor (sin enviar mensajes al cliente)"
+                  >
+                    <Pencil size={12} />Enriquecer
+                  </button>
+                )}
                 <button
                   onClick={() => setShowCotizarModal(true)}
                   className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-accent/15 text-accent hover:bg-accent/25 border border-accent/30 flex items-center gap-1.5 transition-colors"
@@ -1240,6 +1251,36 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
       </div>
 
       {/* New Conversation Modal */}
+      {/* Modal: Editor de datos para soporte (enriquecer sin enviar al cliente) */}
+      {showSoporteEditor && selectedPhone && (
+        <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4" onClick={() => setShowSoporteEditor(false)}>
+          <div
+            className="bg-neutral-950 border border-white/10 rounded-2xl w-full max-w-lg flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/10">
+              <div>
+                <h3 className="text-sm font-bold text-neutral-100">✏️ Enriquecer datos para el vendedor</h3>
+                <p className="text-[10px] text-neutral-500 mt-0.5">Completa lo que el agente no capturó. No se envía nada al cliente.</p>
+              </div>
+              <button onClick={() => setShowSoporteEditor(false)} className="p-1.5 hover:bg-white/10 rounded-lg">
+                <X size={16} className="text-neutral-400" />
+              </button>
+            </div>
+            <div className="p-4">
+              <SoporteDataEditor
+                phone={selectedPhone}
+                entidades={chat?.entidades || {}}
+                onSaved={() => {
+                  setShowSoporteEditor(false);
+                  fetchChat(selectedPhone, false);
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal: Cotizar desde el chat (SellerActionForm en overlay) */}
       {showCotizarModal && selectedPhone && (
         <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4" onClick={() => setShowCotizarModal(false)}>
