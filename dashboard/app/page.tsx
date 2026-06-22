@@ -467,7 +467,7 @@ export default function Home() {
               entidades={selectedQuote.entidades}
               sucursal={selectedQuote.sucursal ?? null}
               ultimoMensaje={selectedQuote.ultimo_mensaje}
-              pedidoId={selectedQuote.isPedido && typeof selectedQuote.id === 'number' ? selectedQuote.id : null}
+              pedidoId={/* eslint-disable-next-line @typescript-eslint/no-explicit-any */ (selectedQuote as any).isPedido && typeof (selectedQuote as any).id === 'number' ? (selectedQuote as any).id : null}
               onResponded={() => { setSelectedQuote(null); view === 'historial' ? fetchHistorial() : fetchPendientes('onResponded_Modal'); }}
               autoOpen={true}
               onClose={() => setSelectedQuote(null)}
