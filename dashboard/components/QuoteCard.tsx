@@ -4,6 +4,7 @@ import { Car, Package, User, CheckCircle, Truck, Archive, Edit3, MessageSquareOf
 import { useState, useEffect } from "react";
 import SellerActionForm from "./SellerActionForm";
 import SoporteDataEditor from "./SoporteDataEditor";
+import VehiculoInfoCard from "./VehiculoInfoCard";
 import ImageLightbox from "./ImageLightbox";
 import CierreVentaModal from "./CierreVentaModal";
 import { api } from "@/lib/api";
@@ -632,45 +633,16 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                             {vehiculos.length > 0 ? (
                                 <div className="space-y-4">
                                     {vehiculos.map((v: Vehiculo, idx: number) => (
-                                        <div key={idx} className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-3">
-                                            <div className="flex items-center gap-2 border-b border-white/5 pb-2">
-                                                <Car size={14} className="text-accent" />
-                                                <span className="text-xs font-bold uppercase text-accent tracking-wider">Vehículo {idx + 1}</span>
-                                            </div>
-                                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-                                                <div className="space-y-1 min-w-0">
-                                                    <p className="text-xs text-neutral-500 uppercase font-bold">Marca/Modelo</p>
-                                                    <p className="text-xs text-neutral-300 font-medium truncate">{v.marca_modelo || "N/A"}</p>
-                                                </div>
-                                                <div className="space-y-1 min-w-0">
-                                                    <p className="text-xs text-neutral-500 uppercase font-bold">Año</p>
-                                                    <p className="text-xs text-neutral-300 font-medium truncate">{v.ano || "N/A"}</p>
-                                                </div>
-                                                <div className="space-y-1 col-span-2 sm:col-span-1 min-w-0">
-                                                    <p className="text-xs text-neutral-500 uppercase font-bold">Patente/VIN</p>
-                                                    <div className="group relative flex items-center gap-1 min-w-0">
-                                                        <p className="text-xs text-neutral-300 font-medium truncate flex-1 min-w-0" title={v.patente || v.vin || "N/A"}>
-                                                            {v.patente || v.vin || "N/A"}
-                                                        </p>
-                                                        {(v.patente || v.vin) && (
-                                                            <button
-                                                                onClick={() => navigator.clipboard.writeText(v.patente || v.vin || "")}
-                                                                className="text-xs text-neutral-500 hover:text-neutral-300 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                                                                title="Copiar"
-                                                                type="button"
-                                                            >
-                                                                📋
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-1 min-w-0">
-                                                    <p className="text-xs text-neutral-500 uppercase font-bold">Motor · Combustible</p>
-                                                    <p className="text-xs text-neutral-300 font-medium truncate" title={`${v.motor || "N/A"} · ${v.combustible || "N/A"}`}>
-                                                        {v.motor || "N/A"} · {v.combustible || "N/A"}
-                                                    </p>
-                                                </div>
-                                            </div>
+                                        <div key={idx} className="space-y-3">
+                                            <VehiculoInfoCard
+                                                label={`Vehículo ${idx + 1}`}
+                                                marcaModelo={v.marca_modelo}
+                                                ano={v.ano}
+                                                patente={v.patente}
+                                                vin={v.vin}
+                                                motor={v.motor}
+                                                combustible={v.combustible}
+                                            />
                                             <div className="pt-2">
                                                 <div className="flex items-center gap-1.5 text-neutral-500 mb-2">
                                                     <Package size={12} />
@@ -735,40 +707,14 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                 </div>
                             ) : (
                                 <div className="space-y-3">
-                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 bg-white/5 border border-white/10 rounded-xl p-4">
-                                        <div className="space-y-1 min-w-0">
-                                            <p className="text-xs text-neutral-500 uppercase font-bold">Vehículo</p>
-                                            <p className="text-xs text-neutral-300 truncate">{entidades.marca_modelo || "N/A"}</p>
-                                        </div>
-                                        <div className="space-y-1 min-w-0">
-                                            <p className="text-xs text-neutral-500 uppercase font-bold">Año</p>
-                                            <p className="text-xs text-neutral-300 truncate">{entidades.ano || "N/A"}</p>
-                                        </div>
-                                        <div className="space-y-1 col-span-2 sm:col-span-1 min-w-0">
-                                            <p className="text-xs text-neutral-500 uppercase font-bold">Patente/VIN</p>
-                                            <div className="group relative flex items-center gap-1 min-w-0">
-                                                <p className="text-xs text-neutral-300 truncate flex-1 min-w-0" title={entidades.patente || entidades.vin || "N/A"}>
-                                                    {entidades.patente || entidades.vin || "N/A"}
-                                                </p>
-                                                {(entidades.patente || entidades.vin) && (
-                                                    <button
-                                                        onClick={() => navigator.clipboard.writeText(entidades.patente || entidades.vin || "")}
-                                                        className="text-xs text-neutral-500 hover:text-neutral-300 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                                                        title="Copiar"
-                                                        type="button"
-                                                    >
-                                                        📋
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div className="space-y-1 min-w-0">
-                                            <p className="text-xs text-neutral-500 uppercase font-bold">Motor · Combustible</p>
-                                            <p className="text-xs text-neutral-300 truncate" title={`${entidades.motor || "N/A"} · ${entidades.combustible || "N/A"}`}>
-                                                {entidades.motor || "N/A"} · {entidades.combustible || "N/A"}
-                                            </p>
-                                        </div>
-                                    </div>
+                                    <VehiculoInfoCard
+                                        marcaModelo={entidades.marca_modelo}
+                                        ano={entidades.ano}
+                                        patente={entidades.patente}
+                                        vin={entidades.vin}
+                                        motor={entidades.motor}
+                                        combustible={entidades.combustible}
+                                    />
 
                                     {repuestos.length > 0 && (
                                         <div className="space-y-1.5">
@@ -960,6 +906,12 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                         phone={phone}
                                         items={repuestos}
                                         vehiculos={vehiculos}
+                                        marcaModelo={entidades.marca_modelo}
+                                        ano={entidades.ano}
+                                        patente={entidades.patente}
+                                        vin={entidades.vin}
+                                        motor={entidades.motor}
+                                        combustible={entidades.combustible}
                                         estado={isEditing && isSilentRegistro ? 'PAGO_VERIFICADO' : estado}
                                         pedidoId={pedidoId ?? null}
                                         fechaVenta={ultimoMensaje}

@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Send, Hash, DollarSign, Car, Package, Trash2, Plus, ChevronRight, Sparkles } from "lucide-react";
+import { Send, Hash, DollarSign, Package, Trash2, Plus, ChevronRight, Sparkles } from "lucide-react";
 import { api } from "@/lib/api";
 import { BACKEND_URL } from "@/lib/api";
 import { safeGet } from "@/lib/storage";
+import VehiculoInfoCard from "./VehiculoInfoCard";
 
 interface Item {
     nombre: string;
@@ -29,6 +30,12 @@ interface SellerActionFormProps {
     phone: string;
     items?: Item[];
     vehiculos?: Vehiculo[];
+    marcaModelo?: string | null;
+    ano?: string | null;
+    patente?: string | null;
+    vin?: string | null;
+    motor?: string | null;
+    combustible?: string | null;
     onResponded: () => void;
     footerActions?: React.ReactNode;
     estado?: string;
@@ -135,7 +142,7 @@ const RenderItemInput = ({ item, isSinStock, onChange, onRemove }: { item: Item,
     </div>
 );
 
-export default function SellerActionForm({ phone, items = [], vehiculos = [], onResponded, footerActions, estado, pedidoId, fechaVenta }: SellerActionFormProps) {
+export default function SellerActionForm({ phone, items = [], vehiculos = [], marcaModelo, ano, patente, vin, motor, combustible, onResponded, footerActions, estado, pedidoId, fechaVenta }: SellerActionFormProps) {
     const esRectificacion = estado === 'CONFIRMANDO_COMPRA'
         || estado === 'ESPERANDO_COMPROBANTE'
         || estado === 'ESPERANDO_APROBACION_ADMIN';
@@ -510,28 +517,13 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
                 {formVehiculos.length > 0 ? (
                     formVehiculos.map((v, vIdx) => (
                         <div key={vIdx} className="space-y-3 bg-neutral-900/30 p-3 rounded-xl border border-white/5">
-                            <div className="flex items-center justify-between gap-2 mb-3 border-b border-white/5 pb-2">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-6 h-6 rounded-lg bg-accent/20 flex items-center justify-center">
-                                        <Car size={13} className="text-accent" />
-                                    </div>
-                                    <span className="text-xs font-bold text-accent tracking-wide uppercase">
-                                        {v.marca_modelo || "Vehículo sin modelo"} {v.ano ? ` - ${v.ano}` : ""}
-                                    </span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    {v.patente && (
-                                        <span className="px-2 py-0.5 bg-neutral-800 text-[10px] font-mono border border-white/10 rounded shadow-sm text-neutral-300">
-                                            PAT: {v.patente.toUpperCase()}
-                                        </span>
-                                    )}
-                                    {v.vin && (
-                                        <span className="px-2 py-0.5 bg-neutral-800 text-[10px] font-mono border border-white/10 rounded shadow-sm text-neutral-300">
-                                            VIN: {v.vin.toUpperCase()}
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
+                            <VehiculoInfoCard
+                                label={formVehiculos.length > 1 ? `Vehículo ${vIdx + 1}` : undefined}
+                                marcaModelo={v.marca_modelo}
+                                ano={v.ano}
+                                patente={v.patente}
+                                vin={v.vin}
+                            />
                             {v.repuestos_solicitados.map((item, rIdx) => (
                                 <RenderItemInput
                                     key={rIdx}
@@ -552,6 +544,16 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
                     ))
                 ) : (
                     <>
+                        {(marcaModelo || ano || patente || vin || motor || combustible) && (
+                            <VehiculoInfoCard
+                                marcaModelo={marcaModelo}
+                                ano={ano}
+                                patente={patente}
+                                vin={vin}
+                                motor={motor}
+                                combustible={combustible}
+                            />
+                        )}
                         {formItems.map((item, idx) => (
                             <RenderItemInput
                                 key={idx}

@@ -1311,6 +1311,12 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
                 phone={selectedPhone}
                 items={chat?.entidades?.repuestos_solicitados || []}
                 vehiculos={chat?.entidades?.vehiculos || []}
+                marcaModelo={chat?.entidades?.marca_modelo}
+                ano={chat?.entidades?.ano}
+                patente={chat?.entidades?.patente}
+                vin={chat?.entidades?.vin}
+                motor={chat?.entidades?.motor}
+                combustible={chat?.entidades?.combustible}
                 estado={chat?.estado || undefined}
                 onResponded={() => {
                   setShowCotizarModal(false);
