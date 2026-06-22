@@ -960,9 +960,9 @@ router.patch('/pedidos/:pedidoId/ajustar', async (req, res) => {
             return res.status(403).json({ error: 'Solo soporte puede editar registros históricos.' });
         }
         const pedidoId = parseInt(req.params.pedidoId, 10);
-        const { items, vehiculos } = req.body;
-        if (isNaN(pedidoId) || (!items && !vehiculos)) {
-            return res.status(400).json({ error: 'Faltan campos: pedidoId + items o vehiculos' });
+        const { items, vehiculos, fecha } = req.body;
+        if (isNaN(pedidoId) || (!items && !vehiculos && !fecha)) {
+            return res.status(400).json({ error: 'Faltan campos: pedidoId + (items, vehiculos o fecha)' });
         }
         const parsePrecio = (p) => (p ? parseInt(String(p).replace(/[^\d]/g, '')) || 0 : 0);
         let total = 0;
@@ -981,13 +981,20 @@ router.patch('/pedidos/:pedidoId/ajustar', async (req, res) => {
         // Actualizar también entidades_completas: getHistoricalSessions() carga desde ahí, no desde repuestos
         const entidadesPath = vehiculos && vehiculos.length > 0 ? '{vehiculos}' : '{repuestos_solicitados}';
         const entidadesVal = JSON.stringify(vehiculos && vehiculos.length > 0 ? vehiculos : items);
+        const sets = [
+            'repuestos = $1',
+            'total_cotizacion = $2',
+            `entidades_completas = jsonb_set(entidades_completas, $3, $4::jsonb)`
+        ];
+        const params = [repuestosJson, total, entidadesPath, entidadesVal];
+        if (fecha && /^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+            params.push(fecha);
+            sets.push(`archivado_en = ($${params.length} || ' 12:00:00')::timestamp AT TIME ZONE 'America/Santiago'`);
+        }
+        params.push(pedidoId);
         const { rowCount } = await db.query(
-            `UPDATE pedidos
-             SET repuestos = $1,
-                 total_cotizacion = $2,
-                 entidades_completas = jsonb_set(entidades_completas, $3, $4::jsonb)
-             WHERE id = $5`,
-            [repuestosJson, total, entidadesPath, entidadesVal, pedidoId]
+            `UPDATE pedidos SET ${sets.join(', ')} WHERE id = $${params.length}`,
+            params
         );
         if (rowCount === 0) {
             return res.status(404).json({ error: 'Pedido no encontrado.' });

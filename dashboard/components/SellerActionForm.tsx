@@ -33,6 +33,7 @@ interface SellerActionFormProps {
     footerActions?: React.ReactNode;
     estado?: string;
     pedidoId?: number | null;
+    fechaVenta?: string;
 }
 
 const RenderItemInput = ({ item, isSinStock, onChange, onRemove }: { item: Item, isSinStock: boolean, onChange: (field: keyof Item, val: string | number | null | boolean) => void, onRemove?: () => void }) => (
@@ -134,7 +135,7 @@ const RenderItemInput = ({ item, isSinStock, onChange, onRemove }: { item: Item,
     </div>
 );
 
-export default function SellerActionForm({ phone, items = [], vehiculos = [], onResponded, footerActions, estado, pedidoId }: SellerActionFormProps) {
+export default function SellerActionForm({ phone, items = [], vehiculos = [], onResponded, footerActions, estado, pedidoId, fechaVenta }: SellerActionFormProps) {
     const esRectificacion = estado === 'CONFIRMANDO_COMPRA'
         || estado === 'ESPERANDO_COMPROBANTE'
         || estado === 'ESPERANDO_APROBACION_ADMIN';
@@ -178,9 +179,13 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
     const [horarioEntrega, setHorarioEntrega] = useState("");
     const [abonoMinimo, setAbonoMinimo] = useState<string>("");
     const [loading, setLoading] = useState(false);
+    const [fecha, setFecha] = useState<string>(() =>
+        fechaVenta ? new Date(fechaVenta).toLocaleDateString('en-CA', { timeZone: 'America/Santiago' }) : ''
+    );
 
     // BUG-004: Persistir entidades sin enviar la cotización inmediatamente
     useEffect(() => {
+        if (pedidoId) return; // registro histórico: no resucitar sesión archivada
         const timer = setTimeout(() => {
             const cleanItems = (list: Item[]) => list.filter(item => item.nombre.trim() !== "");
             const cleanVehiculos = formVehiculos.map(v => ({
@@ -197,7 +202,7 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
         }, 1500);
 
         return () => clearTimeout(timer);
-    }, [formItems, formVehiculos, phone]);
+    }, [formItems, formVehiculos, phone, pedidoId]);
     const handleFlatItemChange = (index: number, field: keyof Item, value: string | number | null | boolean) => {
         setFormItems(prev => {
             const newItems = [...prev];
@@ -351,7 +356,8 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
                 // Editar registro histórico en tabla pedidos (sesión ya archivada). Solo soporte.
                 await api.patch(`${BACKEND_URL}/api/dashboard/pedidos/${pedidoId}/ajustar`, {
                     items: itemsPayload,
-                    vehiculos: vehiculosPayload
+                    vehiculos: vehiculosPayload,
+                    fecha: fecha || undefined
                 });
             } else if (esAjusteVentaFinal) {
                 // Ajuste interno: actualiza items finales y total. NO envía mensaje al cliente.
@@ -665,6 +671,19 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], on
                 {esAjusteVentaFinal && (
                     <div className="w-full py-1.5 px-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] text-center">
                         💰 <strong>AJUSTE DE VENTA FINAL</strong> · NO se envía mensaje al cliente, solo KPIs internos.
+                    </div>
+                )}
+
+                {pedidoId && (
+                    <div className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/30">
+                        <span className="text-[10px] text-blue-300 font-bold uppercase">📅 Fecha de venta</span>
+                        <input
+                            type="date"
+                            value={fecha}
+                            max={new Date().toLocaleDateString('en-CA', { timeZone: 'America/Santiago' })}
+                            onChange={e => setFecha(e.target.value)}
+                            className="ml-auto bg-neutral-900 border border-neutral-700 rounded px-2 py-1 text-xs text-white"
+                        />
                     </div>
                 )}
 

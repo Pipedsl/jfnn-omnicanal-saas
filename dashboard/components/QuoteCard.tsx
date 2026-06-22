@@ -952,6 +952,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                         vehiculos={vehiculos}
                                         estado={isEditing && isSilentRegistro ? 'PAGO_VERIFICADO' : estado}
                                         pedidoId={pedidoId ?? null}
+                                        fechaVenta={ultimoMensaje}
                                         onResponded={async () => {
                                             if (isSilentRegistro) {
                                                 try {
