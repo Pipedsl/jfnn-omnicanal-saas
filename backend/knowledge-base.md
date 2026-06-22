@@ -20,7 +20,8 @@
 > El canal de WhatsApp puede recibir mensajes 24/7 pero las respuestas manuales del equipo son dentro del horario anterior.
 
 ## Métodos de Pago Aceptados
-- **Transferencia Bancaria Online:** Banco Scotiabank | Razon Social: JFNN Limitada | Cuenta Corriente | N° 972534218 | RUT: 76.308.122-2 | Email: fsanmartin@jfnn.cl
+- **Transferencia Bancaria Online:** Banco Scotiabank | Titular: JFNN Limitada | Cuenta Corriente N° 972534218 | RUT: 76.308.122-2 | Email: fsanmartin@jfnn.cl
+  - Al enviar datos de transferencia al cliente, incluir SIEMPRE el nombre del titular: *JFNN Limitada*
 - **Efectivo:** Solo en la sucursal física, presentando el número de cotización.
 - **Mercado Pago / Link de Pago:** Disponible para algunos productos, consultar al asesor.
 

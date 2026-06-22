@@ -413,7 +413,7 @@ ${entidadesTienenEncargo ? (() => {
         8. **Instrucciones finales**:
 ${sessionContext.entidades.metodo_pago ? `
 ⚠️ MÉTODO DE PAGO YA CAPTURADO (${sessionContext.entidades.metodo_pago}). NO repitas los datos bancarios. Solo confirma la logística (retiro/envío) y pregunta por boleta/factura.
-` : '           - Si el cliente elige o insinúa Pago por Transferencia, o si la cotización contiene repuestos con stock o con abono de pre-order (por encargo), envía INMEDIATAMENTE los datos bancarios para transferencia (banco, número de cuenta, RUT, email y el MONTO TOTAL o abono mínimo a reservar) junto con la solicitud de comprobante para poder reservar los productos de inmediato.'}
+` : '           - Si el cliente elige o insinúa Pago por Transferencia, o si la cotización contiene repuestos con stock o con abono de pre-order (por encargo), envía INMEDIATAMENTE los datos bancarios para transferencia (banco, número de cuenta, RUT, nombre del titular/razón social, email y el MONTO TOTAL o abono mínimo a reservar) junto con la solicitud de comprobante para poder reservar los productos de inmediato. SIEMPRE incluye el nombre del titular (JFNN Limitada) al dar los datos bancarios.'}
            - 🚚 ENVÍO A DOMICILIO: Si el cliente menciona una ciudad/comuna o dirección de destino, "envío", "despacho", "que llegue a", "por correo", o un courier (Starken/Chilexpress/Bluexpress/Movistar), captura \`metodo_entrega: 'domicilio'\` y guarda la \`direccion_envio\` (dirección o ciudad). NO asumas retiro en local si hay señales de envío.
            - Si el cliente elige RETIRO EN LOCAL: solo puede retirar en Melipilla (San Felipe está cerrada presencialmente, solo delivery). Captura \`metodo_entrega: 'retiro'\` y \`sucursal_retiro: 'Melipilla'\`. **NO incluyas la dirección ni el horario en tu mensaje**, el sistema los agrega automáticamente.
            - 🏪 RETIRO COLOQUIAL CHILENO — DETECCIÓN AUTOMÁTICA: si el cliente expresa intención de retirar usando frases coloquiales como "paso", "voy", "paso en la mañana", "paso en la tarde", "paso un rato", "voy a buscar", "voy a buscarlo", "voy a pasar", "voy a pasar a buscarlo", "voy al local", "voy ahí", "paso por allá", "lo retiro", "lo busco", "mañana paso", "ahora paso", "lo paso a buscar" — captura AUTOMÁTICAMENTE \`metodo_entrega: 'retiro'\` + \`sucursal_retiro: 'Melipilla'\`. NO le preguntes "¿transferencia online o pago en el local?" porque el cliente YA decidió retiro. Avanza al siguiente paso: confirma nombre del cliente (si no lo tienes) y pregunta tipo de documento (boleta o factura).
@@ -639,8 +639,15 @@ ${sessionContext.entidades.metodo_pago ? `
                 parsed = extractValidJSON(retryText);
 
                 if (parsed) {
-                    jsonRetrySuccesses++;
-                    console.log(`[Gemini] ✅ Reintento exitoso (éxito #${jsonRetrySuccesses})`);
+                    if (!parsed.mensaje_cliente) {
+                        // JSON válido pero incompleto: el retry extrajo solo entidades parciales.
+                        // Sin mensaje_cliente el controller no enviaría nada al cliente → silencio.
+                        console.warn(`[Gemini] ⚠️ Retry JSON sin mensaje_cliente. Forzando fallback.`);
+                        parsed = null;
+                    } else {
+                        jsonRetrySuccesses++;
+                        console.log(`[Gemini] ✅ Reintento exitoso (éxito #${jsonRetrySuccesses})`);
+                    }
                 }
             } catch (retryErr) {
                 console.error(`[Gemini] ❌ Reintento también falló:`, retryErr.message);

@@ -731,6 +731,7 @@ const getHistoricalSessions = async (sucursal = null) => {
 
         const mapped = archivedRows.map(p => ({
             id: p.id, phone: p.phone,
+            isPedido: true,
             estado: p.estado_final,
             entidades: typeof p.entidades_completas === 'string' ? JSON.parse(p.entidades_completas) : p.entidades_completas,
             ultimo_mensaje: p.archivado_en,

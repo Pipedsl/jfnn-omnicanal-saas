@@ -314,9 +314,9 @@ const processBufferedMessages = async (customerPhone) => {
             && !session.entidades?.alerta_devolucion
             && userText && userText.trim().length > 0
         ) {
-            const tieneIndicadorDirecto = /\b(garant[ií]a|devoluci[oó]n|devolver|reembolso|reclamo|reclamar|cambio del|cambio de mi|no me sirvi[oó])\b/i.test(userText);
+            const tieneIndicadorDirecto = /\b(garant[ií]a|devoluci[oó]n|devolver|reembolso|reclamo|reclamar|cambio del|cambio de mi|no me sirvi[oó]|tienen cambio|no tienen cambio|n tienen cambio|no lo us[eéó]|no la us[eéó]|no los us[eéó]|no las us[eéó]|sin usar|sin abrir|no la abrí|no lo abrí)\b/i.test(userText);
             const verboCompraPrev = /\b(compr[eéó]|adquir[ií]|me vendieron|me lo entregaron|el d[ií]a que compr|el que les compr|que les compr|que compr[eéó]|llev[eé] de|llev[eé] el)\b/i.test(userText);
-            const indicadorProblema = /\b(mal[oa]s?|fall[oaóeé]|no funciona|no prend[ae]n?|no sirv[eo]n?|defectu|defecto|rot[oa]|no anda|se rompi[oó]|se quem[oa]|est[aá] mal[oa]|trae problema|sali[oó] mal|vino mal[oa])\b/i.test(userText);
+            const indicadorProblema = /\b(mal[oa]s?|fall[oaóeé]|no funciona|no prend[ae]n?|no sirv[eo]n?|defectu|defecto|rot[oa]|no anda|se rompi[oó]|se quem[oa]|est[aá] mal[oa]|trae problema|sali[oó] mal|vino mal[oa]|no era lo|no son lo|no es lo|no eran lo|no era lo que|no era lo q|no los saqué|no la saqué)\b/i.test(userText);
             const esDevolucion = tieneIndicadorDirecto || (verboCompraPrev && indicadorProblema);
 
             if (esDevolucion) {
