@@ -289,6 +289,7 @@ ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.paten
         ` : `
         ✅ MODO SUAVE (default):
         - Si faltan datos para identificar con precisión el vehículo del cliente (ej. si el cliente solo dice "pastillas para una santa fe"), DEBES solicitar el año, patente o VIN para verificar la compatibilidad.
+        - ⚠️ SOLO pide año/patente/VIN si realmente NO están en el mensaje actual ni en el contexto. Si el cliente mencionó el año ("2010", "2003", etc.) en el mismo mensaje, ese dato YA EXISTE — NO lo pidas de nuevo.
         - La solicitud debe hacerse en un único mensaje estructurado EXACTAMENTE así:
           "Por favor, indíqueme el año, patente o número de VIN del vehículo para confirmar la compatibilidad del producto."
         - ⛔ PROHIBIDO preguntar "¿Para qué vehículo lo buscas?" o similares de forma conversacional libre. Usa el texto estándar del punto anterior.
@@ -304,15 +305,17 @@ ${vhDisplay.map(v => `        - ${v.marca_modelo || '?'} ${v.ano || ''}${v.paten
           Modelo: [Modelo]
           Año: [Año]
           Versión: [Cilindrada, combustible o transmisión si se conocen, de lo contrario "No indicado"]
-          Producto(s): [Lista de repuestos de forma limpia y corta, ej: pastillas de freno delanteras]
+          Producto(s): [Lista COMPLETA de todos los repuestos solicitados, uno por línea, ej: pastillas de freno delanteras / guardafango derecho delantero]
 
           Le hablaremos en cuanto esté lista su cotización."
+        - ⚠️ LISTADO COMPLETO OBLIGATORIO: en el campo Producto(s), incluye TODOS los repuestos del contexto (entidades.repuestos_solicitados), sin excepción. Si el cliente pidió 2 productos, listas los 2. Si el cliente solo envió un dato adicional (patente, VIN) en este turno sin mencionar los productos, IGUAL los incluyes todos en el resumen. NUNCA reduzcas el listado.
         - Cuando emitas esta confirmación, DEBES devolver en tu respuesta JSON:
           "estado_cotizacion": "ESPERANDO_VENDEDOR"
           Esto es sumamente crítico para que el bot deje de responder y el vendedor humano atienda.
 
         🔢 CÓDIGO DE REPUESTO = IDENTIFICADOR SUFICIENTE (NO exijas vehículo): si el cliente entrega un código de pieza (código de filtro, número OEM, referencia cruzada — ej. "C26035", "W712/75", "90915-YZZD4"), ese código BASTA para cotizar. El vendedor cruza el código y encuentra la pieza. NO pidas marca/modelo/año en este caso. Captura el código en el campo \`codigo\` del repuesto (y un nombre genérico si lo sabes, ej. "Filtro"). Con el código + confirmación del cliente ("solo eso", "nada más") avanza a ESPERANDO_VENDEDOR aunque no haya datos del vehículo.
 
+        - 🛒 PRECIO = COTIZACIÓN: frases como "quería saber precio de X", "¿cuánto sale X?", "¿qué valor tiene X?", "me pueden cotizar X", "¿sale X para Y?", "busco X", "cuánto cuesta X", "¿tienen X?" indican solicitud de cotización — NO son consultas retóricas. Captura X en repuestos_solicitados. Si ya tienes el vehículo (marca o año), avanza a ESPERANDO_VENDEDOR directamente. El bot nunca da precios, el vendedor lo cotiza — tu trabajo es solo capturar la solicitud y pasarla.
         - ⚡ REGLA DE AVANCE RÁPIDO: Si el cliente confirma que no necesita nada más ("solo eso", "eso es todo", "nada más", "eso nomás", "cotizar solo eso", "cotizar eso"), cambia estado_cotizacion a "ESPERANDO_VENDEDOR" INMEDIATAMENTE.
         - 🔴 COHERENCIA OBLIGATORIA: si tu mensaje al cliente dice que vas a cotizar / que el asesor revisará / "te enviamos la cotización en breve" / "buscaremos las opciones", DEBES devolver \`estado_cotizacion: "ESPERANDO_VENDEDOR"\` en el JSON. NUNCA digas que vas a cotizar y dejes el estado en PERFILANDO.
         - ⚠️ IMPORTANTE: items con \`pendiente_identificacion: true\` (provenientes de fotos enviadas por el cliente) CUENTAN como repuesto válido para avanzar. El vendedor confirmará la pieza desde el panel — NO bloquees el avance esperando identificación.

@@ -769,9 +769,17 @@ router.post('/cotizaciones/responder', async (req, res) => {
         // pregunta de confirmación, así que la sesión nunca avanzaría sola.
         if (todosSinStock) {
             console.log(`[Cotizaciones] 🔴 Todos los items SIN_STOCK para ${phone} — archivando sesión.`);
-            await sessionsService.archiveSession(phone).catch(err =>
-                console.error(`[Cotizaciones] ❌ Error al auto-archivar SIN_STOCK ${phone}:`, err.message)
-            );
+            const archiveResult = await sessionsService.archiveSession(phone).catch(err => {
+                console.error(`[Cotizaciones] ❌ Error al auto-archivar SIN_STOCK ${phone}:`, err.message);
+                return null;
+            });
+            // Marcar la nueva sesión (post-reset) para que el controlador no re-escale el
+            // primer mensaje del cliente (típicamente "Gracias") a ESPERANDO_VENDEDOR.
+            // Gemini re-extrae entidades del historial y hasMinData queda true — sin este flag
+            // la sesión volvería a ESPERANDO_PRECIOS aunque el caso ya estaba cerrado.
+            if (archiveResult) {
+                await sessionsService.updateEntidades(phone, { sin_stock_cierre: true }).catch(() => {});
+            }
         }
 
         const payload = { success: true, quoteId };

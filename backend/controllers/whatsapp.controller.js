@@ -1657,7 +1657,14 @@ const processBufferedMessages = async (customerPhone) => {
             // O si Gemini explícitamente decidió traspasar (confiamos en su criterio),
             // O si hay un repuesto identificado por código (basta para que el vendedor cotice).
             // Con geminiSugiereTraspasar igual exigimos al menos un repuesto para no avanzar vacío.
-            if ((hasMinData && !isAsking) || (geminiSugiereTraspasar && hasRepuestos) || (hasRepuestoConCodigo && !isAsking)) {
+            //
+            // Excepción: si la sesión fue archivada automáticamente por "sin stock", el primer
+            // mensaje del cliente (ej. "Gracias") no debe re-escalar aunque Gemini haya
+            // re-extraído entidades del historial. Limpiamos el flag y bloqueamos esta vez.
+            const esPrimerMsgPosSinStock = session.entidades?.sin_stock_cierre === true;
+            if (esPrimerMsgPosSinStock) {
+                await sessionsService.updateEntidades(customerPhone, { sin_stock_cierre: null }).catch(() => {});
+            } else if ((hasMinData && !isAsking) || (geminiSugiereTraspasar && hasRepuestos) || (hasRepuestoConCodigo && !isAsking)) {
                 await sessionsService.setEstado(customerPhone, 'ESPERANDO_VENDEDOR');
                 // Siempre usar el mensaje de Gemini — ya está contextualizado con el horario
                 printShadowQuote(customerPhone, session.entidades);
