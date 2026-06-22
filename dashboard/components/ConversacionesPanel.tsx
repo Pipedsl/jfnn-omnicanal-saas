@@ -146,6 +146,7 @@ const ESTADO_LABELS: Record<string, string> = {
   ESPERANDO_COMPROBANTE: "Esp. Comprobante",
   ESPERANDO_APROBACION_ADMIN: "Rev. Admin",
   PAGO_VERIFICADO: "Pagado",
+  CICLO_COMPLETO: "Pago en Caja",
   ESPERANDO_RETIRO: "Retiro",
   DESPACHADO: "Despachado",
   ENTREGADO: "Entregado",
