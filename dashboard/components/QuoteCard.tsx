@@ -3,6 +3,7 @@
 import { Car, Package, User, CheckCircle, Truck, Archive, Edit3, MessageSquareOff, Bot, X, ChevronRight, Hash, Clock, Send, ZoomIn, Check, Lock } from 'lucide-react';
 import { useState, useEffect } from "react";
 import SellerActionForm from "./SellerActionForm";
+import SoporteDataEditor from "./SoporteDataEditor";
 import ImageLightbox from "./ImageLightbox";
 import CierreVentaModal from "./CierreVentaModal";
 import { api } from "@/lib/api";
@@ -939,6 +940,15 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                         <p>Razón: {entidades.datos_factura.razon_social}</p>
                                     </div>
                                 </div>
+                            )}
+
+                            {/* Editor de datos para soporte — visible solo para soporte en estados tempranos */}
+                            {role === 'soporte' && !pedidoId && ['PERFILANDO', 'ESPERANDO_VENDEDOR'].includes(estado) && (
+                                <SoporteDataEditor
+                                    phone={phone}
+                                    entidades={entidades}
+                                    onSaved={onResponded}
+                                />
                             )}
 
                             </div> {/* Cierra Columna Izquierda */}
