@@ -827,15 +827,19 @@ const archiveSession = async (phone, opts = {}) => {
         const session = await getSession(phone);
         const e = session.entidades || {};
 
-        const totalRoot = (e.repuestos_solicitados || []).reduce((acc, r) => {
-            const precio = parseInt(r.precio) || 0;
-            const cantidad = parseInt(r.cantidad) || 1;
-            return acc + (precio * cantidad);
+        // Deduplicar repuestos: root puede solapar con vehiculos[] en sesiones de vehículo único.
+        // Primero recolectamos todos los repuestos de vehiculos[], luego añadimos los de root
+        // solo si no tienen un equivalente en vehiculos (usando isSameRepuesto).
+        const repsVehiculos = (e.vehiculos || []).flatMap(v => v.repuestos_solicitados || []);
+        const repsRoot = (e.repuestos_solicitados || []);
+        const repsUnicos = [...repsVehiculos];
+        for (const r of repsRoot) {
+            const yaEsta = repsVehiculos.some(rv => isSameRepuesto(r.nombre, rv.nombre));
+            if (!yaEsta) repsUnicos.push(r);
+        }
+        const totalCotizacion = repsUnicos.reduce((acc, r) => {
+            return acc + ((parseInt(r.precio) || 0) * (parseInt(r.cantidad) || 1));
         }, 0);
-        const totalVehiculos = (e.vehiculos || []).reduce((sum, v) =>
-            sum + (v.repuestos_solicitados || []).reduce((a, r) =>
-                a + ((parseInt(r.precio) || 0) * (parseInt(r.cantidad) || 1)), 0), 0);
-        const totalCotizacion = totalRoot + totalVehiculos;
 
         // Mejora #7: capturar vehículo principal para historial
         const vehiculoPrincipal = Array.isArray(e.vehiculos) && e.vehiculos.length > 0
@@ -1153,7 +1157,8 @@ const getDashboardMetrics = async (range = 'hoy', filters = {}) => {
                 COALESCE(AVG(EXTRACT(EPOCH FROM (archivado_en - created_at))) / 60, 0) AS mins_promedio_cierre
             FROM pedidos
             WHERE ${filtroPedidos}
-              AND estado_final IN ('ENTREGADO', 'DESPACHADO', 'PAGO_VERIFICADO')${pedidosExtra}
+              AND estado_final IN ('ENTREGADO', 'DESPACHADO', 'PAGO_VERIFICADO')
+              AND (anulado IS NULL OR anulado = FALSE)${pedidosExtra}
         `, pedidosParams);
 
         // 2. Sesiones activas (snapshot actual)
@@ -1183,7 +1188,7 @@ const getDashboardMetrics = async (range = 'hoy', filters = {}) => {
         const iniciadasResult = await db.query(`
             SELECT
                 (SELECT COUNT(*) FROM user_sessions WHERE ${rangeToSql(range, 'created_at')}${sesionesExtra}) +
-                (SELECT COUNT(*) FROM pedidos WHERE ${filtroSesionesCreadas}${pedidosExtraOffset}) AS total_iniciadas
+                (SELECT COUNT(*) FROM pedidos WHERE ${filtroSesionesCreadas} AND (anulado IS NULL OR anulado = FALSE)${pedidosExtraOffset}) AS total_iniciadas
         `, iniciadasParams);
 
         // 5. Mensajes IA en sesiones activas creadas en el rango
@@ -1677,6 +1682,7 @@ module.exports = {
     incrementMessageCounter,
     derivarSucursal,
     tieneRepuestosPorEncargo,
+    isSameRepuesto,
     isSameVehiculo,
     snapshotUnclosedSale,
     claimSession,

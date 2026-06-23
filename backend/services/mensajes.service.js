@@ -227,7 +227,7 @@ const listarConversacionesActivas = async ({ sucursal = null, q = null } = {}) =
                 COALESCE((s.entidades->>'agente_pausado')::boolean, false) AS agente_pausado,
                 s.entidades->'consulta_pendiente' AS consulta_pendiente,
                 s.entidades->'pesquisa_pendiente' AS pesquisa_pendiente,
-                (c.phone IS NULL OR COALESCE(c.total_compras, 0) = 0) AS es_cliente_nuevo,
+                (SELECT MIN(m2.created_at) FROM mensajes m2 WHERE m2.phone = a.phone) >= '${process.env.METRICS_RESET_AT || '2026-05-27T13:00:00Z'}'::timestamptz AS es_cliente_nuevo,
                 s.entidades->'marca' AS marca
             FROM agg a
             LEFT JOIN ultimo u ON u.phone = a.phone

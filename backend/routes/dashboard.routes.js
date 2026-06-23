@@ -10,7 +10,7 @@ const db = require('../config/db');
 const vendedoresService = require('../services/vendedores.service');
 const mensajesService = require('../services/mensajes.service');
 const auditService = require('../services/audit.service');
-const { requireSoporte } = require('../middleware/auth.middleware');
+const { requireSoporte, requireAdmin } = require('../middleware/auth.middleware');
 const storageService = require('../services/storage.service');
 const cotizacionesService = require('../services/cotizaciones.service');
 const { getDireccionSucursal } = require('../utils/sucursales');
@@ -52,10 +52,15 @@ router.get('/ventas', async (req, res) => {
         if (sucursal) { params.push(sucursal); extraFilter += ` AND sucursal = $${params.length}`; }
         if (vendedor) { params.push(vendedor); extraFilter += ` AND vendedor_nombre = $${params.length}`; }
 
+        const mostrarAnulados = req.query.incluir_anulados === '1';
+        if (!mostrarAnulados) extraFilter += ' AND (anulado IS NULL OR anulado = FALSE)';
+
         const { rows } = await db.query(
             `SELECT id, phone, quote_id, estado_final, marca_modelo, ano, total_cotizacion,
                     mensajes_ia_total, mensajes_vendedor_total,
                     archivado_en, created_at, vendedor_nombre, sucursal,
+                    anulado, anulado_motivo, anulado_at, anulado_por,
+                    repuestos, entidades_completas,
                     EXTRACT(EPOCH FROM (archivado_en - created_at))/60 AS duracion_min
              FROM pedidos
              WHERE ${filtroSql}
@@ -82,7 +87,12 @@ router.get('/ventas', async (req, res) => {
                 archivado_en: r.archivado_en,
                 created_at: r.created_at,
                 vendedor_nombre: r.vendedor_nombre || null,
-                sucursal: r.sucursal || null
+                sucursal: r.sucursal || null,
+                anulado: r.anulado || false,
+                anulado_motivo: r.anulado_motivo || null,
+                anulado_por: r.anulado_por || null,
+                repuestos: r.repuestos || null,
+                entidades_completas: r.entidades_completas || null,
             }))
         });
     } catch (error) {
@@ -269,10 +279,12 @@ router.get('/soporte/ventas-sin-cerrar', requireSoporte, async (req, res) => {
         );
         const ventas = rows.map(r => {
             const e = r.entidades || {};
-            const reps = [
-                ...(e.repuestos_solicitados || []),
-                ...((e.vehiculos || []).flatMap(v => v.repuestos_solicitados || [])),
-            ];
+            const repsVeh = (e.vehiculos || []).flatMap(v => v.repuestos_solicitados || []);
+            const repsRoot = (e.repuestos_solicitados || []);
+            const reps = [...repsVeh];
+            for (const r of repsRoot) {
+                if (!repsVeh.some(rv => sessionsService.isSameRepuesto(r.nombre, rv.nombre))) reps.push(r);
+            }
             const total = reps.reduce((acc, x) => acc + ((parseInt(x.precio) || 0) * (parseInt(x.cantidad) || 1)), 0);
             return {
                 phone: r.phone, estado: r.estado, sucursal: r.sucursal,
@@ -423,6 +435,42 @@ router.patch('/ventas/:id/fecha', async (req, res) => {
         res.json({ success: true, venta: rows[0] });
     } catch (error) {
         console.error('[Dashboard] Error corrigiendo fecha de venta:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+/**
+ * PATCH /api/dashboard/ventas/:id/anular
+ * Anula (soft-delete) o restaura un pedido. Admin o soporte.
+ * Body: { anular: true/false, motivo?: string }
+ */
+router.patch('/ventas/:id/anular', requireAdmin, async (req, res) => {
+    try {
+        const id = parseInt(req.params.id, 10);
+        if (!Number.isInteger(id)) return res.status(400).json({ error: 'ID inválido' });
+        const { anular, motivo } = req.body || {};
+        if (typeof anular !== 'boolean') return res.status(400).json({ error: 'Falta campo anular (boolean)' });
+        const actor = req.user?.nombre || req.user?.role || 'desconocido';
+        const { rows } = await db.query(
+            `UPDATE pedidos
+             SET anulado = $1,
+                 anulado_motivo = $2,
+                 anulado_at = CASE WHEN $1 THEN NOW() ELSE NULL END,
+                 anulado_por = CASE WHEN $1 THEN $3 ELSE NULL END
+             WHERE id = $4
+             RETURNING id, phone, anulado, anulado_motivo, anulado_por`,
+            [anular, motivo || null, actor, id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Venta no encontrada' });
+        auditService.registrarAccion({
+            req, action: anular ? 'anular_venta' : 'restaurar_venta',
+            targetPhone: rows[0].phone || null,
+            detalle: { pedido_id: id, motivo: motivo || null },
+        });
+        console.log(`[Dashboard] ${anular ? '🚫' : '✅'} Pedido ${id} ${anular ? 'anulado' : 'restaurado'} por ${actor}`);
+        res.json({ success: true, venta: rows[0] });
+    } catch (error) {
+        console.error('[Dashboard] Error en anular venta:', error);
         res.status(500).json({ error: 'Error interno' });
     }
 });
@@ -1006,8 +1054,8 @@ router.post('/cotizaciones/ajustar-venta-final', async (req, res) => {
  */
 router.patch('/pedidos/:pedidoId/ajustar', async (req, res) => {
     try {
-        if (req.user?.role !== 'soporte') {
-            return res.status(403).json({ error: 'Solo soporte puede editar registros históricos.' });
+        if (req.user?.role !== 'soporte' && req.user?.role !== 'admin') {
+            return res.status(403).json({ error: 'Solo soporte o admin puede editar registros históricos.' });
         }
         const pedidoId = parseInt(req.params.pedidoId, 10);
         const { items, vehiculos, fecha } = req.body;

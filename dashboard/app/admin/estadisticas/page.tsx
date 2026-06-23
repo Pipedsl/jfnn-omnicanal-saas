@@ -14,6 +14,7 @@ import {
     Users,
 } from "lucide-react";
 import { BACKEND_URL } from "@/lib/api";
+import SellerActionForm from "@/components/SellerActionForm";
 
 type Range = "hoy" | "7d" | "30d" | "total";
 
@@ -31,6 +32,21 @@ interface MetricsData {
     sesionesActivas: number;
 }
 
+interface RepuestoItem {
+    nombre: string;
+    precio?: number | string | null;
+    cantidad?: number | null;
+    disponibilidad?: "DISPONIBLE" | "SIN_STOCK" | "POR_ENCARGO";
+    codigo?: string | null;
+}
+
+interface EntidadesCompletas {
+    repuestos_solicitados?: RepuestoItem[];
+    vehiculos?: { marca_modelo?: string; ano?: string | null; patente?: string | null; vin?: string | null; repuestos_solicitados?: RepuestoItem[] }[];
+    marca_modelo?: string;
+    ano?: string;
+}
+
 interface Venta {
     id: number;
     phone: string;
@@ -45,6 +61,11 @@ interface Venta {
     archivado_en: string;
     vendedor_nombre: string | null;
     sucursal: string | null;
+    anulado: boolean;
+    anulado_motivo: string | null;
+    anulado_por: string | null;
+    repuestos: RepuestoItem[] | null;
+    entidades_completas: EntidadesCompletas | null;
 }
 
 interface Vendedor {
@@ -81,6 +102,9 @@ export default function EstadisticasAdmin() {
     const [vendedores, setVendedores] = useState<Vendedor[]>([]);
     const [savingVendedor, setSavingVendedor] = useState<number | null>(null);
     const [savingFecha, setSavingFecha] = useState<number | null>(null);
+    const [anulando, setAnulando] = useState<number | null>(null);
+    const [mostrarAnuladas, setMostrarAnuladas] = useState(false);
+    const [editando, setEditando] = useState<Venta | null>(null);
 
     const corregirFecha = async (ventaId: number, fecha: string) => {
         if (!fecha) return;
@@ -93,6 +117,38 @@ export default function EstadisticasAdmin() {
             alert('No se pudo corregir la fecha. Intenta de nuevo.');
         } finally {
             setSavingFecha(null);
+        }
+    };
+
+    const anularVenta = async (venta: Venta) => {
+        const restaurar = venta.anulado;
+        if (!restaurar) {
+            const motivo = prompt('Motivo de anulación (opcional):') ?? '';
+            if (motivo === null) return;
+            setAnulando(venta.id);
+            try {
+                await api.patch(`${BACKEND_URL}/api/dashboard/ventas/${venta.id}/anular`, { anular: true, motivo: motivo || null });
+                setVentas(prev => prev.map(v => v.id === venta.id ? { ...v, anulado: true, anulado_motivo: motivo || null } : v));
+                fetchAll();
+            } catch (err) {
+                console.error('Error anulando venta:', err);
+                alert('No se pudo anular la venta. Intenta de nuevo.');
+            } finally {
+                setAnulando(null);
+            }
+        } else {
+            if (!confirm('¿Restaurar esta venta? Volverá a aparecer en los KPIs.')) return;
+            setAnulando(venta.id);
+            try {
+                await api.patch(`${BACKEND_URL}/api/dashboard/ventas/${venta.id}/anular`, { anular: false });
+                setVentas(prev => prev.map(v => v.id === venta.id ? { ...v, anulado: false, anulado_motivo: null, anulado_por: null } : v));
+                fetchAll();
+            } catch (err) {
+                console.error('Error restaurando venta:', err);
+                alert('No se pudo restaurar la venta.');
+            } finally {
+                setAnulando(null);
+            }
         }
     };
 
@@ -123,6 +179,7 @@ export default function EstadisticasAdmin() {
             const params = new URLSearchParams({ range, t: String(Date.now()) });
             if (sucursalFilter) params.set('sucursal', sucursalFilter);
             if (vendedorFilter) params.set('vendedor', vendedorFilter);
+            if (mostrarAnuladas) params.set('incluir_anulados', '1');
             const qs = params.toString();
             const [metricsRes, ventasRes] = await Promise.all([
                 api.get(`${BACKEND_URL}/api/dashboard/metrics?${qs}`),
@@ -135,7 +192,7 @@ export default function EstadisticasAdmin() {
         } finally {
             setLoading(false);
         }
-    }, [range, sucursalFilter, vendedorFilter]);
+    }, [range, sucursalFilter, vendedorFilter, mostrarAnuladas]);
 
     useEffect(() => {
         fetchAll();
@@ -299,14 +356,46 @@ export default function EstadisticasAdmin() {
                             ))}
                         </div>
 
+                        {/* Modal edición de repuestos */}
+                        {editando && (
+                            <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+                                <div className="bg-neutral-900 border border-white/10 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <h3 className="font-bold text-lg">Editar pedido #{editando.id}</h3>
+                                        <button onClick={() => setEditando(null)} className="text-neutral-400 hover:text-white text-xl">✕</button>
+                                    </div>
+                                    <SellerActionForm
+                                        phone={editando.phone}
+                                        pedidoId={editando.id}
+                                        marcaModelo={editando.marca_modelo || undefined}
+                                        ano={editando.ano || undefined}
+                                        items={(editando.entidades_completas?.repuestos_solicitados || editando.repuestos || []).map(r => ({ ...r, precio: r.precio != null ? Number(r.precio) : null, codigo: r.codigo ?? null, cantidad: r.cantidad ?? undefined }))}
+                                        vehiculos={editando.entidades_completas?.vehiculos as never[] || []}
+                                        onResponded={() => { setEditando(null); fetchAll(); }}
+                                    />
+                                </div>
+                            </div>
+                        )}
+
                         <section>
                             <div className="flex items-center justify-between pb-4">
                                 <h3 className="text-lg font-bold">
                                     Últimas ventas — atribución IA vs vendedor
                                 </h3>
-                                <span className="text-xs text-neutral-500">
-                                    Mostrando {ventas.length} (rango: {RANGE_LABELS[range].toLowerCase()})
-                                </span>
+                                <div className="flex items-center gap-3">
+                                    <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs text-neutral-500">
+                                        <input
+                                            type="checkbox"
+                                            checked={mostrarAnuladas}
+                                            onChange={(e) => setMostrarAnuladas(e.target.checked)}
+                                            className="accent-red-500"
+                                        />
+                                        Mostrar anuladas
+                                    </label>
+                                    <span className="text-xs text-neutral-500">
+                                        Mostrando {ventas.length} (rango: {RANGE_LABELS[range].toLowerCase()})
+                                    </span>
+                                </div>
                             </div>
 
                             {ventas.length === 0 ? (
@@ -327,20 +416,21 @@ export default function EstadisticasAdmin() {
                                                 <th className="text-right px-4 py-3">Duración</th>
                                                 <th className="text-right px-4 py-3">Msgs IA</th>
                                                 <th className="text-right px-4 py-3">Msgs Vendedor</th>
+                                                <th className="text-right px-4 py-3">Acciones</th>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             {ventas.map((v) => (
                                                 <tr
                                                     key={v.id}
-                                                    className="border-t border-white/5 hover:bg-white/[0.02]"
+                                                    className={`border-t border-white/5 hover:bg-white/[0.02] ${v.anulado ? 'opacity-40 line-through' : ''}`}
                                                 >
                                                     <td className="px-4 py-3">
                                                         <input
                                                             type="date"
                                                             defaultValue={v.archivado_en ? v.archivado_en.slice(0, 10) : ''}
                                                             max={new Date().toISOString().slice(0, 10)}
-                                                            disabled={savingFecha === v.id}
+                                                            disabled={savingFecha === v.id || v.anulado}
                                                             onBlur={(e) => {
                                                                 const nueva = e.target.value;
                                                                 if (nueva && nueva !== v.archivado_en?.slice(0, 10)) {
@@ -367,7 +457,7 @@ export default function EstadisticasAdmin() {
                                                         <select
                                                             value={v.vendedor_nombre || ""}
                                                             onChange={(e) => asignarVendedor(v.id, e.target.value)}
-                                                            disabled={savingVendedor === v.id}
+                                                            disabled={savingVendedor === v.id || v.anulado}
                                                             className={`bg-neutral-800 border rounded px-2 py-1 text-xs focus:outline-none focus:border-accent ${v.vendedor_nombre ? 'border-white/10 text-neutral-200' : 'border-amber-500/40 text-amber-400'}`}
                                                             title="Asignar o cambiar el vendedor de esta venta"
                                                         >
@@ -377,7 +467,6 @@ export default function EstadisticasAdmin() {
                                                                 .map(vd => (
                                                                     <option key={vd.id} value={vd.nombre}>{vd.nombre}</option>
                                                                 ))}
-                                                            {/* Conservar el valor actual aunque el vendedor esté inactivo o de otra sucursal */}
                                                             {v.vendedor_nombre && !vendedores.some(vd => vd.nombre === v.vendedor_nombre && (!v.sucursal || vd.sucursal === v.sucursal)) && (
                                                                 <option value={v.vendedor_nombre}>{v.vendedor_nombre}</option>
                                                             )}
@@ -394,6 +483,27 @@ export default function EstadisticasAdmin() {
                                                     </td>
                                                     <td className="px-4 py-3 text-right text-purple-400">
                                                         {v.mensajes_vendedor}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-right">
+                                                        <div className="flex items-center justify-end gap-1">
+                                                            {!v.anulado && (
+                                                                <button
+                                                                    onClick={() => setEditando(v)}
+                                                                    className="px-2 py-1 rounded text-[10px] bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white transition-colors"
+                                                                    title="Editar repuestos y monto"
+                                                                >
+                                                                    ✏️
+                                                                </button>
+                                                            )}
+                                                            <button
+                                                                onClick={() => anularVenta(v)}
+                                                                disabled={anulando === v.id}
+                                                                className={`px-2 py-1 rounded text-[10px] transition-colors disabled:opacity-40 ${v.anulado ? 'bg-green-500/10 hover:bg-green-500/20 text-green-400' : 'bg-red-500/10 hover:bg-red-500/20 text-red-400'}`}
+                                                                title={v.anulado ? `Restaurar (anulado por ${v.anulado_por || '?'}: ${v.anulado_motivo || 'sin motivo'})` : 'Anular esta venta (soft-delete)'}
+                                                            >
+                                                                {v.anulado ? '↩️' : '🚫'}
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             ))}
