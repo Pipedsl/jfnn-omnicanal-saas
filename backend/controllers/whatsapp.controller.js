@@ -216,7 +216,9 @@ const processBufferedMessages = async (customerPhone) => {
                 if (!entidades.pesquisa_pendiente) {
                     entidades.pesquisa_pendiente = {
                         momento: new Date().toISOString(),
-                        texto_cliente: userText
+                        texto_cliente: userText,
+                        quote_id: entidades.quote_id || null,
+                        motivo: 'cliente_menciona_visita_local',
                     };
                     session = await sessionsService.updateEntidades(customerPhone, entidades);
                     console.log(`[Soporte] 🕵️ Marca de pesquisa automática activada para ${customerPhone} - Cliente mencionó que fue o irá al local.`);
@@ -468,21 +470,23 @@ const processBufferedMessages = async (customerPhone) => {
             const quiereNueva = /\b(nueva|otra|empezar|de cero|olvid|nuevo pedido|nueva cotizaci[oó]n|otra cotizaci[oó]n|cotizar otro|distinto)\b/i.test(t);
             const quoteIdAnterior = session.entidades?.re_engage_quote_id || null;
 
-            // Workstream A (bug A4): el cliente dice que YA compró ese producto (presencial o
-            // en días anteriores). Cerramos esa cotización como vendida y arrancamos limpio,
-            // sin re-ofrecerla. Detección antes que continuar/nueva (la frase suele incluir "ya").
+            // A4: cliente dice que YA compró presencial. En lugar de resetear (que pierde la venta
+            // del KPI), enriquecemos pesquisa_pendiente para que soporte investigue y cierre
+            // manualmente con la fecha real. La sesión permanece en "ventas sin cerrar".
             const yaCompro = /\bya\s+(lo\s+|la\s+|los\s+|las\s+)?(compr[ée]|pagu[ée]|retir[ée]|ll[ée]v[ée]|adquir[ií])\b|\bcompr[ée]\s+(eso|ese|presencial|en\s+(el\s+)?local)\b/i.test(t);
             if (yaCompro) {
-                if (quoteIdAnterior) {
-                    await cotizacionesService.setEstado(quoteIdAnterior, 'CERRADA').catch(err =>
-                        console.warn(`[Cotizaciones] ⚠️ No se pudo marcar CERRADA ${quoteIdAnterior}: ${err.message}`));
-                }
                 await sessionsService.updateEntidades(customerPhone, {
                     re_engage_pending: false, re_engage_quote_id: null,
                     guardar_anterior_pending: false, guardar_anterior_quote_id: null,
+                    pesquisa_pendiente: {
+                        momento: new Date().toISOString(),
+                        texto_cliente: userText,
+                        quote_id: quoteIdAnterior || session.entidades?.quote_id || null,
+                        motivo: 'cliente_dice_ya_compro_presencial',
+                    },
                 });
-                await sessionsService.resetSession(customerPhone);
-                await sendAndPersist(customerPhone, `¡Genial! Me alegra que ya lo tengas. 🙌 Si necesitas cotizar algo más, cuéntame y te ayudo.`);
+                console.log(`[Soporte] 🕵️ Pesquisa A4 (re_engage) marcada para ${customerPhone}. Soporte debe cerrar manualmente.`);
+                await sendAndPersist(customerPhone, `¡Qué bien! Me alegra que ya lo tengas. 🙌 Si necesitas algo más, aquí estamos.`);
                 return;
             }
             if (quiereContinuar) {
@@ -591,17 +595,21 @@ const processBufferedMessages = async (customerPhone) => {
             const textoBaja = (userText || '').toLowerCase();
             const pideNuevaTextual = /\b(nueva cotizaci[oó]n|otra cotizaci[oó]n|cotizar otro|empezar de cero|olvid[aá] (lo anterior|la anterior)|nuevo pedido|distinta cotizaci[oó]n)\b/i.test(textoBaja);
 
-            // Workstream A (bug A4): si de entrada el cliente dice que YA compró esa cotización
-            // (presencial o en días anteriores), la cerramos como vendida y arrancamos limpio.
+            // A4: cliente dice que YA compró presencial. Enriquecer pesquisa_pendiente para
+            // que soporte cierre manualmente (con fecha real si aplica) en vez de auto-resetear.
             const yaComproInicio = /\bya\s+(lo\s+|la\s+|los\s+|las\s+)?(compr[ée]|pagu[ée]|retir[ée]|ll[ée]v[ée]|adquir[ií])\b|\bcompr[ée]\s+(eso|ese|presencial|en\s+(el\s+)?local)\b/i.test(textoBaja);
             if (yaComproInicio) {
                 const qIdComprada = session.entidades?.quote_id;
-                if (qIdComprada) {
-                    await cotizacionesService.setEstado(qIdComprada, 'CERRADA').catch(err =>
-                        console.warn(`[Cotizaciones] ⚠️ No se pudo marcar CERRADA ${qIdComprada}: ${err.message}`));
-                }
-                await sessionsService.resetSession(customerPhone);
-                await sendAndPersist(customerPhone, `¡Genial! Me alegra que ya lo tengas. 🙌 Si necesitas cotizar algo más, cuéntame y te ayudo.`);
+                await sessionsService.updateEntidades(customerPhone, {
+                    pesquisa_pendiente: {
+                        momento: new Date().toISOString(),
+                        texto_cliente: userText,
+                        quote_id: qIdComprada || null,
+                        motivo: 'cliente_dice_ya_compro_presencial',
+                    },
+                });
+                console.log(`[Soporte] 🕵️ Pesquisa A4 (COT_VIVA) marcada para ${customerPhone} (quote: ${qIdComprada}). Soporte debe cerrar manualmente.`);
+                await sendAndPersist(customerPhone, `¡Qué bien! Me alegra que ya lo tengas. 🙌 Si necesitas algo más, aquí estamos.`);
                 return;
             }
 

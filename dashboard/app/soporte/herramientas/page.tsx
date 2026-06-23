@@ -18,6 +18,9 @@ interface VentaSinCerrar {
   vendedor: string | null;
   quote_id: string | null;
   ultimo_mensaje: string;
+  pesquisa_pendiente: boolean;
+  texto_cliente_pesquisa: string | null;
+  quote_id_pesquisa: string | null;
 }
 
 const ESTADOS = [
@@ -32,6 +35,7 @@ export default function SoporteHerramientas() {
   const [ventas, setVentas] = useState<VentaSinCerrar[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [fechasVenta, setFechasVenta] = useState<Record<string, string>>({});
 
   // Cambio manual de estado
   const [phone, setPhone] = useState("");
@@ -109,11 +113,18 @@ export default function SoporteHerramientas() {
   };
 
   const cerrarVenta = async (v: VentaSinCerrar) => {
-    if (!confirm(`¿Cerrar la venta de ${v.nombre_cliente || v.phone} ($${v.total.toLocaleString("es-CL")})? Se enviará gracias + reseña y quedará en KPIs.`)) return;
+    const fechaVenta = fechasVenta[v.phone] || '';
+    const fechaLabel = fechaVenta
+      ? new Date(fechaVenta + 'T12:00:00').toLocaleDateString('es-CL')
+      : 'hoy';
+    if (!confirm(`¿Cerrar la venta de ${v.nombre_cliente || v.phone} ($${v.total.toLocaleString("es-CL")})? Quedará en KPIs con fecha ${fechaLabel}.`)) return;
     setBusy(v.phone);
     try {
       await api.post(`${BACKEND_URL}/api/dashboard/soporte/cerrar-venta`, {
-        phone: v.phone, enviar_resena: true, motivo: "Cierre manual desde soporte",
+        phone: v.phone,
+        enviar_resena: true,
+        motivo: "Cierre manual desde soporte",
+        ...(fechaVenta ? { fecha_venta: fechaVenta } : {}),
       });
       await fetchVentas();
       alert("Venta cerrada y registrada en KPIs.");
@@ -213,23 +224,44 @@ export default function SoporteHerramientas() {
                 <th className="text-left px-3 py-2">Estado</th>
                 <th className="text-right px-3 py-2">Total</th>
                 <th className="text-left px-3 py-2">Vendedor</th>
+                <th className="text-left px-3 py-2">Fecha venta</th>
                 <th className="text-right px-3 py-2">Acción</th>
               </tr>
             </thead>
             <tbody>
               {ventas.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-10 text-neutral-600">{loading ? "Cargando…" : "No hay ventas sin cerrar."}</td></tr>
+                <tr><td colSpan={8} className="text-center py-10 text-neutral-600">{loading ? "Cargando…" : "No hay ventas sin cerrar."}</td></tr>
               ) : ventas.map((v) => (
-                <tr key={v.phone} className="border-t border-white/5 hover:bg-white/[0.02]">
+                <tr key={v.phone} className={`border-t border-white/5 hover:bg-white/[0.02] ${v.pesquisa_pendiente ? 'bg-amber-500/[0.03]' : ''}`}>
                   <td className="px-3 py-2">
-                    <div className="font-bold text-neutral-200">{v.nombre_cliente || "Sin nombre"}</div>
+                    <div className="font-bold text-neutral-200 flex items-center gap-1">
+                      {v.nombre_cliente || "Sin nombre"}
+                      {v.pesquisa_pendiente && (
+                        <span title={v.texto_cliente_pesquisa || 'Cliente mencionó compra presencial'} className="text-amber-400 cursor-help">🕵️</span>
+                      )}
+                    </div>
                     <div className="font-mono text-[10px] text-neutral-500">{v.phone}</div>
+                    {v.pesquisa_pendiente && v.texto_cliente_pesquisa && (
+                      <div className="text-[10px] text-amber-400/70 mt-0.5 max-w-[180px] truncate" title={v.texto_cliente_pesquisa}>
+                        {'“'}{v.texto_cliente_pesquisa}{'”'}
+                      </div>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-neutral-400">{v.vehiculo || "—"}</td>
                   <td className="px-3 py-2 text-neutral-400 max-w-[260px] truncate" title={v.items}>{v.items || "—"}</td>
                   <td className="px-3 py-2 text-neutral-400">{v.estado}</td>
                   <td className="px-3 py-2 text-right font-bold text-green-400">${v.total.toLocaleString("es-CL")}</td>
                   <td className="px-3 py-2 text-neutral-400">{v.vendedor || "—"}</td>
+                  <td className="px-3 py-2">
+                    <input
+                      type="date"
+                      max={new Date().toISOString().slice(0, 10)}
+                      value={fechasVenta[v.phone] || ''}
+                      onChange={(e) => setFechasVenta(prev => ({ ...prev, [v.phone]: e.target.value }))}
+                      className="bg-neutral-900 border border-white/10 rounded px-2 py-1 text-[10px] w-[120px]"
+                      title="Dejar vacío para usar fecha de hoy"
+                    />
+                  </td>
                   <td className="px-3 py-2 text-right">
                     <button onClick={() => cerrarVenta(v)} disabled={busy === v.phone}
                       className="px-3 py-1.5 rounded-lg bg-green-500/15 text-green-400 border border-green-500/30 text-xs font-bold hover:bg-green-500/25 disabled:opacity-50 inline-flex items-center gap-1">

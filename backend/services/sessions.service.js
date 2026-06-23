@@ -822,7 +822,7 @@ const resetSession = async (phone) => {
 };
 
 // ─── archiveSession ───────────────────────────────────────────────
-const archiveSession = async (phone) => {
+const archiveSession = async (phone, opts = {}) => {
     try {
         const session = await getSession(phone);
         const e = session.entidades || {};
@@ -895,7 +895,10 @@ const archiveSession = async (phone) => {
                 JSON.stringify(e), mensajesIa, mensajesVendedor,
                 sucursalPedido || 'Melipilla', // backfill seguro: si aún null, asignar Melipilla
                 vendedorNombre,
-                session.created_at || null, session.ultimo_mensaje || null
+                // fechaVenta override: cuando soporte cierra con fecha retroactiva, usar esa
+                // fecha tanto en created_at como en archivado_en para que el KPI caiga en el período correcto.
+                opts.fechaVenta ? new Date(opts.fechaVenta).toISOString() : (session.created_at || null),
+                opts.fechaVenta ? new Date(opts.fechaVenta).toISOString() : (session.ultimo_mensaje || null)
             ]
         );
 

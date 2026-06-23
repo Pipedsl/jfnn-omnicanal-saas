@@ -281,6 +281,9 @@ router.get('/soporte/ventas-sin-cerrar', requireSoporte, async (req, res) => {
                 items: reps.map(x => `${x.cantidad || 1}x ${x.nombre}${x.precio ? ' ($' + Number(x.precio).toLocaleString('es-CL') + ')' : ''}`).join(', '),
                 total, vendedor: r.lock_vendedor || e.vendedor_nombre || null,
                 quote_id: e.quote_id || null, ultimo_mensaje: r.ultimo_mensaje,
+                pesquisa_pendiente: !!(e.pesquisa_pendiente),
+                texto_cliente_pesquisa: e.pesquisa_pendiente?.texto_cliente || null,
+                quote_id_pesquisa: e.pesquisa_pendiente?.quote_id || null,
             };
         });
         res.json({ total: ventas.length, ventas });
@@ -298,8 +301,14 @@ router.get('/soporte/ventas-sin-cerrar', requireSoporte, async (req, res) => {
  */
 router.post('/soporte/cerrar-venta', requireSoporte, async (req, res) => {
     try {
-        const { phone, items, total, vendedor_nombre, metodo_entrega, enviar_resena = true, motivo } = req.body || {};
+        const { phone, items, total, vendedor_nombre, metodo_entrega, enviar_resena = true, motivo, fecha_venta } = req.body || {};
         if (!phone) return res.status(400).json({ error: 'Falta phone' });
+        if (fecha_venta) {
+            const fv = new Date(fecha_venta);
+            if (isNaN(fv.getTime()) || fv > new Date()) {
+                return res.status(400).json({ error: 'fecha_venta inválida o futura' });
+            }
+        }
         const session = await sessionsService.getSession(phone);
         if (!session) return res.status(404).json({ error: 'Sesión no encontrada' });
 
@@ -334,8 +343,9 @@ router.post('/soporte/cerrar-venta', requireSoporte, async (req, res) => {
         if (enviar_resena && !omitirResenaSoporte) {
             setTimeout(() => { whatsappService.sendGoogleReviewRequest(phone).catch(() => {}); }, 3000);
         }
-        // Archivar a pedidos (KPIs).
-        setTimeout(() => { sessionsService.archiveSession(phone).catch(err => console.error('[Soporte] archive err:', err.message)); }, 8000);
+        // Archivar a pedidos (KPIs). Si soporte pasó fecha_venta retroactiva, se usa como archivado_en.
+        const archiveOpts = fecha_venta ? { fechaVenta: fecha_venta } : {};
+        setTimeout(() => { sessionsService.archiveSession(phone, archiveOpts).catch(err => console.error('[Soporte] archive err:', err.message)); }, 8000);
 
         auditService.registrarAccion({
             req, action: 'cerrar_venta_soporte', targetPhone: phone,
