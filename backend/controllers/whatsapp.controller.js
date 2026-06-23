@@ -5,6 +5,7 @@ const sessionsService = require('../services/sessions.service');
 const storageService = require('../services/storage.service');
 const mensajesService = require('../services/mensajes.service');
 const scheduleService = require('../services/schedule.service');
+const cotizacionesService = require('../services/cotizaciones.service');
 const db = require('../config/db');
 const { printShadowQuote } = require('../utils/shadowQuote');
 const { getDireccionSucursal, esPagoPresencial } = require('../utils/sucursales');
@@ -466,6 +467,24 @@ const processBufferedMessages = async (customerPhone) => {
             const quiereContinuar = /\b(continuar|seguir|la misma|con esa|esa|dale|sigamos|continue|si\b|sí\b|claro)\b/i.test(t);
             const quiereNueva = /\b(nueva|otra|empezar|de cero|olvid|nuevo pedido|nueva cotizaci[oó]n|otra cotizaci[oó]n|cotizar otro|distinto)\b/i.test(t);
             const quoteIdAnterior = session.entidades?.re_engage_quote_id || null;
+
+            // Workstream A (bug A4): el cliente dice que YA compró ese producto (presencial o
+            // en días anteriores). Cerramos esa cotización como vendida y arrancamos limpio,
+            // sin re-ofrecerla. Detección antes que continuar/nueva (la frase suele incluir "ya").
+            const yaCompro = /\bya\s+(lo\s+|la\s+|los\s+|las\s+)?(compr[ée]|pagu[ée]|retir[ée]|ll[ée]v[ée]|adquir[ií])\b|\bcompr[ée]\s+(eso|ese|presencial|en\s+(el\s+)?local)\b/i.test(t);
+            if (yaCompro) {
+                if (quoteIdAnterior) {
+                    await cotizacionesService.setEstado(quoteIdAnterior, 'CERRADA').catch(err =>
+                        console.warn(`[Cotizaciones] ⚠️ No se pudo marcar CERRADA ${quoteIdAnterior}: ${err.message}`));
+                }
+                await sessionsService.updateEntidades(customerPhone, {
+                    re_engage_pending: false, re_engage_quote_id: null,
+                    guardar_anterior_pending: false, guardar_anterior_quote_id: null,
+                });
+                await sessionsService.resetSession(customerPhone);
+                await sendAndPersist(customerPhone, `¡Genial! Me alegra que ya lo tengas. 🙌 Si necesitas cotizar algo más, cuéntame y te ayudo.`);
+                return;
+            }
             if (quiereContinuar) {
                 await sessionsService.updateEntidades(customerPhone, {
                     re_engage_pending: false, re_engage_quote_id: null,
@@ -571,6 +590,20 @@ const processBufferedMessages = async (customerPhone) => {
         ) {
             const textoBaja = (userText || '').toLowerCase();
             const pideNuevaTextual = /\b(nueva cotizaci[oó]n|otra cotizaci[oó]n|cotizar otro|empezar de cero|olvid[aá] (lo anterior|la anterior)|nuevo pedido|distinta cotizaci[oó]n)\b/i.test(textoBaja);
+
+            // Workstream A (bug A4): si de entrada el cliente dice que YA compró esa cotización
+            // (presencial o en días anteriores), la cerramos como vendida y arrancamos limpio.
+            const yaComproInicio = /\bya\s+(lo\s+|la\s+|los\s+|las\s+)?(compr[ée]|pagu[ée]|retir[ée]|ll[ée]v[ée]|adquir[ií])\b|\bcompr[ée]\s+(eso|ese|presencial|en\s+(el\s+)?local)\b/i.test(textoBaja);
+            if (yaComproInicio) {
+                const qIdComprada = session.entidades?.quote_id;
+                if (qIdComprada) {
+                    await cotizacionesService.setEstado(qIdComprada, 'CERRADA').catch(err =>
+                        console.warn(`[Cotizaciones] ⚠️ No se pudo marcar CERRADA ${qIdComprada}: ${err.message}`));
+                }
+                await sessionsService.resetSession(customerPhone);
+                await sendAndPersist(customerPhone, `¡Genial! Me alegra que ya lo tengas. 🙌 Si necesitas cotizar algo más, cuéntame y te ayudo.`);
+                return;
+            }
 
             // Detectar si cliente menciona una marca diferente a la de su sesión actual.
             // Solo en CONFIRMANDO_COMPRA (no ESPERANDO_COMPROBANTE — cliente va a pagar, sería intrusivo).
@@ -1617,6 +1650,13 @@ const processBufferedMessages = async (customerPhone) => {
         // BUG-4: Abandono de cotización
         if (aiJson.accion === 'ABANDONAR_COTIZACION') {
             console.log(`[BUG-4] Cliente abandonó la cotización. Reseteando sesión de ${customerPhone}`);
+            // Workstream A: si había una cotización viva, marcarla RECHAZADA antes de resetear,
+            // para que el vendedor la distinga de una aceptada/pendiente en el historial del cliente.
+            const qIdRechazada = session?.entidades?.quote_id;
+            if (qIdRechazada) {
+                await cotizacionesService.setEstado(qIdRechazada, 'RECHAZADA').catch(err =>
+                    console.warn(`[Cotizaciones] ⚠️ No se pudo marcar RECHAZADA ${qIdRechazada}: ${err.message}`));
+            }
             session = await sessionsService.resetSession(customerPhone);
         }
 
@@ -1681,6 +1721,13 @@ const processBufferedMessages = async (customerPhone) => {
             }
             
             if (e.metodo_pago && e.metodo_entrega && (e.tipo_documento === 'boleta' || (e.tipo_documento === 'factura' && e.datos_factura.rut))) {
+                // Workstream A: snapshotear la aceptación en el store. El cliente confirmó →
+                // marcamos la cotización como ACEPTADA para que el vendedor la vea en caja,
+                // desacoplada de la sesión (que luego puede fusionar/reescribir otros repuestos).
+                if (e.quote_id) {
+                    await cotizacionesService.setEstado(e.quote_id, 'ACEPTADA').catch(err =>
+                        console.warn(`[Cotizaciones] ⚠️ No se pudo marcar ACEPTADA ${e.quote_id}: ${err.message}`));
+                }
                 if (e.metodo_pago === 'online') {
                     if (session.estado !== sessionsService.STATES.ESPERANDO_COMPROBANTE) {
                         await sessionsService.setEstado(customerPhone, 'ESPERANDO_COMPROBANTE');

@@ -41,6 +41,10 @@ interface SellerActionFormProps {
     estado?: string;
     pedidoId?: number | null;
     fechaVenta?: string;
+    // Workstream A: el vendedor elige explícitamente si la cotización es corrección de la
+    // anterior (true → reemplaza con -V2) o una nueva aparte (false → nuevo quote_id, conserva
+    // la previa). Si es undefined, se deriva del estado (comportamiento legado).
+    rectificacionOverride?: boolean;
 }
 
 const RenderItemInput = ({ item, isSinStock, onChange, onRemove }: { item: Item, isSinStock: boolean, onChange: (field: keyof Item, val: string | number | null | boolean) => void, onRemove?: () => void }) => (
@@ -142,10 +146,12 @@ const RenderItemInput = ({ item, isSinStock, onChange, onRemove }: { item: Item,
     </div>
 );
 
-export default function SellerActionForm({ phone, items = [], vehiculos = [], marcaModelo, ano, patente, vin, motor, combustible, onResponded, footerActions, estado, pedidoId, fechaVenta }: SellerActionFormProps) {
-    const esRectificacion = estado === 'CONFIRMANDO_COMPRA'
-        || estado === 'ESPERANDO_COMPROBANTE'
-        || estado === 'ESPERANDO_APROBACION_ADMIN';
+export default function SellerActionForm({ phone, items = [], vehiculos = [], marcaModelo, ano, patente, vin, motor, combustible, onResponded, footerActions, estado, pedidoId, fechaVenta, rectificacionOverride }: SellerActionFormProps) {
+    const esRectificacion = typeof rectificacionOverride === 'boolean'
+        ? rectificacionOverride
+        : (estado === 'CONFIRMANDO_COMPRA'
+            || estado === 'ESPERANDO_COMPROBANTE'
+            || estado === 'ESPERANDO_APROBACION_ADMIN');
     // Ajuste de venta final: estados posteriores a la confirmación de pago.
     // El vendedor agrega items extras vendidos en el local. NO envía mensaje al cliente.
     const esAjusteVentaFinal = estado === 'PAGO_VERIFICADO'

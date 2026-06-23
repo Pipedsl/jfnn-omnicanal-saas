@@ -108,6 +108,9 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
     const { isLocked, lockedBy, lockToken } = useQuoteLock(isModalOpen ? phone : null, lockVendedor);
     const [isEditing, setIsEditing] = useState(false);
     const [isSilentRegistro, setIsSilentRegistro] = useState(false);
+    // Workstream A: al re-cotizar en la bandeja, "nueva aparte" crea una cotización nueva
+    // (no reemplaza la anterior). Por defecto false → corrección (comportamiento legado).
+    const [bandejaModoNueva, setBandejaModoNueva] = useState(false);
     const [showLogisticsModal, setShowLogisticsModal] = useState(false);
     const [mensajeLogistica, setMensajeLogistica] = useState("");
     const [loadingPago, setLoadingPago] = useState(false);
@@ -913,9 +916,11 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                         motor={entidades.motor}
                                         combustible={entidades.combustible}
                                         estado={isEditing && isSilentRegistro ? 'PAGO_VERIFICADO' : estado}
+                                        rectificacionOverride={bandejaModoNueva ? false : undefined}
                                         pedidoId={pedidoId ?? null}
                                         fechaVenta={ultimoMensaje}
                                         onResponded={async () => {
+                                            setBandejaModoNueva(false);
                                             if (isSilentRegistro) {
                                                 try {
                                                     await api.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, {
@@ -939,11 +944,16 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                 {isEditing && (
                                                     <button
                                                         type="button"
-                                                        onClick={() => { setIsEditing(false); setIsSilentRegistro(false); }}
+                                                        onClick={() => { setIsEditing(false); setIsSilentRegistro(false); setBandejaModoNueva(false); }}
                                                         className="w-full mb-2 py-2 rounded-xl text-xs text-neutral-500 font-bold uppercase hover:bg-red-500/10 hover:text-red-400 transition-colors"
                                                     >
                                                         Cancelar edición
                                                     </button>
+                                                )}
+                                                {isEditing && bandejaModoNueva && (
+                                                    <div className="w-full mb-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold uppercase tracking-wider text-center">
+                                                        ➕ Cotización nueva (aparte) — no reemplaza la anterior
+                                                    </div>
                                                 )}
                                                 <div className="flex flex-col gap-1.5 pt-2 border-t border-white/5">
                                                     {(estado === 'ARCHIVADO' || estado === 'ESPERANDO_VENDEDOR') && (
@@ -1030,7 +1040,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                             {estado === 'CONFIRMANDO_COMPRA' && !isEditing && (
                                 <div className="flex gap-2">
                                     <button
-                                        onClick={() => setIsEditing(true)}
+                                        onClick={() => { setBandejaModoNueva(false); setIsEditing(true); }}
                                         className="flex-1 py-2 rounded-xl bg-neutral-800 border border-neutral-700 text-neutral-400 text-xs font-bold uppercase tracking-widest hover:bg-neutral-700 hover:text-white transition-all flex items-center justify-center gap-2"
                                     >
                                         <Edit3 size={12} /> Corregir Precios / Stock
@@ -1071,6 +1081,17 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                         <CheckCircle size={12} /> {loadingPago ? 'Procesando...' : (hayEncargo ? 'Confirmar Pago en Efectivo (Abono)' : (esEnvio ? 'Confirmar Pago en Efectivo (Total)' : 'Pago Efectivo Total y Cerrar Venta'))}
                                     </button>
                                 </div>
+                            )}
+
+                            {/* Workstream A: cotización nueva aparte (no reemplaza la vigente) */}
+                            {estado === 'CONFIRMANDO_COMPRA' && !isEditing && (
+                                <button
+                                    onClick={() => { setBandejaModoNueva(true); setIsEditing(true); }}
+                                    className="w-full py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold uppercase tracking-widest hover:bg-emerald-500/20 transition-all flex items-center justify-center gap-2"
+                                    title="Crea una cotización NUEVA (otro producto/vehículo) sin reemplazar la cotización ya enviada."
+                                >
+                                    ➕ Cotización Nueva (Aparte)
+                                </button>
                             )}
 
                             {/* Registro presencial silencioso: solo soporte, en CONFIRMANDO_COMPRA */}

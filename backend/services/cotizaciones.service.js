@@ -87,18 +87,21 @@ const getCotizacionActivaPorPhone = async (phone) => {
 };
 
 /**
- * Cambiar estado (ARCHIVADA / CERRADA / EXPIRADA).
- * Si el estado es CERRADA, también marca cerrada_en con NOW().
+ * Cambiar estado de una cotización.
+ *   ACTIVA → pendiente · ACEPTADA → cliente confirmó (visible al vendedor en caja)
+ *   RECHAZADA → cliente la descartó · CERRADA → venta finalizada/comprada (terminal)
+ *   ARCHIVADA → guardada 5 días · EXPIRADA → vencida
+ * Para CERRADA y RECHAZADA también marca cerrada_en con NOW() (cierre definitivo).
  */
 const setEstado = async (quote_id, nuevoEstado) => {
-    if (!['ACTIVA', 'ARCHIVADA', 'EXPIRADA', 'CERRADA'].includes(nuevoEstado)) {
+    if (!['ACTIVA', 'ARCHIVADA', 'EXPIRADA', 'CERRADA', 'ACEPTADA', 'RECHAZADA'].includes(nuevoEstado)) {
         throw new Error(`Estado inválido: ${nuevoEstado}`);
     }
     try {
         const { rows } = await db.query(
             `UPDATE cotizaciones
              SET estado_cotizacion = $1::varchar,
-                 cerrada_en = CASE WHEN $1::varchar = 'CERRADA' THEN NOW() ELSE cerrada_en END,
+                 cerrada_en = CASE WHEN $1::varchar IN ('CERRADA','RECHAZADA') THEN NOW() ELSE cerrada_en END,
                  updated_at = NOW()
              WHERE quote_id = $2
              RETURNING *`,

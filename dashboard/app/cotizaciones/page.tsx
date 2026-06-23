@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, Fragment } from "react";
 import Link from "next/link";
 import { api, BACKEND_URL } from "@/lib/api";
 import { ArrowLeft, FileText, Hash, MapPin, User, Calendar, DollarSign, Package, Archive, CheckCircle, XCircle, Clock } from "lucide-react";
@@ -18,7 +18,7 @@ interface Cotizacion {
     total_aproximado: number;
     tiene_encargo: boolean;
     abono_minimo: number | null;
-    estado_cotizacion: "ACTIVA" | "ARCHIVADA" | "EXPIRADA" | "CERRADA";
+    estado_cotizacion: "ACTIVA" | "ARCHIVADA" | "EXPIRADA" | "CERRADA" | "ACEPTADA" | "RECHAZADA";
     valida_hasta: string;
     cerrada_en: string | null;
     enviada_en: string;
@@ -26,10 +26,22 @@ interface Cotizacion {
 }
 
 const ESTADO_STYLE: Record<string, string> = {
-    ACTIVA: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
-    ARCHIVADA: "bg-amber-500/10 text-amber-400 border-amber-500/30",
+    ACTIVA: "bg-amber-500/10 text-amber-400 border-amber-500/30",
+    ACEPTADA: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30",
+    RECHAZADA: "bg-red-500/10 text-red-400 border-red-500/30",
+    ARCHIVADA: "bg-purple-500/10 text-purple-300 border-purple-500/30",
     EXPIRADA: "bg-neutral-700/40 text-neutral-400 border-neutral-600/40",
     CERRADA: "bg-blue-500/10 text-blue-400 border-blue-500/30",
+};
+
+// Etiqueta legible por estado (la columna muestra esto en vez del enum crudo).
+const ESTADO_LABEL: Record<string, string> = {
+    ACTIVA: "Pendiente",
+    ACEPTADA: "Aceptada",
+    RECHAZADA: "Rechazada",
+    ARCHIVADA: "Guardada",
+    EXPIRADA: "Vencida",
+    CERRADA: "Comprada",
 };
 
 function formatMoney(n: number): string {
@@ -55,6 +67,7 @@ export default function CotizacionesPage() {
     const [busqueda, setBusqueda] = useState("");
     const [loading, setLoading] = useState(true);
     const [selected, setSelected] = useState<Cotizacion | null>(null);
+    const [agrupar, setAgrupar] = useState(true);
 
     const fetchList = async () => {
         setLoading(true);
@@ -73,15 +86,20 @@ export default function CotizacionesPage() {
     useEffect(() => { fetchList(); }, [filtroEstado]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const filtered = useMemo(() => {
-        if (!busqueda.trim()) return cotizaciones;
-        const q = busqueda.toLowerCase();
-        return cotizaciones.filter(c =>
-            c.quote_id.toLowerCase().includes(q) ||
-            (c.nombre_cliente || "").toLowerCase().includes(q) ||
-            c.phone.includes(q) ||
-            (c.vendedor_nombre || "").toLowerCase().includes(q)
+        const base = !busqueda.trim() ? cotizaciones : cotizaciones.filter(c =>
+            c.quote_id.toLowerCase().includes(busqueda.toLowerCase()) ||
+            (c.nombre_cliente || "").toLowerCase().includes(busqueda.toLowerCase()) ||
+            c.phone.includes(busqueda) ||
+            (c.vendedor_nombre || "").toLowerCase().includes(busqueda.toLowerCase())
         );
-    }, [cotizaciones, busqueda]);
+        if (!agrupar) return base;
+        // Agrupar por cliente: ordenar por phone, y dentro por fecha de envío descendente.
+        return [...base].sort((a, b) =>
+            a.phone === b.phone
+                ? new Date(b.enviada_en).getTime() - new Date(a.enviada_en).getTime()
+                : a.phone.localeCompare(b.phone)
+        );
+    }, [cotizaciones, busqueda, agrupar]);
 
     const cambiarEstado = async (quoteId: string, nuevoEstado: string) => {
         try {
@@ -116,9 +134,9 @@ export default function CotizacionesPage() {
                     />
                 </div>
 
-                {/* Filtros por estado */}
-                <div className="flex gap-2 flex-wrap">
-                    {["ACTIVA", "ARCHIVADA", "EXPIRADA", "CERRADA", "TODAS"].map(e => (
+                {/* Filtros por estado + agrupación */}
+                <div className="flex gap-2 flex-wrap items-center">
+                    {["ACTIVA", "ACEPTADA", "RECHAZADA", "ARCHIVADA", "EXPIRADA", "CERRADA", "TODAS"].map(e => (
                         <button
                             key={e}
                             onClick={() => setFiltroEstado(e)}
@@ -128,9 +146,18 @@ export default function CotizacionesPage() {
                                     : "bg-neutral-900 text-neutral-400 border-white/10 hover:bg-neutral-800"
                             }`}
                         >
-                            {e}
+                            {e === "TODAS" ? "TODAS" : (ESTADO_LABEL[e] || e)}
                         </button>
                     ))}
+                    <button
+                        onClick={() => setAgrupar(v => !v)}
+                        className={`ml-auto text-[11px] font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg border transition-colors ${
+                            agrupar ? "bg-accent/15 text-accent border-accent/40" : "bg-neutral-900 text-neutral-400 border-white/10 hover:bg-neutral-800"
+                        }`}
+                        title="Agrupar las cotizaciones por cliente"
+                    >
+                        👥 Agrupar por cliente
+                    </button>
                 </div>
 
                 {/* Tabla */}
@@ -154,10 +181,21 @@ export default function CotizacionesPage() {
                                     <tr><td colSpan={8} className="text-center py-8 text-neutral-500 text-xs">Cargando...</td></tr>
                                 ) : filtered.length === 0 ? (
                                     <tr><td colSpan={8} className="text-center py-8 text-neutral-500 text-xs">Sin cotizaciones</td></tr>
-                                ) : filtered.map(c => {
+                                ) : filtered.map((c, idx) => {
                                     const itemsCount = (c.repuestos?.length || 0) + (c.vehiculos || []).reduce((acc, v) => acc + (v?.repuestos_solicitados?.length || 0), 0);
+                                    const nuevoCliente = agrupar && (idx === 0 || filtered[idx - 1].phone !== c.phone);
                                     return (
-                                        <tr key={c.quote_id}
+                                      <Fragment key={c.quote_id}>
+                                        {nuevoCliente && (
+                                            <tr className="bg-white/[0.04]">
+                                                <td colSpan={8} className="px-4 py-1.5 text-[11px] font-bold text-neutral-300">
+                                                    <User size={10} className="inline mr-1.5 text-accent" />
+                                                    {c.nombre_cliente || <span className="text-neutral-500 italic">Sin nombre</span>}
+                                                    <span className="text-[10px] text-neutral-500 font-mono ml-2">+{c.phone}</span>
+                                                </td>
+                                            </tr>
+                                        )}
+                                        <tr
                                             onClick={() => setSelected(c)}
                                             className="border-t border-white/5 hover:bg-white/5 cursor-pointer transition-colors">
                                             <td className="px-4 py-3 font-mono text-xs text-accent flex items-center gap-1">
@@ -175,8 +213,8 @@ export default function CotizacionesPage() {
                                             <td className="px-4 py-3 text-xs font-bold text-emerald-400 text-right">{formatMoney(c.total_aproximado)}</td>
                                             <td className="px-4 py-3 text-xs text-neutral-400 text-center">{itemsCount}</td>
                                             <td className="px-4 py-3 text-center">
-                                                <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${ESTADO_STYLE[c.estado_cotizacion]}`}>
-                                                    {c.estado_cotizacion}
+                                                <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${ESTADO_STYLE[c.estado_cotizacion] || ESTADO_STYLE.EXPIRADA}`}>
+                                                    {ESTADO_LABEL[c.estado_cotizacion] || c.estado_cotizacion}
                                                 </span>
                                             </td>
                                             <td className="px-4 py-3 text-xs text-neutral-400 text-center">
@@ -184,6 +222,7 @@ export default function CotizacionesPage() {
                                             </td>
                                             <td className="px-4 py-3 text-xs text-neutral-500"><Calendar size={9} className="inline mr-1" />{formatDate(c.enviada_en)}</td>
                                         </tr>
+                                      </Fragment>
                                     );
                                 })}
                             </tbody>
@@ -205,8 +244,8 @@ export default function CotizacionesPage() {
                                     {selected.nombre_cliente || "Sin nombre"} · +{selected.phone}
                                 </p>
                             </div>
-                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full border ${ESTADO_STYLE[selected.estado_cotizacion]}`}>
-                                {selected.estado_cotizacion}
+                            <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full border ${ESTADO_STYLE[selected.estado_cotizacion] || ESTADO_STYLE.EXPIRADA}`}>
+                                {ESTADO_LABEL[selected.estado_cotizacion] || selected.estado_cotizacion}
                             </span>
                         </div>
 

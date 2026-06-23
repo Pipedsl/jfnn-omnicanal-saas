@@ -163,6 +163,25 @@ const TIPO_ICON: Record<string, React.ReactNode> = {
   document: <FileText size={14} />,
 };
 
+// Workstream A: estilos y etiquetas de estado de cotización persistida.
+const COT_ESTADO_STYLE: Record<string, { label: string; cls: string }> = {
+  ACTIVA: { label: "Pendiente", cls: "bg-amber-500/10 text-amber-400 border-amber-500/30" },
+  ACEPTADA: { label: "Aceptada", cls: "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" },
+  RECHAZADA: { label: "Rechazada", cls: "bg-red-500/10 text-red-400 border-red-500/30" },
+  CERRADA: { label: "Comprada", cls: "bg-blue-500/10 text-blue-400 border-blue-500/30" },
+  ARCHIVADA: { label: "Guardada", cls: "bg-purple-500/10 text-purple-300 border-purple-500/30" },
+  EXPIRADA: { label: "Vencida", cls: "bg-neutral-700/40 text-neutral-400 border-neutral-600/40" },
+};
+
+function resumenProductosCot(cot: { repuestos?: { nombre?: string }[]; vehiculos?: { repuestos_solicitados?: { nombre?: string }[] }[] }): string {
+  const nombres = [
+    ...((cot.repuestos || []).map((r) => r?.nombre).filter(Boolean)),
+    ...((cot.vehiculos || []).flatMap((v) => (v?.repuestos_solicitados || []).map((r) => r?.nombre)).filter(Boolean)),
+  ] as string[];
+  if (nombres.length === 0) return "—";
+  return nombres.slice(0, 3).join(", ") + (nombres.length > 3 ? ` +${nombres.length - 3}` : "");
+}
+
 export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targetPhone }: { sucursalFilter?: string | null; onNewMessage?: (title: string, body: string) => void; targetPhone?: string | null }) {
   const [conversaciones, setConversaciones] = useState<Conversacion[]>([]);
   const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
@@ -193,6 +212,12 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [showCotizarModal, setShowCotizarModal] = useState(false);
   const [showSoporteEditor, setShowSoporteEditor] = useState(false);
+  // Workstream A: elección corrección vs nueva aparte al re-cotizar con cotización viva.
+  const [cotizarModo, setCotizarModo] = useState<"correccion" | "nueva">("correccion");
+  // Workstream A: cotizaciones persistidas del cliente (panel "Cotizaciones de este cliente").
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [clienteCotizaciones, setClienteCotizaciones] = useState<any[]>([]);
+  const [showCotizacionesCliente, setShowCotizacionesCliente] = useState(false);
   const role = typeof window !== 'undefined' ? safeGet("jfnn_role") : null;
 
   useEffect(() => {
@@ -557,6 +582,17 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
     }
   };
 
+  // Workstream A: cotizaciones persistidas del cliente (todas: pendiente/aceptada/rechazada/...).
+  const fetchClienteCotizaciones = async (phone: string) => {
+    try {
+      const res = await api.get(`${API_URL}/api/dashboard/cotizaciones-store?phone=${phone}&t=${Date.now()}`);
+      setClienteCotizaciones(res.data?.cotizaciones || []);
+    } catch (err) {
+      console.error("[Conversaciones] Error fetching cotizaciones del cliente:", err);
+      setClienteCotizaciones([]);
+    }
+  };
+
   useEffect(() => {
     fetchConversaciones(true);
     // Bandeja: poll cada 8s (antes 4s). Reduce ~50% requests al backend sin
@@ -577,6 +613,7 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
   useEffect(() => {
     if (selectedPhone) {
       fetchChat(selectedPhone, true);
+      fetchClienteCotizaciones(selectedPhone);
       const interval = setInterval(() => fetchChat(selectedPhone, false), 4000);
       return () => clearInterval(interval);
     }
@@ -920,7 +957,7 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
                   </button>
                 )}
                 <button
-                  onClick={() => setShowCotizarModal(true)}
+                  onClick={() => { setCotizarModo("correccion"); setShowCotizarModal(true); }}
                   className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider bg-accent/15 text-accent hover:bg-accent/25 border border-accent/30 flex items-center gap-1.5 transition-colors"
                   title={["CONFIRMANDO_COMPRA", "ESPERANDO_COMPROBANTE"].includes(chat?.estado || "")
                     ? "Rectificar la cotización ya enviada (reemplaza la anterior y reenvía al cliente)"
@@ -969,6 +1006,42 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
                 </button>
               </div>
             </div>
+
+            {/* Workstream A: Cotizaciones de este cliente (panel para caja) */}
+            {clienteCotizaciones.length > 0 && (
+              <div className="border-b border-white/10 bg-white/[0.02]">
+                <button
+                  onClick={() => setShowCotizacionesCliente(v => !v)}
+                  className="w-full flex items-center justify-between px-4 py-2 hover:bg-white/[0.03] transition-colors"
+                >
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 flex items-center gap-1.5">
+                    <FileText size={12} /> Cotizaciones de este cliente ({clienteCotizaciones.length})
+                  </span>
+                  <ChevronDown size={14} className={`text-neutral-500 transition-transform ${showCotizacionesCliente ? "rotate-180" : ""}`} />
+                </button>
+                {showCotizacionesCliente && (
+                  <div className="px-4 pb-3 space-y-1.5 max-h-56 overflow-y-auto">
+                    {clienteCotizaciones.map((cot) => {
+                      const est = COT_ESTADO_STYLE[cot.estado_cotizacion] || { label: cot.estado_cotizacion, cls: "bg-neutral-700/40 text-neutral-400 border-neutral-600/40" };
+                      return (
+                        <div key={cot.quote_id} className="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] font-mono font-bold text-neutral-200">{cot.quote_id}</span>
+                            <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${est.cls}`}>{est.label}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2 mt-1">
+                            <span className="text-[10px] text-neutral-500 truncate">{resumenProductosCot(cot)}</span>
+                            <span className="text-[11px] font-bold text-emerald-400 flex-shrink-0">
+                              ${Number(cot.total_aproximado || 0).toLocaleString("es-CL")}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Banner consulta pendiente */}
             {chat?.consulta_pendiente && (() => {
@@ -1289,23 +1362,47 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
             className="bg-neutral-950 border border-white/10 rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-3 border-b border-white/10">
-              <div>
-                {["CONFIRMANDO_COMPRA", "ESPERANDO_COMPROBANTE"].includes(chat?.estado || "") ? (
-                  <>
-                    <h3 className="text-sm font-bold text-neutral-100">✏️ Rectificar cotización de {chat?.nombre_cliente || formatPhone(selectedPhone)}</h3>
-                    <p className="text-[10px] text-neutral-500 mt-0.5">Se reemplazará la cotización anterior y se reenviará al cliente.</p>
-                  </>
-                ) : (
-                  <>
-                    <h3 className="text-sm font-bold text-neutral-100">📋 Cotizar a {chat?.nombre_cliente || formatPhone(selectedPhone)}</h3>
-                    <p className="text-[10px] text-neutral-500 mt-0.5">La cotización formal se enviará al cliente. La sesión pasará a CONFIRMANDO.</p>
-                  </>
-                )}
+            <div className="px-5 py-3 border-b border-white/10">
+              <div className="flex items-center justify-between">
+                <div>
+                  {["CONFIRMANDO_COMPRA", "ESPERANDO_COMPROBANTE"].includes(chat?.estado || "") ? (
+                    <>
+                      <h3 className="text-sm font-bold text-neutral-100">🧾 Cotizar a {chat?.nombre_cliente || formatPhone(selectedPhone)}</h3>
+                      <p className="text-[10px] text-neutral-500 mt-0.5">Este cliente ya tiene una cotización viva. Elige si esto la corrige o es una nueva aparte.</p>
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="text-sm font-bold text-neutral-100">📋 Cotizar a {chat?.nombre_cliente || formatPhone(selectedPhone)}</h3>
+                      <p className="text-[10px] text-neutral-500 mt-0.5">La cotización formal se enviará al cliente. La sesión pasará a CONFIRMANDO.</p>
+                    </>
+                  )}
+                </div>
+                <button onClick={() => setShowCotizarModal(false)} className="p-1.5 hover:bg-white/10 rounded-lg">
+                  <X size={16} className="text-neutral-400" />
+                </button>
               </div>
-              <button onClick={() => setShowCotizarModal(false)} className="p-1.5 hover:bg-white/10 rounded-lg">
-                <X size={16} className="text-neutral-400" />
-              </button>
+
+              {/* Workstream A: vendedor elige corrección vs nueva aparte cuando hay cotización viva */}
+              {["CONFIRMANDO_COMPRA", "ESPERANDO_COMPROBANTE"].includes(chat?.estado || "") && (
+                <div className="mt-2.5 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCotizarModo("correccion")}
+                    className={`flex-1 text-left px-3 py-2 rounded-xl border transition-colors ${cotizarModo === "correccion" ? "border-amber-500/50 bg-amber-500/10" : "border-white/10 bg-white/[0.02] hover:border-white/20"}`}
+                  >
+                    <p className={`text-[11px] font-bold ${cotizarModo === "correccion" ? "text-amber-300" : "text-neutral-300"}`}>✏️ Corrección de la anterior</p>
+                    <p className="text-[9px] text-neutral-500 mt-0.5 leading-tight">Reemplaza la cotización vigente (-V2) y la reenvía.</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCotizarModo("nueva")}
+                    className={`flex-1 text-left px-3 py-2 rounded-xl border transition-colors ${cotizarModo === "nueva" ? "border-emerald-500/50 bg-emerald-500/10" : "border-white/10 bg-white/[0.02] hover:border-white/20"}`}
+                  >
+                    <p className={`text-[11px] font-bold ${cotizarModo === "nueva" ? "text-emerald-300" : "text-neutral-300"}`}>➕ Cotización nueva (aparte)</p>
+                    <p className="text-[9px] text-neutral-500 mt-0.5 leading-tight">Nueva cotización; conserva la anterior tal cual.</p>
+                  </button>
+                </div>
+              )}
             </div>
             <div className="flex-1 overflow-y-auto">
               <SellerActionForm
@@ -1319,10 +1416,12 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
                 motor={chat?.entidades?.motor}
                 combustible={chat?.entidades?.combustible}
                 estado={chat?.estado || undefined}
+                rectificacionOverride={["CONFIRMANDO_COMPRA", "ESPERANDO_COMPROBANTE"].includes(chat?.estado || "") ? cotizarModo === "correccion" : undefined}
                 onResponded={() => {
                   setShowCotizarModal(false);
                   fetchChat(selectedPhone, false);
                   fetchConversaciones(false);
+                  fetchClienteCotizaciones(selectedPhone);
                 }}
               />
             </div>
