@@ -395,6 +395,38 @@ router.patch('/ventas/:id/vendedor', async (req, res) => {
     }
 });
 
+/**
+ * Corregir la fecha de una venta ya cerrada (pedido).
+ * PATCH /api/dashboard/ventas/:id/fecha   Body: { fecha_venta: "YYYY-MM-DD" }
+ * Actualiza archivado_en en pedidos. No puede ser futura.
+ */
+router.patch('/ventas/:id/fecha', async (req, res) => {
+    try {
+        const id = parseInt(req.params.id, 10);
+        if (!Number.isInteger(id)) return res.status(400).json({ error: 'ID de venta inválido' });
+        const { fecha_venta } = req.body || {};
+        if (!fecha_venta) return res.status(400).json({ error: 'Falta fecha_venta' });
+        const fv = new Date(fecha_venta + 'T12:00:00');
+        if (isNaN(fv.getTime()) || fv > new Date()) {
+            return res.status(400).json({ error: 'fecha_venta inválida o futura' });
+        }
+        const { rows } = await db.query(
+            `UPDATE pedidos SET archivado_en = $1 WHERE id = $2 RETURNING id, phone, archivado_en`,
+            [fv.toISOString(), id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Venta no encontrada' });
+        console.log(`[Dashboard] 📅 Venta ${id} → archivado_en: ${fv.toISOString()}`);
+        auditService.registrarAccion({
+            req, action: 'corregir_fecha_venta', targetPhone: rows[0].phone || null,
+            detalle: { pedido_id: id, nueva_fecha: fecha_venta },
+        });
+        res.json({ success: true, venta: rows[0] });
+    } catch (error) {
+        console.error('[Dashboard] Error corrigiendo fecha de venta:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
 router.get('/metrics', async (req, res) => {
     try {
         const allowedRanges = ['hoy', '7d', '30d', 'total'];

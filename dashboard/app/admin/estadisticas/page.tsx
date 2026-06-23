@@ -80,6 +80,21 @@ export default function EstadisticasAdmin() {
     const [vendedorFilter, setVendedorFilter] = useState('');
     const [vendedores, setVendedores] = useState<Vendedor[]>([]);
     const [savingVendedor, setSavingVendedor] = useState<number | null>(null);
+    const [savingFecha, setSavingFecha] = useState<number | null>(null);
+
+    const corregirFecha = async (ventaId: number, fecha: string) => {
+        if (!fecha) return;
+        setSavingFecha(ventaId);
+        try {
+            await api.patch(`${BACKEND_URL}/api/dashboard/ventas/${ventaId}/fecha`, { fecha_venta: fecha });
+            setVentas(prev => prev.map(v => v.id === ventaId ? { ...v, archivado_en: new Date(fecha + 'T12:00:00').toISOString() } : v));
+        } catch (err) {
+            console.error('Error corrigiendo fecha:', err);
+            alert('No se pudo corregir la fecha. Intenta de nuevo.');
+        } finally {
+            setSavingFecha(null);
+        }
+    };
 
     const asignarVendedor = async (ventaId: number, nombre: string) => {
         setSavingVendedor(ventaId);
@@ -320,8 +335,21 @@ export default function EstadisticasAdmin() {
                                                     key={v.id}
                                                     className="border-t border-white/5 hover:bg-white/[0.02]"
                                                 >
-                                                    <td className="px-4 py-3 text-neutral-400">
-                                                        {new Date(v.archivado_en).toLocaleDateString("es-CL")}
+                                                    <td className="px-4 py-3">
+                                                        <input
+                                                            type="date"
+                                                            defaultValue={v.archivado_en ? v.archivado_en.slice(0, 10) : ''}
+                                                            max={new Date().toISOString().slice(0, 10)}
+                                                            disabled={savingFecha === v.id}
+                                                            onBlur={(e) => {
+                                                                const nueva = e.target.value;
+                                                                if (nueva && nueva !== v.archivado_en?.slice(0, 10)) {
+                                                                    corregirFecha(v.id, nueva);
+                                                                }
+                                                            }}
+                                                            className="bg-transparent border border-transparent hover:border-white/10 focus:border-accent/40 rounded px-1 py-0.5 text-xs text-neutral-400 focus:text-neutral-200 focus:outline-none cursor-pointer w-[110px] disabled:opacity-40"
+                                                            title="Clic para corregir la fecha de esta venta"
+                                                        />
                                                     </td>
                                                     <td className="px-4 py-3 font-mono text-neutral-300">
                                                         {v.phone}
