@@ -23,6 +23,8 @@ interface Vehiculo {
     ano: string | null;
     patente: string | null;
     vin: string | null;
+    motor?: string | null;
+    combustible?: string | null;
     repuestos_solicitados: Item[];
 }
 
@@ -186,7 +188,12 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], ma
 
     const [formItems, setFormItems] = useState<Item[]>(() => parseItems(items));
     const [formVehiculos, setFormVehiculos] = useState<Vehiculo[]>(() =>
-        vehiculos.map(v => ({ ...v, repuestos_solicitados: parseItems(v.repuestos_solicitados || []) }))
+        vehiculos.map(v => ({
+            ...v,
+            motor: v.motor || null,
+            combustible: v.combustible || null,
+            repuestos_solicitados: parseItems(v.repuestos_solicitados || [])
+        }))
     );
     const [note, setNote] = useState("");
     const [horarioEntrega, setHorarioEntrega] = useState("");
@@ -210,7 +217,8 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], ma
                 entidades: {
                     repuestos_solicitados: formVehiculos.length === 0 ? cleanItems(formItems) : null,
                     vehiculos: formVehiculos.length > 0 ? cleanVehiculos : null
-                }
+                },
+                reemplazar: formVehiculos.length > 0 ? ['vehiculos'] : []
             }).catch(console.error);
         }, 1500);
 
@@ -290,6 +298,8 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], ma
         ano: null,
         patente: null,
         vin: null,
+        motor: null,
+        combustible: null,
         repuestos_solicitados: [newEmptyItem()],
     });
 
@@ -304,6 +314,8 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], ma
                     ano: ano || null,
                     patente: patente || null,
                     vin: vin || null,
+                    motor: motor || null,
+                    combustible: combustible || null,
                     repuestos_solicitados: formItems.filter(i => i.nombre.trim() !== ""),
                 };
                 setFormItems([]);
@@ -317,7 +329,7 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], ma
         setFormVehiculos(prev => prev.filter((_, i) => i !== vIndex));
     };
 
-    const handleVehiculoFieldChange = (vIndex: number, field: "marca_modelo" | "ano", value: string) => {
+    const handleVehiculoFieldChange = (vIndex: number, field: "marca_modelo" | "ano" | "patente" | "vin" | "motor" | "combustible", value: string) => {
         setFormVehiculos(prev => {
             const newVehiculos = [...prev];
             newVehiculos[vIndex] = { ...newVehiculos[vIndex], [field]: value };
@@ -572,6 +584,8 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], ma
                                     ano={v.ano}
                                     patente={v.patente}
                                     vin={v.vin}
+                                    motor={v.motor}
+                                    combustible={v.combustible}
                                     editable
                                     onChange={(field, val) => handleVehiculoFieldChange(vIdx, field, val)}
                                     onRemove={formVehiculos.length > 1 ? () => handleRemoveVehiculo(vIdx) : undefined}

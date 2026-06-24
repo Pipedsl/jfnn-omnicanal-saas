@@ -1913,13 +1913,13 @@ router.patch('/sessions/:phone/pausa', async (req, res) => {
 router.patch('/sessions/:phone/entidades', async (req, res) => {
     try {
         const { phone } = req.params;
-        const { entidades } = req.body;
+        const { entidades, reemplazar } = req.body;
 
         if (!entidades) {
             return res.status(400).json({ error: 'El campo "entidades" es obligatorio.' });
         }
 
-        const data = await sessionsService.updateEntidades(phone, entidades);
+        const data = await sessionsService.updateEntidades(phone, entidades, { reemplazar: Array.isArray(reemplazar) ? reemplazar : [] });
         if (!data) {
             return res.status(404).json({ error: 'Sesión no encontrada o error al actualizar.' });
         }

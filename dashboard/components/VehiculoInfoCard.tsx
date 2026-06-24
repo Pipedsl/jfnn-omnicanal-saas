@@ -11,10 +11,8 @@ interface VehiculoInfoCardProps {
     motor?: string | null;
     combustible?: string | null;
     label?: string;
-    // Modo edición (opcional): permite a soporte/vendedor corregir o completar la
-    // identidad del vehículo (marca/modelo + año) desde el formulario de cotización.
     editable?: boolean;
-    onChange?: (field: "marca_modelo" | "ano", value: string) => void;
+    onChange?: (field: "marca_modelo" | "ano" | "patente" | "vin" | "motor" | "combustible", value: string) => void;
     onRemove?: () => void;
 }
 
@@ -100,13 +98,48 @@ export default function VehiculoInfoCard({ marcaModelo, ano, patente, vin, motor
                 )}
             </div>
 
-            {/* Filas label/valor */}
-            <div className="px-0.5">
-                <Row label="Patente" value={patente} copyable />
-                <Row label="VIN / Chasis" value={vin} copyable />
-                <Row label="Motor" value={motor} />
-                <Row label="Combustible" value={combustible} />
-            </div>
+            {/* Filas label/valor (read-only) o inputs (editable) */}
+            {editable ? (
+                <div className="grid grid-cols-2 gap-1.5 pt-1">
+                    <div>
+                        <label className="text-[9px] text-neutral-500 uppercase tracking-wider block mb-0.5">Patente</label>
+                        <input
+                            type="text"
+                            value={patente || ""}
+                            onChange={(e) => onChange?.("patente", e.target.value)}
+                            placeholder="ej: AABB12"
+                            className="w-full bg-neutral-900 border border-white/10 rounded px-2 py-1 text-xs text-neutral-200 focus:ring-1 focus:ring-accent focus:border-accent placeholder-neutral-600"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-[9px] text-neutral-500 uppercase tracking-wider block mb-0.5">Motor / Versión</label>
+                        <input
+                            type="text"
+                            value={motor || ""}
+                            onChange={(e) => onChange?.("motor", e.target.value)}
+                            placeholder="ej: 1.3 Gasolina"
+                            className="w-full bg-neutral-900 border border-white/10 rounded px-2 py-1 text-xs text-neutral-200 focus:ring-1 focus:ring-accent focus:border-accent placeholder-neutral-600"
+                        />
+                    </div>
+                    <div className="col-span-2">
+                        <label className="text-[9px] text-neutral-500 uppercase tracking-wider block mb-0.5">VIN / Chasis</label>
+                        <input
+                            type="text"
+                            value={vin || ""}
+                            onChange={(e) => onChange?.("vin", e.target.value)}
+                            placeholder="ej: JN1FAAE15U0..."
+                            className="w-full bg-neutral-900 border border-white/10 rounded px-2 py-1 text-xs text-neutral-200 focus:ring-1 focus:ring-accent focus:border-accent placeholder-neutral-600"
+                        />
+                    </div>
+                </div>
+            ) : (
+                <div className="px-0.5">
+                    <Row label="Patente" value={patente} copyable />
+                    <Row label="VIN / Chasis" value={vin} copyable />
+                    <Row label="Motor" value={motor} />
+                    <Row label="Combustible" value={combustible} />
+                </div>
+            )}
         </div>
     );
 }

@@ -353,13 +353,23 @@ const getSession = async (phone) => {
 };
 
 // ─── updateEntidades ─────────────────────────────────────────────
-const updateEntidades = async (phone, nuevasEntidades) => {
+const updateEntidades = async (phone, nuevasEntidades, opts = {}) => {
+    const { reemplazar = [] } = opts;
     try {
         const session = await getSession(phone);
         let entities = session.entidades || { ...INITIAL_ENTITIES };
 
         // MERGE inteligente de vehículos múltiples (HU-5)
         if (nuevasEntidades.vehiculos && Array.isArray(nuevasEntidades.vehiculos)) {
+            // Semántica REPLACE: cuando el editor manual envía el array completo, usamos
+            // reemplazo wholesale para que borrar un vehículo persista (no merge aditivo).
+            if (reemplazar.includes('vehiculos')) {
+                entities.vehiculos = nuevasEntidades.vehiculos.filter(v =>
+                    (v.marca_modelo && v.marca_modelo.trim()) ||
+                    (v.repuestos_solicitados || []).some(r => r.nombre && r.nombre.trim())
+                );
+                delete nuevasEntidades.vehiculos;
+            } else {
             if (!entities.vehiculos) entities.vehiculos = [];
             // MEJORA #4 fix: guardar las marcas que reciben patente en ESTE merge para saber cuál es la asignación reciente
             const marcasConPatenteNueva = new Set();
@@ -469,6 +479,7 @@ const updateEntidades = async (phone, nuevasEntidades) => {
             }
 
             delete nuevasEntidades.vehiculos;
+            } // fin else (merge aditivo)
         }
 
         // MEJORA #5: Auto-asignar repuestos huérfanos cuando hay exactamente 1 vehículo en la sesión
