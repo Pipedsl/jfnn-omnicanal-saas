@@ -283,6 +283,48 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], ma
         });
     };
 
+    // HOTFIX: agregar un vehículo nuevo a la cotización sin perder lo anterior.
+    // El cliente puede cotizar para un 2º auto (ej. por audio) que no quedó registrado.
+    const newEmptyVehiculo = (): Vehiculo => ({
+        marca_modelo: "",
+        ano: null,
+        patente: null,
+        vin: null,
+        repuestos_solicitados: [newEmptyItem()],
+    });
+
+    const handleAddVehiculo = () => {
+        setFormVehiculos(prev => {
+            // Si la cotización estaba en modo "plano" (sin vehiculos[]), migramos los
+            // items actuales al primer vehículo (usando la identidad ya conocida) para
+            // no perderlos, y luego agregamos el vehículo nuevo vacío.
+            if (prev.length === 0) {
+                const vehiculoOriginal: Vehiculo = {
+                    marca_modelo: marcaModelo || "",
+                    ano: ano || null,
+                    patente: patente || null,
+                    vin: vin || null,
+                    repuestos_solicitados: formItems.filter(i => i.nombre.trim() !== ""),
+                };
+                setFormItems([]);
+                return [vehiculoOriginal, newEmptyVehiculo()];
+            }
+            return [...prev, newEmptyVehiculo()];
+        });
+    };
+
+    const handleRemoveVehiculo = (vIndex: number) => {
+        setFormVehiculos(prev => prev.filter((_, i) => i !== vIndex));
+    };
+
+    const handleVehiculoFieldChange = (vIndex: number, field: "marca_modelo" | "ano", value: string) => {
+        setFormVehiculos(prev => {
+            const newVehiculos = [...prev];
+            newVehiculos[vIndex] = { ...newVehiculos[vIndex], [field]: value };
+            return newVehiculos;
+        });
+    };
+
     /**
      * Valida la consistencia de items antes de enviar.
      * Bloquea items DISPONIBLE sin precio. Avisa si la nota es negativa pero hay items disponibles.
@@ -521,33 +563,45 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], ma
                     💡 <strong>Tip:</strong> ingresa el <strong>código del producto</strong> en cada ítem disponible. Ayuda a los vendedores nuevos a aprender el catálogo y rastrear productos en el inventario.
                 </div>
                 {formVehiculos.length > 0 ? (
-                    formVehiculos.map((v, vIdx) => (
-                        <div key={vIdx} className="space-y-3 bg-neutral-900/30 p-3 rounded-xl border border-white/5">
-                            <VehiculoInfoCard
-                                label={formVehiculos.length > 1 ? `Vehículo ${vIdx + 1}` : undefined}
-                                marcaModelo={v.marca_modelo}
-                                ano={v.ano}
-                                patente={v.patente}
-                                vin={v.vin}
-                            />
-                            {v.repuestos_solicitados.map((item, rIdx) => (
-                                <RenderItemInput
-                                    key={rIdx}
-                                    item={item}
-                                    isSinStock={item.disponibilidad === "SIN_STOCK"}
-                                    onChange={(field, val) => handleVehiculoItemChange(vIdx, rIdx, field, val)}
-                                    onRemove={() => handleRemoveVehiculoItem(vIdx, rIdx)}
+                    <>
+                        {formVehiculos.map((v, vIdx) => (
+                            <div key={vIdx} className="space-y-3 bg-neutral-900/30 p-3 rounded-xl border border-white/5">
+                                <VehiculoInfoCard
+                                    label={formVehiculos.length > 1 ? `Vehículo ${vIdx + 1}` : undefined}
+                                    marcaModelo={v.marca_modelo}
+                                    ano={v.ano}
+                                    patente={v.patente}
+                                    vin={v.vin}
+                                    editable
+                                    onChange={(field, val) => handleVehiculoFieldChange(vIdx, field, val)}
+                                    onRemove={formVehiculos.length > 1 ? () => handleRemoveVehiculo(vIdx) : undefined}
                                 />
-                            ))}
-                            <button
-                                type="button"
-                                onClick={() => handleAddVehiculoItem(vIdx)}
-                                className="w-full flex items-center justify-center gap-1.5 py-2 text-[10px] text-accent/70 hover:text-accent border border-dashed border-accent/20 hover:border-accent/40 rounded-xl transition-colors"
-                            >
-                                <Plus size={12} /> Agregar repuesto
-                            </button>
-                        </div>
-                    ))
+                                {v.repuestos_solicitados.map((item, rIdx) => (
+                                    <RenderItemInput
+                                        key={rIdx}
+                                        item={item}
+                                        isSinStock={item.disponibilidad === "SIN_STOCK"}
+                                        onChange={(field, val) => handleVehiculoItemChange(vIdx, rIdx, field, val)}
+                                        onRemove={() => handleRemoveVehiculoItem(vIdx, rIdx)}
+                                    />
+                                ))}
+                                <button
+                                    type="button"
+                                    onClick={() => handleAddVehiculoItem(vIdx)}
+                                    className="w-full flex items-center justify-center gap-1.5 py-2 text-[10px] text-accent/70 hover:text-accent border border-dashed border-accent/20 hover:border-accent/40 rounded-xl transition-colors"
+                                >
+                                    <Plus size={12} /> Agregar repuesto
+                                </button>
+                            </div>
+                        ))}
+                        <button
+                            type="button"
+                            onClick={handleAddVehiculo}
+                            className="w-full flex items-center justify-center gap-1.5 py-2.5 text-[11px] font-bold text-cyan-400/80 hover:text-cyan-300 border border-dashed border-cyan-500/30 hover:border-cyan-500/50 rounded-xl transition-colors"
+                        >
+                            <Plus size={13} /> Agregar otro vehículo
+                        </button>
+                    </>
                 ) : (
                     <>
                         {(marcaModelo || ano || patente || vin || motor || combustible) && (
@@ -575,6 +629,13 @@ export default function SellerActionForm({ phone, items = [], vehiculos = [], ma
                             className="w-full flex items-center justify-center gap-1.5 py-2 text-[10px] text-accent/70 hover:text-accent border border-dashed border-accent/20 hover:border-accent/40 rounded-xl transition-colors"
                         >
                             <Plus size={12} /> Agregar repuesto
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleAddVehiculo}
+                            className="w-full flex items-center justify-center gap-1.5 py-2.5 text-[11px] font-bold text-cyan-400/80 hover:text-cyan-300 border border-dashed border-cyan-500/30 hover:border-cyan-500/50 rounded-xl transition-colors"
+                        >
+                            <Plus size={13} /> Cotizar para otro vehículo
                         </button>
                     </>
                 )}
