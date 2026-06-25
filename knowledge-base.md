@@ -57,7 +57,7 @@ Cuando el cliente elige retirar en local, SIEMPRE pregunta primero "¿En qué su
 
 ### Marcas Principales (stocks habituales)
 - **Asiáticas:** Toyota, Nissan, Hyundai, Kia, Suzuki, Daihatsu, Honda, Mitsubishi, Isuzu
-- **Estadounidenses:** Chevrolet, Ford, Jeep, GMC
+- **Estadounidenses:** Chevrolet, Jeep, GMC
 - **Chinas:** Chery, Ssangyong, Great Wall, JAC, Lifan, Brilliance
 - **Otras:** Mazda, Volkswagen, Renault, Peugeot
 
