@@ -1373,7 +1373,7 @@ const processBufferedMessages = async (customerPhone) => {
         // Inyectar historial reciente para memoria conversacional (evita perder contexto
         // tras pausa del vendedor y evita repreguntar patente/VIN/datos ya dados).
         const historialReciente = await mensajesService.listarPorPhone(customerPhone, { limit: 10 }).catch(() => []);
-        let aiJson = await geminiService.generateResponse(userText, session, imageData, audioDataList, historialReciente);
+        let aiJson = await geminiService.generateResponse(userText, session, imageData, audioDataList, historialReciente, { silencioHorario: suppressGeminiReply });
         
         // Normalización: Gemini a veces devuelve array en vez de objeto
         if (Array.isArray(aiJson)) {
@@ -1548,25 +1548,34 @@ const processBufferedMessages = async (customerPhone) => {
         const ES_FALLBACK_GEMINI = typeof finalMessage === 'string'
             && /Disculpe, tuvimos un inconveniente t[eé]cnico moment[aá]neo/i.test(finalMessage);
         if (ES_FALLBACK_GEMINI) {
-            console.warn(`[FallbackGemini] ⚠️ Gemini cayó al fallback genérico para ${customerPhone}. Marcando para atención del vendedor.`);
+            // En horario cerrado: el fallback es silencioso (suppressGeminiReply ya = true).
+            // NO pausar el agente — el cliente puede seguir enviando info y el sistema
+            // la capturará en el próximo mensaje cuando regrese de colación/fuera de horario.
+            // Pausar causaría que TODOS los mensajes siguientes sean ignorados hasta
+            // que soporte intervenga manualmente (BUG confirmado en logs).
+            const esFueraDeHorario = suppressGeminiReply;
+            console.warn(`[FallbackGemini] ⚠️ Gemini cayó al fallback genérico para ${customerPhone}. Fuera de horario: ${esFueraDeHorario}. Marcando para atención.`);
             try {
                 await sessionsService.updateEntidades(customerPhone, {
                     requiere_atencion_vendedor: true,
                     atencion_motivo: 'fallback_gemini',
                     atencion_at: new Date().toISOString(),
-                    agente_pausado: true,
+                    // Solo pausar si estamos en horario de atención: hay un agente disponible
+                    // para resolver el error. Fuera de horario no hay nadie — mantener activo.
+                    agente_pausado: !esFueraDeHorario,
                 });
-                // Si la sesión no estaba ya en ESPERANDO_VENDEDOR o estados post-cotización,
-                // bumpearla para que el vendedor la priorice en bandeja.
-                const estadosOk = [
-                    sessionsService.STATES.ESPERANDO_VENDEDOR,
-                    sessionsService.STATES.CONFIRMANDO_COMPRA,
-                    sessionsService.STATES.ESPERANDO_COMPROBANTE,
-                    sessionsService.STATES.PAGO_VERIFICADO,
-                    sessionsService.STATES.CICLO_COMPLETO,
-                ];
-                if (!estadosOk.includes(session.estado)) {
-                    session = await sessionsService.setEstado(customerPhone, sessionsService.STATES.ESPERANDO_VENDEDOR);
+                if (!esFueraDeHorario) {
+                    // En horario normal: bumpar a ESPERANDO_VENDEDOR para que el vendedor lo vea
+                    const estadosOk = [
+                        sessionsService.STATES.ESPERANDO_VENDEDOR,
+                        sessionsService.STATES.CONFIRMANDO_COMPRA,
+                        sessionsService.STATES.ESPERANDO_COMPROBANTE,
+                        sessionsService.STATES.PAGO_VERIFICADO,
+                        sessionsService.STATES.CICLO_COMPLETO,
+                    ];
+                    if (!estadosOk.includes(session.estado)) {
+                        session = await sessionsService.setEstado(customerPhone, sessionsService.STATES.ESPERANDO_VENDEDOR);
+                    }
                 }
             } catch (e) {
                 console.error('[FallbackGemini] No se pudo marcar la sesión:', e.message);

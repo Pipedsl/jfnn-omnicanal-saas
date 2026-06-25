@@ -51,12 +51,26 @@ const extractValidJSON = (text) => {
         try {
             return JSON.parse(match[0]);
         } catch (e2) {
-            // Si tiene comentarios JSON inválidos, limpiar antes de paréntesis
-            const cleaned = match[0].replace(/\/\/.*$/gm, '').replace(/,\s*\}/g, '}');
+            // Intento 3: limpiar comentarios + trailing commas
+            const cleaned = match[0]
+                .replace(/\/\/.*$/gm, '')
+                .replace(/,\s*([}\]])/g, '$1');
             try {
                 return JSON.parse(cleaned);
             } catch (e3) {
-                return null;
+                // Intento 4: el JSON puede estar truncado — intentar cerrar braces abiertos
+                try {
+                    let s = cleaned;
+                    const opens = (s.match(/\{/g) || []).length - (s.match(/\}/g) || []).length;
+                    const arrOpens = (s.match(/\[/g) || []).length - (s.match(/\]/g) || []).length;
+                    // Cerrar con coma pendiente antes de cerrar
+                    s = s.replace(/,\s*$/, '');
+                    for (let i = 0; i < arrOpens; i++) s += ']';
+                    for (let i = 0; i < opens; i++) s += '}';
+                    return JSON.parse(s);
+                } catch (e4) {
+                    return null;
+                }
             }
         }
     }
@@ -178,7 +192,7 @@ const recuperarContextoFallo = (errorMessage, sessionContext, userText, historia
     };
 };
 
-const generateResponse = async (userText, sessionContext, imageData = null, audioDataList = [], historialMensajes = []) => {
+const generateResponse = async (userText, sessionContext, imageData = null, audioDataList = [], historialMensajes = [], opts = {}) => {
     try {
         const state = sessionContext.estado;
         const hasImage = !!imageData;
@@ -643,10 +657,18 @@ ${sessionContext.entidades.metodo_pago ? `
 
                 if (parsed) {
                     if (!parsed.mensaje_cliente) {
-                        // JSON válido pero incompleto: el retry extrajo solo entidades parciales.
-                        // Sin mensaje_cliente el controller no enviaría nada al cliente → silencio.
-                        console.warn(`[Gemini] ⚠️ Retry JSON sin mensaje_cliente. Forzando fallback.`);
-                        parsed = null;
+                        if (opts.silencioHorario && parsed.entidades) {
+                            // Fuera de horario: el reply va a suprimirse de todas formas.
+                            // Si el retry extrajo entidades, úsalas — mensaje vacío es correcto.
+                            parsed.mensaje_cliente = "";
+                            jsonRetrySuccesses++;
+                            console.log(`[Gemini] ✅ Reintento exitoso en modo silencio (entidades capturadas, sin mensaje_cliente — OK fuera de horario)`);
+                        } else {
+                            // JSON válido pero incompleto: el retry extrajo solo entidades parciales.
+                            // Sin mensaje_cliente el controller no enviaría nada al cliente → silencio.
+                            console.warn(`[Gemini] ⚠️ Retry JSON sin mensaje_cliente. Forzando fallback.`);
+                            parsed = null;
+                        }
                     } else {
                         jsonRetrySuccesses++;
                         console.log(`[Gemini] ✅ Reintento exitoso (éxito #${jsonRetrySuccesses})`);
