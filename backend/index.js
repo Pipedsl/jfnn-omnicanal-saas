@@ -105,6 +105,16 @@ const server = app.listen(port, () => {
         recoverUnansweredSessions();
     }, 15_000);
 
+    // ─── Barrido periódico de recuperación ─────────────────────────
+    // Antes solo corría al arrancar → un cliente que quedaba sin respuesta a media
+    // jornada (Gemini falló bajo carga, buffer perdido, etc.) esperaba hasta el
+    // próximo redeploy y soporte lo resolvía a mano. Ahora corre cada pocos minutos:
+    // cualquier conversación con último mensaje del cliente sin respuesta se reintenta
+    // sola (la función ya filtra estado activo, no pausado y colchón de 90s).
+    const RECOVERY_SWEEP_MS = parseInt(process.env.RECOVERY_SWEEP_MS || String(3 * 60 * 1000), 10);
+    setInterval(() => { recoverUnansweredSessions(); }, RECOVERY_SWEEP_MS);
+    console.log(`[Recovery] ⏰ Barrido periódico programado cada ${RECOVERY_SWEEP_MS / 1000}s.`);
+
     // ─── Auto-Archivado de Sesiones Abandonadas ────────────────
     // Grupos (configurable por env, defaults seguros):
     //   PERFILANDO/ESPERANDO_VENDEDOR: 48h → ABANDONADO

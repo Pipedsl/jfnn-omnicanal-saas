@@ -34,6 +34,33 @@ if (!knowledgeBase) {
 let jsonParseFailures = 0;
 let jsonRetrySuccesses = 0;
 
+// ─── Limitador de concurrencia para llamadas a Gemini ───────────────────────
+// Cuando varios clientes DISTINTOS escriben a la vez, sus debounce timers expiran
+// casi simultáneamente y disparan llamadas paralelas a Gemini. Sin techo, la API
+// devuelve JSON truncado/malformado mucho más seguido bajo carga (causa raíz de
+// "no responde a todos cuando escriben varios al mismo tiempo"). Este semáforo
+// limita las llamadas concurrentes a generateResponse; el resto espera en cola
+// (no se pierden, solo se serializan parcialmente). Configurable por env.
+const GEMINI_MAX_CONCURRENT = parseInt(process.env.GEMINI_MAX_CONCURRENT || '2', 10);
+let _geminiInFlight = 0;
+const _geminiQueue = [];
+const acquireGeminiSlot = () => {
+    if (_geminiInFlight < GEMINI_MAX_CONCURRENT) {
+        _geminiInFlight++;
+        return Promise.resolve();
+    }
+    return new Promise(resolve => _geminiQueue.push(resolve));
+};
+const releaseGeminiSlot = () => {
+    const next = _geminiQueue.shift();
+    if (next) {
+        // Ceder el slot al siguiente en cola (in-flight se mantiene constante)
+        next();
+    } else {
+        _geminiInFlight = Math.max(0, _geminiInFlight - 1);
+    }
+};
+
 /**
  * MEJORA #1: Extrae JSON válido del texto de Gemini de forma robusta.
  * Si el parse directo falla, intenta extraer el primer bloque {...} balanceado.
@@ -193,6 +220,9 @@ const recuperarContextoFallo = (errorMessage, sessionContext, userText, historia
 };
 
 const generateResponse = async (userText, sessionContext, imageData = null, audioDataList = [], historialMensajes = [], opts = {}) => {
+    // Tomar un slot del semáforo: limita las llamadas paralelas a Gemini para que
+    // varios clientes simultáneos no saturen la API (evita JSON truncado bajo carga).
+    await acquireGeminiSlot();
     try {
         const state = sessionContext.estado;
         const hasImage = !!imageData;
@@ -622,8 +652,9 @@ ${sessionContext.entidades.metodo_pago ? `
             contents: [{ role: "user", parts }],
             generationConfig: {
                 response_mime_type: "application/json",
-                // Cap defensivo: el JSON del agente cabe en 800-1500 tokens.
-                maxOutputTokens: 2048,
+                // 4096: en PERFILANDO con historial + JSON multi-vehículo la salida puede
+                // pasar 2048 y truncarse → JSON inválido. Holgura para no cortar el JSON.
+                maxOutputTokens: 4096,
             }
         });
 
@@ -635,20 +666,19 @@ ${sessionContext.entidades.metodo_pago ? `
 
         if (!parsed) {
             jsonParseFailures++;
-            console.warn(`[Gemini] ⚠️ JSON parse falló (intento 1). Reintentando con prompt adicional (fallo #${jsonParseFailures})...`);
+            console.warn(`[Gemini] ⚠️ JSON parse falló (intento 1). Reintentando con prompt original (fallo #${jsonParseFailures})...`);
 
-            // Reintento silencioso: llamar a Gemini nuevamente con instrucción explícita
+            // Reintento REAL: re-llamar con el prompt/parts ORIGINALES (no el texto roto,
+            // que solo perpetuaba el fallo) y mayor presupuesto de tokens para evitar
+            // truncado. Backoff de 800ms: si el fallo fue por carga concurrente, da aire
+            // a la API antes de reintentar.
             try {
+                await new Promise(r => setTimeout(r, 800));
                 const retryResult = await model.generateContent({
-                    contents: [{
-                        role: "user",
-                        parts: [{
-                            text: "Responde ÚNICAMENTE con JSON válido, sin comentarios, sin explicación, sin texto adicional. JSON:\n\n" + text
-                        }]
-                    }],
+                    contents: [{ role: "user", parts }],
                     generationConfig: {
                         response_mime_type: "application/json",
-                        maxOutputTokens: 2048,
+                        maxOutputTokens: 4096,
                     }
                 });
 
@@ -689,6 +719,9 @@ ${sessionContext.entidades.metodo_pago ? `
     } catch (error) {
         console.error("Error en Gemini Service:", error.message);
         return recuperarContextoFallo(error.message, sessionContext, userText, historialMensajes);
+    } finally {
+        // Liberar el slot SIEMPRE (éxito, fallback o excepción) para no bloquear la cola.
+        releaseGeminiSlot();
     }
 };
 

@@ -1785,6 +1785,29 @@ const processBufferedMessages = async (customerPhone) => {
             // de Gemini ocurrió igual para extraer entidades y el bump a ESPERANDO_VENDEDOR
             // (lead capturado). Solo silenciamos el mensaje_cliente para no duplicar respuestas.
             console.log(`[Horario] 🤫 ${messagesToSend.length} mensaje(s) de Gemini suprimido(s) para ${customerPhone} (aviso de horario ya entregado).`);
+        } else if (messagesToSend.length === 0) {
+            // CAMINO SILENCIOSO: no estamos fuera de horario, pero Gemini no produjo
+            // ningún mensaje para el cliente (JSON parcial, fallo de parseo, etc.).
+            // Sin esto, el estado puede cambiar (→ ESPERANDO_VENDEDOR) pero el cliente
+            // queda en silencio total y soporte no se entera. Lo marcamos visible.
+            const ESTADOS_ESPERAN_RESPUESTA = [
+                sessionsService.STATES.PERFILANDO,
+                sessionsService.STATES.ESPERANDO_VENDEDOR,
+                sessionsService.STATES.CONFIRMANDO_COMPRA,
+                sessionsService.STATES.ESPERANDO_COMPROBANTE,
+            ];
+            if (ESTADOS_ESPERAN_RESPUESTA.includes(session.estado)) {
+                console.error(`[Silencio] ⚠️ Gemini no produjo mensaje para ${customerPhone} (estado=${session.estado}). Marcando para atención del vendedor.`);
+                try {
+                    await sessionsService.updateEntidades(customerPhone, {
+                        requiere_atencion_vendedor: true,
+                        atencion_motivo: 'sin_respuesta_ia',
+                        atencion_at: new Date().toISOString(),
+                    });
+                } catch (e) {
+                    console.error('[Silencio] No se pudo marcar la sesión:', e.message);
+                }
+            }
         } else {
             for (const msg of messagesToSend) {
                 const delayMs = Math.min(msg.length * 25, 3500);
@@ -1792,9 +1815,7 @@ const processBufferedMessages = async (customerPhone) => {
                 // 7. Enviar respuesta vía WhatsApp
                 await sendAndPersist(customerPhone, msg);
             }
-            if (messagesToSend.length > 0) {
-                await sessionsService.incrementMessageCounter(customerPhone, 'ia');
-            }
+            await sessionsService.incrementMessageCounter(customerPhone, 'ia');
         }
 
     } catch (error) {
