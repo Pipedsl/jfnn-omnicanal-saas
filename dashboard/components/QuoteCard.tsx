@@ -1265,7 +1265,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                 )}
 
                                 {estado === 'CICLO_COMPLETO' && (() => {
-                                    const esCashRetiro = entidades.metodo_pago === 'local' && esRetiro;
+                                    const esCashRetiro = esRetiro;
                                     return (
                                         <button
                                             disabled={loadingPago}
