@@ -20,7 +20,7 @@ import {
 import { BACKEND_URL } from "@/lib/api";
 import SellerActionForm from "@/components/SellerActionForm";
 
-type Range = "hoy" | "7d" | "30d" | "total";
+type Range = "hoy" | "7d" | "30d" | "total" | "custom";
 
 interface MetricsData {
     range: Range;
@@ -82,12 +82,14 @@ interface Vendedor {
     sucursal: string;
 }
 
-const RANGE_LABELS: Record<Range, string> = {
+// Presets (los 4 botones). El rango 'custom' se maneja aparte con date pickers.
+const RANGE_LABELS: Record<Exclude<Range, "custom">, string> = {
     hoy: "Hoy",
     "7d": "Últimos 7 días",
     "30d": "Últimos 30 días",
     total: "Histórico",
 };
+const rangeLabel = (r: Range) => r === "custom" ? "Personalizado" : RANGE_LABELS[r];
 
 const formatMoney = (val: number) =>
     new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(val || 0);
@@ -262,6 +264,11 @@ function DetalleVentaModal({
 
 export default function EstadisticasAdmin() {
     const [range, setRange] = useState<Range>("30d");
+    // Rango personalizado: por defecto últimos 30 días, editable por el usuario.
+    const hoyISO = new Date().toISOString().slice(0, 10);
+    const hace30 = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    const [customFrom, setCustomFrom] = useState(hace30);
+    const [customTo, setCustomTo] = useState(hoyISO);
     const [metrics, setMetrics] = useState<MetricsData | null>(null);
     const [ventas, setVentas] = useState<Venta[]>([]);
     const [loading, setLoading] = useState(true);
@@ -377,6 +384,7 @@ export default function EstadisticasAdmin() {
         if (!silent) setLoading(true);
         try {
             const params = new URLSearchParams({ range, t: String(Date.now()) });
+            if (range === 'custom') { params.set('from', customFrom); params.set('to', customTo); }
             if (sucursalFilter) params.set('sucursal', sucursalFilter);
             if (vendedorFilter) params.set('vendedor', vendedorFilter);
             if (mostrarAnuladas) params.set('incluir_anulados', '1');
@@ -392,7 +400,7 @@ export default function EstadisticasAdmin() {
         } finally {
             if (!silent) setLoading(false);
         }
-    }, [range, sucursalFilter, vendedorFilter, mostrarAnuladas]);
+    }, [range, customFrom, customTo, sucursalFilter, vendedorFilter, mostrarAnuladas]);
 
     useEffect(() => {
         fetchAll();
@@ -486,20 +494,57 @@ export default function EstadisticasAdmin() {
                             Atribución real de ventas, dinero recaudado y tiempo ahorrado por el agente.
                         </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                        {(Object.keys(RANGE_LABELS) as Range[]).map((r) => (
+                    <div className="flex flex-col items-end gap-2">
+                        <div className="flex items-center gap-2 flex-wrap justify-end">
+                            {(Object.keys(RANGE_LABELS) as Exclude<Range, "custom">[]).map((r) => (
+                                <button
+                                    key={r}
+                                    onClick={() => setRange(r)}
+                                    className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all border ${
+                                        range === r
+                                            ? "bg-accent border-accent text-white"
+                                            : "bg-white/5 border-white/10 text-neutral-500 hover:border-white/20"
+                                    }`}
+                                >
+                                    {RANGE_LABELS[r]}
+                                </button>
+                            ))}
                             <button
-                                key={r}
-                                onClick={() => setRange(r)}
+                                onClick={() => setRange("custom")}
                                 className={`px-4 py-1.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all border ${
-                                    range === r
+                                    range === "custom"
                                         ? "bg-accent border-accent text-white"
                                         : "bg-white/5 border-white/10 text-neutral-500 hover:border-white/20"
                                 }`}
                             >
-                                {RANGE_LABELS[r]}
+                                Personalizado
                             </button>
-                        ))}
+                        </div>
+                        {range === "custom" && (
+                            <div className="flex items-center gap-2 text-[11px] text-neutral-400 bg-white/5 border border-white/10 rounded-xl px-3 py-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                                <label className="flex items-center gap-1.5">
+                                    <span className="uppercase tracking-wider text-neutral-500">Desde</span>
+                                    <input
+                                        type="date"
+                                        value={customFrom}
+                                        max={customTo || hoyISO}
+                                        onChange={(e) => setCustomFrom(e.target.value)}
+                                        className="bg-neutral-900 border border-neutral-700 rounded-lg px-2 py-1 text-neutral-200 focus:border-accent/50 focus:outline-none"
+                                    />
+                                </label>
+                                <label className="flex items-center gap-1.5">
+                                    <span className="uppercase tracking-wider text-neutral-500">Hasta</span>
+                                    <input
+                                        type="date"
+                                        value={customTo}
+                                        min={customFrom}
+                                        max={hoyISO}
+                                        onChange={(e) => setCustomTo(e.target.value)}
+                                        className="bg-neutral-900 border border-neutral-700 rounded-lg px-2 py-1 text-neutral-200 focus:border-accent/50 focus:outline-none"
+                                    />
+                                </label>
+                            </div>
+                        )}
                     </div>
                 </header>
 
@@ -615,7 +660,7 @@ export default function EstadisticasAdmin() {
                                         Mostrar anuladas
                                     </label>
                                     <span className="text-xs text-neutral-500">
-                                        Mostrando {ventas.length} (rango: {RANGE_LABELS[range].toLowerCase()})
+                                        Mostrando {ventas.length} (rango: {range === 'custom' ? `${customFrom} → ${customTo}` : rangeLabel(range).toLowerCase()})
                                     </span>
                                 </div>
                             </div>

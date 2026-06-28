@@ -1110,10 +1110,21 @@ const incrementMessageCounter = async (phone, who) => {
 // Las métricas solo cuentan eventos posteriores a este momento.
 const METRICS_RESET_AT = process.env.METRICS_RESET_AT || '2026-05-27T13:00:00Z';
 
-// Mapea un rango lógico ('hoy'|'7d'|'30d'|'total') a un fragmento SQL para
+// Valida una fecha en formato YYYY-MM-DD. Solo se interpola en SQL si pasa esta
+// validación estricta (evita inyección — el resto de la query es string-built).
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const esFechaValida = (s) => typeof s === 'string' && ISO_DATE_RE.test(s) && !isNaN(new Date(s + 'T12:00:00').getTime());
+
+// Mapea un rango lógico ('hoy'|'7d'|'30d'|'total'|'custom') a un fragmento SQL para
 // filtrar por columna timestamp en zona Santiago. Aplica el cutoff global.
-const rangeToSql = (range, column) => {
+// Para 'custom' usa opts.from / opts.to (YYYY-MM-DD, ya validadas por el caller).
+const rangeToSql = (range, column, opts = {}) => {
     const resetClause = `${column} >= '${METRICS_RESET_AT}'::timestamptz`;
+    if (range === 'custom' && esFechaValida(opts.from) && esFechaValida(opts.to)) {
+        return `${column} AT TIME ZONE 'America/Santiago' >= '${opts.from} 00:00:00'::timestamp
+                AND ${column} AT TIME ZONE 'America/Santiago' <= '${opts.to} 23:59:59'::timestamp
+                AND ${resetClause}`;
+    }
     switch (range) {
         case '7d':
             return `${column} AT TIME ZONE 'America/Santiago' >= (NOW() AT TIME ZONE 'America/Santiago') - INTERVAL '7 days' AND ${resetClause}`;
@@ -1134,7 +1145,7 @@ const rangeToSql = (range, column) => {
 // invalida implícitamente por TTL.
 const METRICS_CACHE = new Map();
 const METRICS_CACHE_TTL_MS = 60 * 1000;
-const _metricsCacheKey = (range, filters) => `${range}|${filters?.sucursal || ''}|${filters?.vendedor || ''}`;
+const _metricsCacheKey = (range, filters) => `${range}|${filters?.sucursal || ''}|${filters?.vendedor || ''}|${filters?.from || ''}|${filters?.to || ''}`;
 
 // Invalidación explícita: se llama cuando una venta cambia (cierre, anulación,
 // ajuste de monto/vendedor/fecha) para que los KPIs reflejen el cambio en la
@@ -1152,8 +1163,10 @@ const getDashboardMetrics = async (range = 'hoy', filters = {}) => {
     try {
         const tiempoRespuestaSeg = parseInt(process.env.IA_TIEMPO_RESPUESTA_SEG || '30', 10);
 
-        const filtroPedidos = rangeToSql(range, 'archivado_en');
-        const filtroSesionesCreadas = rangeToSql(range, 'created_at');
+        // Opciones de rango custom (from/to) propagadas a cada fragmento SQL.
+        const rangeOpts = { from: filters.from, to: filters.to };
+        const filtroPedidos = rangeToSql(range, 'archivado_en', rangeOpts);
+        const filtroSesionesCreadas = rangeToSql(range, 'created_at', rangeOpts);
 
         // Filtros opcionales de sucursal/vendedor (parametrizados)
         const pedidosParams = [];
@@ -1206,7 +1219,7 @@ const getDashboardMetrics = async (range = 'hoy', filters = {}) => {
         const pedidosExtraOffset = pedidosExtra.replace(/\$(\d+)/g, (_, n) => `$${parseInt(n) + sesParamOffset}`);
         const iniciadasResult = await db.query(`
             SELECT
-                (SELECT COUNT(*) FROM user_sessions WHERE ${rangeToSql(range, 'created_at')}${sesionesExtra}) +
+                (SELECT COUNT(*) FROM user_sessions WHERE ${rangeToSql(range, 'created_at', rangeOpts)}${sesionesExtra}) +
                 (SELECT COUNT(*) FROM pedidos WHERE ${filtroSesionesCreadas} AND (anulado IS NULL OR anulado = FALSE)${pedidosExtraOffset}) AS total_iniciadas
         `, iniciadasParams);
 
@@ -1214,7 +1227,7 @@ const getDashboardMetrics = async (range = 'hoy', filters = {}) => {
         const sesionesIaResult = await db.query(`
             SELECT COALESCE(SUM(mensajes_ia), 0) AS mensajes_ia_sesiones
             FROM user_sessions
-            WHERE ${rangeToSql(range, 'created_at')}${sesionesExtra}
+            WHERE ${rangeToSql(range, 'created_at', rangeOpts)}${sesionesExtra}
         `, sesionesParams);
 
         // 6. Sesiones en ESPERANDO_VENDEDOR (snapshot actual)
@@ -1226,7 +1239,7 @@ const getDashboardMetrics = async (range = 'hoy', filters = {}) => {
         const clientesNuevosResult = await db.query(`
             SELECT COUNT(*)::int AS total_clientes_nuevos
             FROM clientes
-            WHERE ${rangeToSql(range, 'created_at')}
+            WHERE ${rangeToSql(range, 'created_at', rangeOpts)}
         `);
         const totalClientesNuevos = parseInt(clientesNuevosResult.rows[0].total_clientes_nuevos, 10);
 
@@ -1695,6 +1708,7 @@ module.exports = {
     removeRepuesto,
     getDashboardMetrics,
     invalidarMetricsCache,
+    esFechaValida,
     patchSellerData,
     autoArchiveStaleSessions,
     getArchivedSessionForResume,

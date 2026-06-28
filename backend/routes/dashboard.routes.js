@@ -29,9 +29,20 @@ const KNOWLEDGE_JSON_PATH = path.join(__dirname, '../data/knowledge.json');
  */
 router.get('/ventas', async (req, res) => {
     try {
-        const allowedRanges = ['hoy', '7d', '30d', 'total'];
-        const range = allowedRanges.includes(req.query.range) ? req.query.range : '30d';
+        const allowedRanges = ['hoy', '7d', '30d', 'total', 'custom'];
+        let range = allowedRanges.includes(req.query.range) ? req.query.range : '30d';
         const limit = Math.min(parseInt(req.query.limit, 10) || 20, 100);
+
+        // Rango personalizado: from/to YYYY-MM-DD validados. Si inválidos → '30d'.
+        let from = null, to = null;
+        if (range === 'custom') {
+            if (sessionsService.esFechaValida(req.query.from) && sessionsService.esFechaValida(req.query.to)) {
+                from = req.query.from; to = req.query.to;
+                if (from > to) { const tmp = from; from = to; to = tmp; }
+            } else {
+                range = '30d';
+            }
+        }
 
         const METRICS_RESET_AT = process.env.METRICS_RESET_AT || '2026-05-27T13:00:00Z';
         const resetClause = `archivado_en >= '${METRICS_RESET_AT}'::timestamptz`;
@@ -39,6 +50,7 @@ router.get('/ventas', async (req, res) => {
             switch (range) {
                 case 'hoy': return `DATE(archivado_en AT TIME ZONE 'America/Santiago') = DATE(NOW() AT TIME ZONE 'America/Santiago') AND ${resetClause}`;
                 case '7d': return `archivado_en AT TIME ZONE 'America/Santiago' >= (NOW() AT TIME ZONE 'America/Santiago') - INTERVAL '7 days' AND ${resetClause}`;
+                case 'custom': return `archivado_en AT TIME ZONE 'America/Santiago' >= '${from} 00:00:00'::timestamp AND archivado_en AT TIME ZONE 'America/Santiago' <= '${to} 23:59:59'::timestamp AND ${resetClause}`;
                 case 'total': return resetClause;
                 case '30d':
                 default: return `archivado_en AT TIME ZONE 'America/Santiago' >= (NOW() AT TIME ZONE 'America/Santiago') - INTERVAL '30 days' AND ${resetClause}`;
@@ -534,11 +546,21 @@ router.patch('/ventas/:id/documento', requireAdmin, async (req, res) => {
 
 router.get('/metrics', async (req, res) => {
     try {
-        const allowedRanges = ['hoy', '7d', '30d', 'total'];
-        const range = allowedRanges.includes(req.query.range) ? req.query.range : 'hoy';
+        const allowedRanges = ['hoy', '7d', '30d', 'total', 'custom'];
+        let range = allowedRanges.includes(req.query.range) ? req.query.range : 'hoy';
         const sucursal = req.query.sucursal || null;
         const vendedor = req.query.vendedor || null;
-        const metrics = await sessionsService.getDashboardMetrics(range, { sucursal, vendedor });
+        // Rango personalizado: from/to en YYYY-MM-DD. Si vienen inválidos, degradar a 'total'.
+        let from = null, to = null;
+        if (range === 'custom') {
+            if (sessionsService.esFechaValida(req.query.from) && sessionsService.esFechaValida(req.query.to)) {
+                from = req.query.from; to = req.query.to;
+                if (from > to) { const tmp = from; from = to; to = tmp; } // tolerar orden invertido
+            } else {
+                range = 'total';
+            }
+        }
+        const metrics = await sessionsService.getDashboardMetrics(range, { sucursal, vendedor, from, to });
         res.status(200).json(metrics);
     } catch (error) {
         console.error('Error obteniendo métricas:', error);
