@@ -323,6 +323,115 @@ router.get('/soporte/ventas-sin-cerrar', requireSoporte, async (req, res) => {
 });
 
 /**
+ * [SOPORTE] Reporte de productos solicitados (pesquisa de stock).
+ * GET /api/dashboard/soporte/productos-solicitados
+ * Agrega los repuestos pedidos por los clientes (sesiones activas + ventas cerradas,
+ * root y por vehículo), agrupados por nombre normalizado. Permite ver qué se pide y
+ * NO hay en stock para decidir compras. La clasificación/filtro (sin_stock/con_stock/
+ * todos) se hace en el frontend con el desglose que devolvemos por producto.
+ */
+router.get('/soporte/productos-solicitados', requireSoporte, async (req, res) => {
+    try {
+        // Normaliza el nombre para agrupar: minúsculas, sin anotación entre paréntesis
+        // (suelen ser el vehículo), espacios colapsados. Clave de agrupación.
+        const normalizar = (nombre) => String(nombre || '')
+            .toLowerCase()
+            .replace(/\([^)]*\)/g, ' ')
+            .replace(/[^\w áéíóúñ]/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        const sucursal = req.query.sucursal || null;
+
+        // Fuentes: sesiones activas + pedidos no anulados.
+        const sesParams = [];
+        let sesWhere = "entidades IS NOT NULL";
+        if (sucursal) { sesParams.push(sucursal); sesWhere += ` AND sucursal = $${sesParams.length}`; }
+        const pedParams = [];
+        let pedWhere = "(anulado IS NULL OR anulado = FALSE)";
+        if (sucursal) { pedParams.push(sucursal); pedWhere += ` AND sucursal = $${pedParams.length}`; }
+
+        const [sesiones, pedidos] = await Promise.all([
+            db.query(`SELECT phone, entidades, ultimo_mensaje FROM user_sessions WHERE ${sesWhere}`, sesParams),
+            db.query(`SELECT phone, repuestos, entidades_completas, archivado_en FROM pedidos WHERE ${pedWhere}`, pedParams),
+        ]);
+
+        const mapa = new Map(); // clave normalizada -> agregado
+        const acumular = (rep, vehiculoNombre, fecha, origen) => {
+            if (!rep || !rep.nombre || !String(rep.nombre).trim()) return;
+            const clave = normalizar(rep.nombre);
+            if (!clave) return;
+            let agg = mapa.get(clave);
+            if (!agg) {
+                agg = {
+                    nombre: String(rep.nombre).trim(),
+                    total_solicitudes: 0,
+                    cantidad_total: 0,
+                    disponible: 0,
+                    sin_stock: 0,
+                    por_encargo: 0,
+                    sin_clasificar: 0,
+                    vehiculos: new Set(),
+                    ultima_solicitud: null,
+                    en_activas: 0,
+                    en_cerradas: 0,
+                };
+                mapa.set(clave, agg);
+            }
+            agg.total_solicitudes += 1;
+            agg.cantidad_total += Number(rep.cantidad) || 1;
+            const disp = (rep.disponibilidad || '').toUpperCase();
+            if (disp === 'SIN_STOCK') agg.sin_stock += 1;
+            else if (disp === 'POR_ENCARGO') agg.por_encargo += 1;
+            else if (disp === 'DISPONIBLE') agg.disponible += 1;
+            else agg.sin_clasificar += 1;
+            if (vehiculoNombre) agg.vehiculos.add(vehiculoNombre);
+            if (origen === 'activa') agg.en_activas += 1; else agg.en_cerradas += 1;
+            if (fecha && (!agg.ultima_solicitud || new Date(fecha) > new Date(agg.ultima_solicitud))) {
+                agg.ultima_solicitud = fecha;
+            }
+        };
+
+        // Extrae repuestos de una entidad (root + vehiculos[]) y los acumula.
+        const procesarEntidades = (e, fecha, origen) => {
+            if (!e || typeof e !== 'object') return;
+            const marcaRoot = e.marca_modelo || null;
+            (Array.isArray(e.repuestos_solicitados) ? e.repuestos_solicitados : [])
+                .forEach(r => acumular(r, marcaRoot, fecha, origen));
+            (Array.isArray(e.vehiculos) ? e.vehiculos : []).forEach(v => {
+                const vNombre = v.marca_modelo || marcaRoot || null;
+                (Array.isArray(v.repuestos_solicitados) ? v.repuestos_solicitados : [])
+                    .forEach(r => acumular(r, vNombre, fecha, origen));
+            });
+        };
+
+        sesiones.rows.forEach(row => procesarEntidades(row.entidades, row.ultimo_mensaje, 'activa'));
+        pedidos.rows.forEach(row => {
+            // pedidos.entidades_completas tiene la estructura completa; si falta, usar repuestos root.
+            if (row.entidades_completas) {
+                procesarEntidades(row.entidades_completas, row.archivado_en, 'cerrada');
+            } else if (Array.isArray(row.repuestos)) {
+                row.repuestos.forEach(r => acumular(r, null, row.archivado_en, 'cerrada'));
+            }
+        });
+
+        const productos = Array.from(mapa.values())
+            .map(a => ({ ...a, vehiculos: Array.from(a.vehiculos).slice(0, 8) }))
+            .sort((a, b) => b.total_solicitudes - a.total_solicitudes);
+
+        res.json({
+            total_productos: productos.length,
+            total_solicitudes: productos.reduce((acc, p) => acc + p.total_solicitudes, 0),
+            generado_en: new Date().toISOString(),
+            productos,
+        });
+    } catch (error) {
+        console.error('[Dashboard] Error en productos-solicitados:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+/**
  * [SOPORTE] Cerrar una venta manualmente → ENTREGADO (o DESPACHADO) → KPIs + gracias/reseña.
  * POST /api/dashboard/soporte/cerrar-venta
  * Body: { phone, items?, total?, vendedor_nombre?, metodo_entrega?, enviar_resena?, motivo? }
