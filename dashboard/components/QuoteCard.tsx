@@ -183,6 +183,14 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
     const [isPaused, setIsPaused] = useState(entidades.agente_pausado || false);
     const [loadingPausa, setLoadingPausa] = useState(false);
 
+    // Selección de logística para soporte: controla si al cerrar se va a ENTREGADO (retira)
+    // o al flujo de despacho (envía). Default según lo capturado; si vino nulo, asume retiro
+    // (pago presencial en caja → el cliente está físicamente en el local).
+    const [entregaSel, setEntregaSel] = useState<'retiro' | 'envio'>(
+        (entidades.metodo_entrega === 'domicilio' || entidades.metodo_entrega === 'envio') ? 'envio' : 'retiro'
+    );
+    const [guardandoEntrega, setGuardandoEntrega] = useState(false);
+
     const repuestos = Array.isArray(entidades.repuestos_solicitados) ? entidades.repuestos_solicitados : [];
     const vehiculos = Array.isArray(entidades.vehiculos) ? entidades.vehiculos : [];
     const esEnvio = entidades.metodo_entrega === 'domicilio' || entidades.metodo_entrega === 'envio';
@@ -618,7 +626,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                       <p className="text-xs font-bold text-yellow-400 mb-0.5">Sub-flujo: Por Encargo</p>
                                       <p className="text-xs text-neutral-400 leading-relaxed">
                                         Esta cotización tiene repuestos por encargo. El cliente debe pagar abono por transferencia,
-                                        luego solicitas al proveedor. Cuando llegue, marcas "Encargo recibido" y el cliente paga el saldo.
+                                        luego solicitas al proveedor. Cuando llegue, marcas &quot;Encargo recibido&quot; y el cliente paga el saldo.
                                       </p>
                                     </div>
                                   </div>
@@ -849,7 +857,32 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                             )}
 
                             {/* Logística */}
-                            {(entidades.metodo_pago || entidades.metodo_entrega) && (
+                            {(() => {
+                                const ESTADOS_POST_COTIZACION = ['CONFIRMANDO_COMPRA', 'ESPERANDO_COMPROBANTE', 'ESPERANDO_APROBACION_ADMIN', 'PAGO_VERIFICADO', 'CICLO_COMPLETO', 'ABONO_VERIFICADO', 'ENCARGO_SOLICITADO', 'ESPERANDO_SALDO', 'ESPERANDO_RETIRO', 'DESPACHADO'];
+                                const mostrarLogistica = entidades.metodo_pago || entidades.metodo_entrega || ESTADOS_POST_COTIZACION.includes(estado);
+                                if (!mostrarLogistica) return null;
+                                // Soporte/admin pueden corregir el método de entrega antes de despachar.
+                                // En CICLO_COMPLETO no editamos aquí: el selector del botón de pago es el decisivo.
+                                const entregaEditable = (role === 'soporte' || role === 'admin') && !pedidoId && !isEditing
+                                    && ['CONFIRMANDO_COMPRA', 'ESPERANDO_COMPROBANTE', 'ESPERANDO_APROBACION_ADMIN', 'PAGO_VERIFICADO'].includes(estado);
+                                const esDomicilio = entidades.metodo_entrega === 'domicilio' || entidades.metodo_entrega === 'envio';
+                                const setEntrega = async (valor: 'retiro' | 'domicilio') => {
+                                    if (guardandoEntrega) return;
+                                    const actual = esDomicilio ? 'domicilio' : 'retiro';
+                                    if (valor === actual && entidades.metodo_entrega) return;
+                                    setGuardandoEntrega(true);
+                                    try {
+                                        await api.patch(`${BACKEND_URL}/api/dashboard/sessions/${phone}/entidades`, {
+                                            entidades: { metodo_entrega: valor },
+                                        });
+                                        onResponded();
+                                    } catch {
+                                        alert('No se pudo actualizar el método de entrega.');
+                                    } finally {
+                                        setGuardandoEntrega(false);
+                                    }
+                                };
+                                return (
                                 <div className="bg-white/5 border border-white/5 rounded-xl p-4">
                                     <div className="flex items-center gap-1.5 text-neutral-500 mb-3">
                                         <Truck size={14} className="text-accent" />
@@ -858,9 +891,32 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                     <div className="grid grid-cols-2 gap-3">
                                         <div className="space-y-1">
                                             <p className="text-xs text-neutral-500 uppercase font-bold">Método Entrega</p>
-                                            <p className="text-xs text-neutral-300">
-                                                {entidades.metodo_entrega === 'domicilio' ? '🏠 Envío a Domicilio' : '🏪 Retiro en Local'}
-                                            </p>
+                                            {entregaEditable ? (
+                                                <div className="grid grid-cols-2 gap-1.5 pt-0.5" role="group" aria-label="Método de entrega">
+                                                    <button
+                                                        type="button"
+                                                        aria-pressed={!esDomicilio}
+                                                        disabled={guardandoEntrega}
+                                                        onClick={() => setEntrega('retiro')}
+                                                        className={`py-1.5 rounded-lg text-[11px] font-bold transition-colors disabled:opacity-50 ${!esDomicilio ? 'bg-pink-500 text-white' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}`}
+                                                    >
+                                                        🏪 Retiro
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        aria-pressed={esDomicilio}
+                                                        disabled={guardandoEntrega}
+                                                        onClick={() => setEntrega('domicilio')}
+                                                        className={`py-1.5 rounded-lg text-[11px] font-bold transition-colors disabled:opacity-50 ${esDomicilio ? 'bg-teal-500 text-white' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}`}
+                                                    >
+                                                        🏠 Envío
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <p className="text-xs text-neutral-300">
+                                                    {esDomicilio ? '🏠 Envío a Domicilio' : '🏪 Retiro en Local'}
+                                                </p>
+                                            )}
                                         </div>
                                         <div className="space-y-1">
                                             <p className="text-xs text-neutral-500 uppercase font-bold">Método Pago</p>
@@ -868,7 +924,7 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                                 {entidades.metodo_pago === 'online' ? '💳 Transferencia/Link' : entidades.metodo_pago === 'local' ? '💵 Efectivo/Débito' : 'Pendiente'}
                                             </p>
                                         </div>
-                                        {entidades.metodo_entrega === 'domicilio' && (
+                                        {esDomicilio && (
                                             <div className="space-y-1 col-span-2">
                                                 <p className="text-xs text-neutral-500 uppercase font-bold">Dirección de Despacho</p>
                                                 <p className={`text-xs p-2 rounded-lg border ${entidades.direccion_envio ? 'text-neutral-300 bg-accent/5 border-accent/20' : 'text-yellow-500 bg-yellow-500/5 border-yellow-500/20'}`}>
@@ -878,7 +934,8 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                         )}
                                     </div>
                                 </div>
-                            )}
+                                );
+                            })()}
 
                             {/* Datos Factura */}
                             {entidades.tipo_documento === 'factura' && entidades.datos_factura?.rut && (
@@ -1265,41 +1322,74 @@ export default function QuoteCard({ phone, estado, entidades, sucursal, ultimoMe
                                 )}
 
                                 {estado === 'CICLO_COMPLETO' && (() => {
-                                    const esCashRetiro = esRetiro;
+                                    const retira = entregaSel === 'retiro';
                                     return (
-                                        <button
-                                            disabled={loadingPago}
-                                            onClick={async () => {
-                                                const confirmMsg = esCashRetiro
-                                                    ? `¿Confirmas que ${entidades.nombre_cliente || 'el cliente'} pagó en caja y retiró los productos? La venta se cerrará y se enviará la solicitud de reseña.`
-                                                    : `¿Confirmas que se recibió el pago presencial en caja${entidades.nombre_cliente ? ` de ${entidades.nombre_cliente}` : ''}? El sistema avanzará al flujo de logística.`;
-                                                if (!confirm(confirmMsg)) return;
-                                                setLoadingPago(true);
-                                                try {
-                                                    // Cash+retiro: el cliente está físicamente en el local al pagar,
-                                                    // paga y retira en el mismo momento → cerramos la venta en un click.
-                                                    // Otros casos (ej. cash+domicilio): avanzar a PAGO_VERIFICADO para que el vendedor abra el modal de logística.
-                                                    const payload = esCashRetiro
-                                                        ? { phone, estado: 'ENTREGADO', notify: true }
-                                                        : { phone, estado: 'PAGO_VERIFICADO', notify: false };
-                                                    const res = await api.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, payload);
-                                                    if (esCashRetiro) {
-                                                        setCierreModal({ vendedor: res.data?.vendedor_cotizo || null });
-                                                    } else {
-                                                        closeModal();
-                                                        onResponded();
+                                        <div className="w-full space-y-2">
+                                            {/* Selector de logística — soporte decide explícitamente el destino del producto */}
+                                            <div className="rounded-xl border border-white/10 bg-white/5 p-2.5">
+                                                <p className="text-[10px] font-bold uppercase tracking-widest text-neutral-400 mb-2 flex items-center gap-1.5">
+                                                    <Truck size={12} /> ¿Cómo recibe el cliente el producto?
+                                                </p>
+                                                <div className="grid grid-cols-2 gap-2" role="group" aria-label="Método de entrega">
+                                                    <button
+                                                        type="button"
+                                                        aria-pressed={retira}
+                                                        disabled={loadingPago}
+                                                        onClick={() => setEntregaSel('retiro')}
+                                                        className={`py-2 rounded-lg text-xs font-bold transition-colors disabled:opacity-50 ${retira ? 'bg-pink-500 text-white ring-1 ring-pink-400' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}`}
+                                                    >
+                                                        🏪 Retira en local
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        aria-pressed={!retira}
+                                                        disabled={loadingPago}
+                                                        onClick={() => setEntregaSel('envio')}
+                                                        className={`py-2 rounded-lg text-xs font-bold transition-colors disabled:opacity-50 ${!retira ? 'bg-teal-500 text-white ring-1 ring-teal-400' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}`}
+                                                    >
+                                                        🏠 Se envía
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <button
+                                                disabled={loadingPago}
+                                                onClick={async () => {
+                                                    const confirmMsg = retira
+                                                        ? `¿Confirmas que ${entidades.nombre_cliente || 'el cliente'} pagó en caja y retiró los productos? La venta se cerrará y se enviará la solicitud de reseña.`
+                                                        : `¿Confirmas que se recibió el pago presencial en caja${entidades.nombre_cliente ? ` de ${entidades.nombre_cliente}` : ''}? El pedido pasará al flujo de despacho a domicilio.`;
+                                                    if (!confirm(confirmMsg)) return;
+                                                    setLoadingPago(true);
+                                                    try {
+                                                        // Persistir el método de entrega elegido por soporte para que el
+                                                        // resto del flujo (modal de logística, dirección) quede consistente.
+                                                        await api.patch(`${BACKEND_URL}/api/dashboard/sessions/${phone}/entidades`, {
+                                                            entidades: { metodo_entrega: retira ? 'retiro' : 'domicilio' },
+                                                        });
+                                                        // Retira: el cliente está físicamente en el local al pagar → cerramos la venta en un click.
+                                                        // Envía: avanzar a PAGO_VERIFICADO para que el vendedor abra el modal de logística/despacho.
+                                                        const payload = retira
+                                                            ? { phone, estado: 'ENTREGADO', notify: true }
+                                                            : { phone, estado: 'PAGO_VERIFICADO', notify: false };
+                                                        const res = await api.patch(`${BACKEND_URL}/api/dashboard/cotizaciones/estado`, payload);
+                                                        if (retira) {
+                                                            setCierreModal({ vendedor: res.data?.vendedor_cotizo || null });
+                                                        } else {
+                                                            closeModal();
+                                                            onResponded();
+                                                        }
+                                                    } catch (error) {
+                                                        console.error("Error confirmando pago presencial:", error);
+                                                        alert("No se pudo confirmar el pago.");
+                                                    } finally {
+                                                        setLoadingPago(false);
                                                     }
-                                                } catch (error) {
-                                                    console.error("Error confirmando pago presencial:", error);
-                                                    alert("No se pudo confirmar el pago.");
-                                                } finally {
-                                                    setLoadingPago(false);
-                                                }
-                                            }}
-                                            className="flex-1 py-2 rounded-xl bg-pink-500 text-white text-xs font-bold hover:bg-pink-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 animate-pulse"
-                                        >
-                                            <CheckCircle size={14} /> {loadingPago ? 'Procesando...' : (esCashRetiro ? '✅ Confirmar Pago y Cerrar Venta' : '✅ Confirmar Pago Recibido en Caja')}
-                                        </button>
+                                                }}
+                                                className="w-full py-2.5 rounded-xl bg-pink-500 text-white text-xs font-bold hover:bg-pink-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                                            >
+                                                <CheckCircle size={14} /> {loadingPago ? 'Procesando...' : (retira ? '✅ Confirmar Pago y Cerrar Venta' : '✅ Confirmar Pago y Pasar a Despacho')}
+                                            </button>
+                                        </div>
                                     );
                                 })()}
 
