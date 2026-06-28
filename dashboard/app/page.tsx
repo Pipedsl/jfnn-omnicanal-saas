@@ -78,6 +78,21 @@ export default function Home() {
     }
   }, []);
 
+  // Deep-link al chat: estadísticas (y otras vistas) navegan a /?chat=<phone> para
+  // abrir directo la conversación de ese cliente. Lo leemos al montar y limpiamos
+  // la URL para que un refresh no re-abra el chat.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const chatPhone = params.get('chat');
+    if (chatPhone) {
+      setChatTargetPhone(chatPhone);
+      setView('conversaciones');
+      const url = new URL(window.location.href);
+      url.searchParams.delete('chat');
+      window.history.replaceState({}, '', url.toString());
+    }
+  }, []);
+
   const handleLogout = async () => {
     await fetch('/api/logout', { method: 'POST' });
     safeRemove('jfnn_role');

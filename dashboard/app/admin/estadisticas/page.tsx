@@ -12,6 +12,10 @@ import {
     Zap,
     MessageSquare,
     Users,
+    MessageCircle,
+    Eye,
+    Receipt,
+    X,
 } from "lucide-react";
 import { BACKEND_URL } from "@/lib/api";
 import SellerActionForm from "@/components/SellerActionForm";
@@ -64,6 +68,10 @@ interface Venta {
     anulado: boolean;
     anulado_motivo: string | null;
     anulado_por: string | null;
+    numero_documento: string | null;
+    tipo_documento_emitido: string | null;
+    documento_registrado_por: string | null;
+    documento_registrado_at: string | null;
     repuestos: RepuestoItem[] | null;
     entidades_completas: EntidadesCompletas | null;
 }
@@ -92,6 +100,166 @@ const formatTiempo = (mins: number) => {
     return `${(horas / 24).toFixed(1)} días`;
 };
 
+function DetalleVentaModal({
+    venta,
+    onClose,
+    onGuardarDoc,
+    savingDoc,
+}: {
+    venta: Venta;
+    onClose: () => void;
+    onGuardarDoc: (ventaId: number, numero: string, tipo: 'boleta' | 'factura') => Promise<void>;
+    savingDoc: boolean;
+}) {
+    const [numDoc, setNumDoc] = useState(venta.numero_documento || "");
+    const [tipoDoc, setTipoDoc] = useState<'boleta' | 'factura'>(
+        venta.tipo_documento_emitido === 'factura' ? 'factura' : 'boleta'
+    );
+
+    // Reúne los repuestos desde root + vehiculos (igual que el editor)
+    const ec = venta.entidades_completas;
+    const repuestosRoot = ec?.repuestos_solicitados || venta.repuestos || [];
+    const vehiculos = ec?.vehiculos || [];
+    const sinCambios = (numDoc.trim() === (venta.numero_documento || "")) && (tipoDoc === (venta.tipo_documento_emitido || 'boleta'));
+
+    const fmtFecha = (iso: string | null) => iso
+        ? new Date(iso).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })
+        : '—';
+
+    return (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={onClose}>
+            <div
+                className="bg-neutral-900 border border-white/10 rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Header */}
+                <div className="flex items-center justify-between p-5 border-b border-white/10 sticky top-0 bg-neutral-900 z-10">
+                    <div>
+                        <h3 className="font-bold text-lg flex items-center gap-2">
+                            Detalle de venta
+                            {venta.quote_id && <span className="text-xs font-mono text-accent bg-accent/10 px-2 py-0.5 rounded">#{venta.quote_id}</span>}
+                        </h3>
+                        <p className="text-xs text-neutral-500 mt-0.5">Pedido #{venta.id} · {venta.sucursal || 'Sin sucursal'} · {venta.estado_final}</p>
+                    </div>
+                    <button onClick={onClose} className="text-neutral-400 hover:text-white p-1" aria-label="Cerrar">
+                        <X size={20} />
+                    </button>
+                </div>
+
+                <div className="p-5 space-y-4">
+                    {/* Cliente + chat */}
+                    <div className="flex items-center justify-between bg-white/5 rounded-xl p-3">
+                        <div>
+                            <p className="text-[10px] uppercase tracking-wider text-neutral-500">Cliente</p>
+                            <p className="font-mono text-neutral-200">{venta.phone}</p>
+                        </div>
+                        <Link
+                            href={`/?chat=${venta.phone}`}
+                            className="inline-flex items-center gap-1.5 text-xs bg-accent/10 hover:bg-accent/20 text-accent px-3 py-1.5 rounded-lg transition-colors"
+                        >
+                            <MessageCircle size={14} /> Abrir chat
+                        </Link>
+                    </div>
+
+                    {/* Vehículo */}
+                    <div className="bg-white/5 rounded-xl p-3">
+                        <p className="text-[10px] uppercase tracking-wider text-neutral-500 mb-1">Vehículo</p>
+                        <p className="text-neutral-200">{venta.marca_modelo || '—'} {venta.ano && <span className="text-neutral-500">{venta.ano}</span>}</p>
+                    </div>
+
+                    {/* Repuestos */}
+                    <div className="bg-white/5 rounded-xl p-3">
+                        <p className="text-[10px] uppercase tracking-wider text-neutral-500 mb-2">Repuestos</p>
+                        <div className="space-y-1.5">
+                            {repuestosRoot.length === 0 && vehiculos.length === 0 && (
+                                <p className="text-xs text-neutral-500 italic">Sin repuestos registrados</p>
+                            )}
+                            {repuestosRoot.map((r, i) => (
+                                <div key={`r-${i}`} className="flex items-center justify-between text-sm">
+                                    <span className="text-neutral-300">{r.cantidad && r.cantidad > 1 ? `${r.cantidad}× ` : ''}{r.nombre}{r.codigo ? <span className="text-neutral-600 text-xs ml-1">({r.codigo})</span> : ''}</span>
+                                    <span className="text-green-400 font-medium">{r.precio != null ? formatMoney(Number(String(r.precio).replace(/[^\d]/g, ''))) : '—'}</span>
+                                </div>
+                            ))}
+                            {vehiculos.map((veh, vi) => (
+                                <div key={`v-${vi}`} className="pt-1">
+                                    {veh.marca_modelo && <p className="text-[11px] text-neutral-500">{veh.marca_modelo} {veh.ano || ''}</p>}
+                                    {(veh.repuestos_solicitados || []).map((r, i) => (
+                                        <div key={`v-${vi}-r-${i}`} className="flex items-center justify-between text-sm">
+                                            <span className="text-neutral-300">{r.cantidad && r.cantidad > 1 ? `${r.cantidad}× ` : ''}{r.nombre}{r.codigo ? <span className="text-neutral-600 text-xs ml-1">({r.codigo})</span> : ''}</span>
+                                            <span className="text-green-400 font-medium">{r.precio != null ? formatMoney(Number(String(r.precio).replace(/[^\d]/g, ''))) : '—'}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            ))}
+                        </div>
+                        <div className="flex items-center justify-between mt-3 pt-2 border-t border-white/10">
+                            <span className="text-xs uppercase tracking-wider text-neutral-500">Total</span>
+                            <span className="text-lg font-bold text-green-400">{formatMoney(venta.total_cotizacion)}</span>
+                        </div>
+                    </div>
+
+                    {/* Métricas */}
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="bg-white/5 rounded-xl p-2.5">
+                            <p className="text-[10px] uppercase tracking-wider text-neutral-500">Vendedor</p>
+                            <p className="text-sm text-neutral-200 truncate">{venta.vendedor_nombre || '—'}</p>
+                        </div>
+                        <div className="bg-white/5 rounded-xl p-2.5">
+                            <p className="text-[10px] uppercase tracking-wider text-neutral-500">Duración</p>
+                            <p className="text-sm text-neutral-200">{formatTiempo(venta.duracion_min)}</p>
+                        </div>
+                        <div className="bg-white/5 rounded-xl p-2.5">
+                            <p className="text-[10px] uppercase tracking-wider text-neutral-500">Msgs IA / Vend.</p>
+                            <p className="text-sm text-neutral-200"><span className="text-cyan-400">{venta.mensajes_ia}</span> / <span className="text-purple-400">{venta.mensajes_vendedor}</span></p>
+                        </div>
+                    </div>
+
+                    {/* Registro boleta/factura */}
+                    <div className="bg-accent/5 border border-accent/20 rounded-xl p-4">
+                        <p className="text-xs font-bold uppercase tracking-wider text-accent mb-3 flex items-center gap-1.5">
+                            <Receipt size={14} /> Documento tributario
+                        </p>
+                        <div className="flex flex-col sm:flex-row gap-2">
+                            <div className="flex rounded-lg overflow-hidden border border-white/10 shrink-0">
+                                <button
+                                    type="button"
+                                    onClick={() => setTipoDoc('boleta')}
+                                    className={`px-3 py-2 text-xs font-bold transition-colors ${tipoDoc === 'boleta' ? 'bg-accent text-white' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}`}
+                                >Boleta</button>
+                                <button
+                                    type="button"
+                                    onClick={() => setTipoDoc('factura')}
+                                    className={`px-3 py-2 text-xs font-bold transition-colors ${tipoDoc === 'factura' ? 'bg-accent text-white' : 'bg-neutral-800 text-neutral-400 hover:bg-neutral-700'}`}
+                                >Factura</button>
+                            </div>
+                            <input
+                                type="text"
+                                value={numDoc}
+                                onChange={(e) => setNumDoc(e.target.value)}
+                                placeholder="N° de documento (ej: 12345)"
+                                className="flex-1 bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-white placeholder-neutral-600 focus:border-accent/50 focus:outline-none"
+                            />
+                            <button
+                                type="button"
+                                disabled={savingDoc || sinCambios}
+                                onClick={() => onGuardarDoc(venta.id, numDoc.trim(), tipoDoc)}
+                                className="px-4 py-2 rounded-lg bg-accent text-white text-sm font-bold hover:bg-accent/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0"
+                            >
+                                {savingDoc ? 'Guardando...' : 'Guardar'}
+                            </button>
+                        </div>
+                        {venta.numero_documento && (
+                            <p className="text-[11px] text-neutral-500 mt-2">
+                                Registrado por {venta.documento_registrado_por || '?'} · {fmtFecha(venta.documento_registrado_at)}
+                            </p>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export default function EstadisticasAdmin() {
     const [range, setRange] = useState<Range>("30d");
     const [metrics, setMetrics] = useState<MetricsData | null>(null);
@@ -105,6 +273,7 @@ export default function EstadisticasAdmin() {
     const [anulando, setAnulando] = useState<number | null>(null);
     const [mostrarAnuladas, setMostrarAnuladas] = useState(false);
     const [editando, setEditando] = useState<Venta | null>(null);
+    const [detalle, setDetalle] = useState<Venta | null>(null);
 
     const corregirFecha = async (ventaId: number, fecha: string) => {
         if (!fecha) return;
@@ -167,14 +336,38 @@ export default function EstadisticasAdmin() {
         }
     };
 
+    const [savingDoc, setSavingDoc] = useState(false);
+    const guardarDocumento = async (ventaId: number, numero: string, tipo: 'boleta' | 'factura') => {
+        setSavingDoc(true);
+        try {
+            const { data } = await api.patch(`${BACKEND_URL}/api/dashboard/ventas/${ventaId}/documento`, {
+                numero_documento: numero || null,
+                tipo_documento_emitido: tipo,
+            });
+            const updated = {
+                numero_documento: data.venta?.numero_documento ?? null,
+                tipo_documento_emitido: data.venta?.tipo_documento_emitido ?? null,
+                documento_registrado_por: data.venta?.documento_registrado_por ?? null,
+                documento_registrado_at: data.venta?.documento_registrado_at ?? null,
+            };
+            setVentas(prev => prev.map(v => v.id === ventaId ? { ...v, ...updated } : v));
+            setDetalle(prev => prev && prev.id === ventaId ? { ...prev, ...updated } : prev);
+        } catch (err) {
+            console.error('Error guardando documento:', err);
+            alert('No se pudo guardar el N° de documento. Intenta de nuevo.');
+        } finally {
+            setSavingDoc(false);
+        }
+    };
+
     useEffect(() => {
         api.get(`${BACKEND_URL}/api/dashboard/vendedores?incluir_inactivos=0&t=${Date.now()}`)
             .then(res => setVendedores(res.data.vendedores || []))
             .catch(err => console.error('Error cargando vendedores:', err));
     }, []);
 
-    const fetchAll = useCallback(async () => {
-        setLoading(true);
+    const fetchAll = useCallback(async (silent = false) => {
+        if (!silent) setLoading(true);
         try {
             const params = new URLSearchParams({ range, t: String(Date.now()) });
             if (sucursalFilter) params.set('sucursal', sucursalFilter);
@@ -190,12 +383,23 @@ export default function EstadisticasAdmin() {
         } catch (err) {
             console.error("Error cargando estadísticas:", err);
         } finally {
-            setLoading(false);
+            if (!silent) setLoading(false);
         }
     }, [range, sucursalFilter, vendedorFilter, mostrarAnuladas]);
 
     useEffect(() => {
         fetchAll();
+    }, [fetchAll]);
+
+    // Refresco automático para que las ventas recién cerradas aparezcan sin recargar:
+    // polling silencioso cada 20s + refetch al volver el foco a la pestaña.
+    useEffect(() => {
+        const id = setInterval(() => {
+            if (document.visibilityState === 'visible') fetchAll(true);
+        }, 20_000);
+        const onFocus = () => { if (document.visibilityState === 'visible') fetchAll(true); };
+        document.addEventListener('visibilitychange', onFocus);
+        return () => { clearInterval(id); document.removeEventListener('visibilitychange', onFocus); };
     }, [fetchAll]);
 
     const cards = metrics
@@ -377,6 +581,17 @@ export default function EstadisticasAdmin() {
                             </div>
                         )}
 
+                        {/* Modal detalle de venta (read-only + registro de documento) */}
+                        {detalle && (
+                            <DetalleVentaModal
+                                key={detalle.id}
+                                venta={detalle}
+                                onClose={() => setDetalle(null)}
+                                onGuardarDoc={guardarDocumento}
+                                savingDoc={savingDoc}
+                            />
+                        )}
+
                         <section>
                             <div className="flex items-center justify-between pb-4">
                                 <h3 className="text-lg font-bold">
@@ -442,7 +657,15 @@ export default function EstadisticasAdmin() {
                                                         />
                                                     </td>
                                                     <td className="px-4 py-3 font-mono text-neutral-300">
-                                                        {v.phone}
+                                                        <Link
+                                                            href={`/?chat=${v.phone}`}
+                                                            className="inline-flex items-center gap-1.5 text-neutral-300 hover:text-accent transition-colors group"
+                                                            title="Abrir el chat de este cliente"
+                                                            aria-label={`Abrir chat de ${v.phone}`}
+                                                        >
+                                                            <MessageCircle size={13} className="text-neutral-600 group-hover:text-accent transition-colors" />
+                                                            <span className="underline decoration-dotted decoration-neutral-700 group-hover:decoration-accent">{v.phone}</span>
+                                                        </Link>
                                                     </td>
                                                     <td className="px-4 py-3 text-neutral-400">
                                                         {v.marca_modelo || "—"}{" "}
@@ -486,6 +709,13 @@ export default function EstadisticasAdmin() {
                                                     </td>
                                                     <td className="px-4 py-3 text-right">
                                                         <div className="flex items-center justify-end gap-1">
+                                                            <button
+                                                                onClick={() => setDetalle(v)}
+                                                                className={`px-2 py-1 rounded text-[10px] transition-colors flex items-center gap-1 ${v.numero_documento ? 'bg-accent/10 hover:bg-accent/20 text-accent' : 'bg-white/5 hover:bg-white/10 text-neutral-400 hover:text-white'}`}
+                                                                title={v.numero_documento ? `Ver detalle — doc ${v.numero_documento}` : 'Ver detalle de la venta'}
+                                                            >
+                                                                <Eye size={12} />{v.numero_documento && <Receipt size={11} />}
+                                                            </button>
                                                             {!v.anulado && (
                                                                 <button
                                                                     onClick={() => setEditando(v)}

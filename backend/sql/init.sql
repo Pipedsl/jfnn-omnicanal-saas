@@ -133,6 +133,13 @@ ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS vendedor_nombre VARCHAR(100);
 CREATE INDEX IF NOT EXISTS idx_pedidos_sucursal ON pedidos(sucursal);
 CREATE INDEX IF NOT EXISTS idx_pedidos_vendedor ON pedidos(vendedor_nombre);
 
+-- pedidos: registro de N° de boleta/factura emitida (pesquisa de info por soporte)
+ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS numero_documento VARCHAR(60);
+ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS tipo_documento_emitido VARCHAR(20);
+ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS documento_registrado_por VARCHAR(120);
+ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS documento_registrado_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_pedidos_numero_documento ON pedidos(numero_documento) WHERE numero_documento IS NOT NULL;
+
 -- Tabla vendedores (SaaS-ready, CRUD desde settings)
 CREATE TABLE IF NOT EXISTS vendedores (
     id         SERIAL PRIMARY KEY,

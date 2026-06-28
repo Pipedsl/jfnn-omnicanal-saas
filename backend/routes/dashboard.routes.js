@@ -60,6 +60,7 @@ router.get('/ventas', async (req, res) => {
                     mensajes_ia_total, mensajes_vendedor_total,
                     archivado_en, created_at, vendedor_nombre, sucursal,
                     anulado, anulado_motivo, anulado_at, anulado_por,
+                    numero_documento, tipo_documento_emitido, documento_registrado_por, documento_registrado_at,
                     repuestos, entidades_completas,
                     EXTRACT(EPOCH FROM (archivado_en - created_at))/60 AS duracion_min
              FROM pedidos
@@ -91,6 +92,10 @@ router.get('/ventas', async (req, res) => {
                 anulado: r.anulado || false,
                 anulado_motivo: r.anulado_motivo || null,
                 anulado_por: r.anulado_por || null,
+                numero_documento: r.numero_documento || null,
+                tipo_documento_emitido: r.tipo_documento_emitido || null,
+                documento_registrado_por: r.documento_registrado_por || null,
+                documento_registrado_at: r.documento_registrado_at || null,
                 repuestos: r.repuestos || null,
                 entidades_completas: r.entidades_completas || null,
             }))
@@ -396,6 +401,7 @@ router.patch('/ventas/:id/vendedor', async (req, res) => {
             return res.status(404).json({ error: 'Venta no encontrada' });
         }
         console.log(`[Dashboard] ✏️ Venta ${id} → vendedor: ${vendedorNombre || '(sin asignar)'}`);
+        sessionsService.invalidarMetricsCache(); // refleja el cambio de atribución en KPIs
         auditService.registrarAccion({
             req, action: 'asignar_vendedor', targetPhone: rows[0].phone || null,
             detalle: { pedido_id: id, vendedor_asignado: vendedorNombre },
@@ -428,6 +434,7 @@ router.patch('/ventas/:id/fecha', async (req, res) => {
         );
         if (rows.length === 0) return res.status(404).json({ error: 'Venta no encontrada' });
         console.log(`[Dashboard] 📅 Venta ${id} → archivado_en: ${fv.toISOString()}`);
+        sessionsService.invalidarMetricsCache(); // la venta puede cambiar de período → recalcular KPIs
         auditService.registrarAccion({
             req, action: 'corregir_fecha_venta', targetPhone: rows[0].phone || null,
             detalle: { pedido_id: id, nueva_fecha: fecha_venta },
@@ -462,6 +469,7 @@ router.patch('/ventas/:id/anular', requireAdmin, async (req, res) => {
             [anular, motivo || null, actor, id]
         );
         if (rows.length === 0) return res.status(404).json({ error: 'Venta no encontrada' });
+        sessionsService.invalidarMetricsCache(); // anular/restaurar cambia el dinero recaudado y conteo
         auditService.registrarAccion({
             req, action: anular ? 'anular_venta' : 'restaurar_venta',
             targetPhone: rows[0].phone || null,
@@ -471,6 +479,46 @@ router.patch('/ventas/:id/anular', requireAdmin, async (req, res) => {
         res.json({ success: true, venta: rows[0] });
     } catch (error) {
         console.error('[Dashboard] Error en anular venta:', error);
+        res.status(500).json({ error: 'Error interno' });
+    }
+});
+
+/**
+ * PATCH /api/dashboard/ventas/:id/documento
+ * Registra/edita el N° de boleta o factura emitida para una venta. Admin o soporte.
+ * Body: { numero_documento: string|null, tipo_documento_emitido?: 'boleta'|'factura' }
+ * Pasar numero_documento vacío/null borra el registro.
+ */
+router.patch('/ventas/:id/documento', requireAdmin, async (req, res) => {
+    try {
+        const id = parseInt(req.params.id, 10);
+        if (!Number.isInteger(id)) return res.status(400).json({ error: 'ID inválido' });
+        const rawNum = req.body?.numero_documento;
+        const numero = rawNum == null || String(rawNum).trim() === '' ? null : String(rawNum).trim().slice(0, 60);
+        const tipoRaw = req.body?.tipo_documento_emitido;
+        const tipo = numero && (tipoRaw === 'boleta' || tipoRaw === 'factura') ? tipoRaw : (numero ? 'boleta' : null);
+        const actor = req.user?.nombre || req.user?.role || 'desconocido';
+
+        const { rows } = await db.query(
+            `UPDATE pedidos
+             SET numero_documento = $1,
+                 tipo_documento_emitido = $2,
+                 documento_registrado_por = CASE WHEN $1 IS NOT NULL THEN $3 ELSE NULL END,
+                 documento_registrado_at = CASE WHEN $1 IS NOT NULL THEN NOW() ELSE NULL END
+             WHERE id = $4
+             RETURNING id, phone, numero_documento, tipo_documento_emitido, documento_registrado_por, documento_registrado_at`,
+            [numero, tipo, actor, id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Venta no encontrada' });
+        auditService.registrarAccion({
+            req, action: numero ? 'registrar_documento' : 'borrar_documento',
+            targetPhone: rows[0].phone || null,
+            detalle: { pedido_id: id, numero_documento: numero, tipo },
+        });
+        console.log(`[Dashboard] 🧾 Pedido ${id} → ${tipo || 'doc'} ${numero || '(borrado)'} por ${actor}`);
+        res.json({ success: true, venta: rows[0] });
+    } catch (error) {
+        console.error('[Dashboard] Error registrando documento:', error);
         res.status(500).json({ error: 'Error interno' });
     }
 });
@@ -1098,6 +1146,7 @@ router.patch('/pedidos/:pedidoId/ajustar', async (req, res) => {
             return res.status(404).json({ error: 'Pedido no encontrado.' });
         }
         console.log(`[Pedidos] ✏️  Ajuste historial pedido #${pedidoId} — total $${total}`);
+        sessionsService.invalidarMetricsCache(); // el total cambió → recalcular dinero recaudado/ticket
         res.json({ success: true, total });
     } catch (error) {
         console.error('[Pedidos] Error ajustando pedido historial:', error);

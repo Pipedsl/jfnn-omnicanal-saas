@@ -921,6 +921,7 @@ const archiveSession = async (phone, opts = {}) => {
         // Invalidar cache explícitamente antes de resetear para evitar race conditions
         sessionCache.delete(phone);
         globalPendingCache = { data: null, timestamp: 0 };
+        invalidarMetricsCache(); // KPIs reflejan la venta recién cerrada sin esperar TTL
         const newSession = await resetSession(phone);
         return { archivedPedido: pedidoRows[0] || null, newSession };
     } catch (err) {
@@ -1134,6 +1135,13 @@ const rangeToSql = (range, column) => {
 const METRICS_CACHE = new Map();
 const METRICS_CACHE_TTL_MS = 60 * 1000;
 const _metricsCacheKey = (range, filters) => `${range}|${filters?.sucursal || ''}|${filters?.vendedor || ''}`;
+
+// Invalidación explícita: se llama cuando una venta cambia (cierre, anulación,
+// ajuste de monto/vendedor/fecha) para que los KPIs reflejen el cambio en la
+// siguiente carga sin esperar a que expire el TTL de 60s.
+const invalidarMetricsCache = () => {
+    METRICS_CACHE.clear();
+};
 
 const getDashboardMetrics = async (range = 'hoy', filters = {}) => {
     const cacheKey = _metricsCacheKey(range, filters);
@@ -1686,6 +1694,7 @@ module.exports = {
     setAgentePausado,
     removeRepuesto,
     getDashboardMetrics,
+    invalidarMetricsCache,
     patchSellerData,
     autoArchiveStaleSessions,
     getArchivedSessionForResume,
