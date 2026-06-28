@@ -1484,15 +1484,28 @@ router.patch('/cotizaciones/estado', async (req, res) => {
                         });
                     }, 5000);
                 }
-                
-                // Archivar la sesión a la tabla pedidos para que sume a KPIs (con delay
-                // para no interferir con la reseña ni con un re-engage temprano del cliente).
-                // SIEMPRE se archiva para registrar KPIs de venta.
-                setTimeout(() => {
-                    sessionsService.archiveSession(phone).catch(err => {
-                        console.error(`[Archive] Error archivando sesión ${phone} tras ${estado}:`, err);
-                    });
-                }, 60000);
+
+                if (omitirNotificaciones) {
+                    // Cierre de SOPORTE (o fuera de horario): no hay reseña ni notificación al
+                    // cliente que proteger, así que NO tiene sentido el delay de 60s. Archivamos
+                    // de inmediato (antes de responder) para que el pedido aparezca al instante en
+                    // estadísticas y soporte pueda corregir la fecha sin esperar. Es la causa del
+                    // delay reportado: soporte cambiaba estado y esperaba ~60s a que la venta
+                    // existiera como pedido para poder editarla.
+                    try {
+                        await sessionsService.archiveSession(phone);
+                    } catch (err) {
+                        console.error(`[Archive] Error archivando sesión ${phone} tras ${estado} (soporte):`, err);
+                    }
+                } else {
+                    // Cierre normal: delay para no interferir con la reseña ni con un re-engage
+                    // temprano del cliente. SIEMPRE se archiva para registrar KPIs de venta.
+                    setTimeout(() => {
+                        sessionsService.archiveSession(phone).catch(err => {
+                            console.error(`[Archive] Error archivando sesión ${phone} tras ${estado}:`, err);
+                        });
+                    }, 60000);
+                }
             }
         }
 

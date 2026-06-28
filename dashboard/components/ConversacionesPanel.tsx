@@ -881,17 +881,26 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
                         value={chat.estado}
                         onChange={async (e) => {
                           const nuevoEstado = e.target.value;
-                          if (confirm(`¿Cambiar manualmente el estado de esta sesión a "${ESTADO_LABELS[nuevoEstado] || nuevoEstado}"?`)) {
-                            try {
-                              await api.patch(`${API_URL}/api/dashboard/soporte/sesion/${encodeURIComponent(selectedPhone)}/estado`, {
-                                estado: nuevoEstado,
-                                motivo: "Cambio manual desde el chat de soporte"
-                              });
-                              await fetchChat(selectedPhone, false);
-                              await fetchConversaciones(false);
-                            } catch (err) {
-                              alert("Error al cambiar de estado. Verifica tus permisos de soporte.");
-                            }
+                          const estadoPrevio = chat.estado;
+                          const phoneActual = selectedPhone;
+                          if (!phoneActual || nuevoEstado === estadoPrevio) return;
+                          if (!confirm(`¿Cambiar manualmente el estado de esta sesión a "${ESTADO_LABELS[nuevoEstado] || nuevoEstado}"?`)) return;
+                          // Update optimista: la UI refleja el cambio al instante, sin esperar la red.
+                          setChat(prev => prev ? { ...prev, estado: nuevoEstado } : prev);
+                          setConversaciones(prev => prev.map(c => c.phone === phoneActual ? { ...c, estado: nuevoEstado } : c));
+                          try {
+                            await api.patch(`${API_URL}/api/dashboard/soporte/sesion/${encodeURIComponent(phoneActual)}/estado`, {
+                              estado: nuevoEstado,
+                              motivo: "Cambio manual desde el chat de soporte"
+                            });
+                            // Reconciliar en segundo plano (sin bloquear): confirma el estado real del backend.
+                            fetchChat(phoneActual, false);
+                            fetchConversaciones(false);
+                          } catch {
+                            // Revertir el optimismo si el backend falló.
+                            setChat(prev => prev ? { ...prev, estado: estadoPrevio } : prev);
+                            setConversaciones(prev => prev.map(c => c.phone === phoneActual ? { ...c, estado: estadoPrevio } : c));
+                            alert("Error al cambiar de estado. Verifica tus permisos de soporte.");
                           }
                         }}
                         className="text-[9px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-purple-950/40 text-purple-300 border border-purple-500/30 focus:outline-none cursor-pointer"
