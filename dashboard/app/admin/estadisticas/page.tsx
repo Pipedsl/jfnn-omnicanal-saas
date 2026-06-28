@@ -353,8 +353,15 @@ export default function EstadisticasAdmin() {
             setVentas(prev => prev.map(v => v.id === ventaId ? { ...v, ...updated } : v));
             setDetalle(prev => prev && prev.id === ventaId ? { ...prev, ...updated } : prev);
         } catch (err) {
-            console.error('Error guardando documento:', err);
-            alert('No se pudo guardar el N° de documento. Intenta de nuevo.');
+            const e = err as { response?: { status?: number; data?: { error?: string } }; message?: string };
+            const status = e.response?.status;
+            const backendMsg = e.response?.data?.error;
+            console.error('Error guardando documento:', status, backendMsg, err);
+            alert(
+                `No se pudo guardar el N° de documento.\n\n` +
+                `${status ? `Error HTTP ${status}` : 'Sin respuesta del servidor (red/CORS)'}` +
+                `${backendMsg ? `: ${backendMsg}` : ''}`
+            );
         } finally {
             setSavingDoc(false);
         }
