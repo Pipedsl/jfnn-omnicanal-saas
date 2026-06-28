@@ -458,15 +458,19 @@ router.patch('/ventas/:id/anular', requireAdmin, async (req, res) => {
         const { anular, motivo } = req.body || {};
         if (typeof anular !== 'boolean') return res.status(400).json({ error: 'Falta campo anular (boolean)' });
         const actor = req.user?.nombre || req.user?.role || 'desconocido';
+        // Calcular en JS (no en CASE con parámetro desnudo, que rompe la inferencia de
+        // tipos de PostgreSQL → "could not determine data type of parameter"). Casts explícitos.
+        const anuladoPor = anular ? actor : null;
+        const anuladoAt = anular ? new Date().toISOString() : null;
         const { rows } = await db.query(
             `UPDATE pedidos
-             SET anulado = $1,
-                 anulado_motivo = $2,
-                 anulado_at = CASE WHEN $1 THEN NOW() ELSE NULL END,
-                 anulado_por = CASE WHEN $1 THEN $3 ELSE NULL END
-             WHERE id = $4
+             SET anulado = $1::boolean,
+                 anulado_motivo = $2::text,
+                 anulado_at = $3::timestamptz,
+                 anulado_por = $4::varchar
+             WHERE id = $5
              RETURNING id, phone, anulado, anulado_motivo, anulado_por`,
-            [anular, motivo || null, actor, id]
+            [anular, motivo || null, anuladoAt, anuladoPor, id]
         );
         if (rows.length === 0) return res.status(404).json({ error: 'Venta no encontrada' });
         sessionsService.invalidarMetricsCache(); // anular/restaurar cambia el dinero recaudado y conteo
@@ -498,16 +502,21 @@ router.patch('/ventas/:id/documento', requireAdmin, async (req, res) => {
         const tipoRaw = req.body?.tipo_documento_emitido;
         const tipo = numero && (tipoRaw === 'boleta' || tipoRaw === 'factura') ? tipoRaw : (numero ? 'boleta' : null);
         const actor = req.user?.nombre || req.user?.role || 'desconocido';
+        // Calcular "quién/cuándo" en JS (no en SQL): un CASE con parámetro desnudo
+        // (THEN $3 ELSE NULL) impide a PostgreSQL inferir el tipo del parámetro y
+        // lanza "could not determine data type of parameter". Casts explícitos además.
+        const registradoPor = numero ? actor : null;
+        const registradoAt = numero ? new Date().toISOString() : null;
 
         const { rows } = await db.query(
             `UPDATE pedidos
-             SET numero_documento = $1,
-                 tipo_documento_emitido = $2,
-                 documento_registrado_por = CASE WHEN $1 IS NOT NULL THEN $3 ELSE NULL END,
-                 documento_registrado_at = CASE WHEN $1 IS NOT NULL THEN NOW() ELSE NULL END
-             WHERE id = $4
+             SET numero_documento = $1::varchar,
+                 tipo_documento_emitido = $2::varchar,
+                 documento_registrado_por = $3::varchar,
+                 documento_registrado_at = $4::timestamptz
+             WHERE id = $5
              RETURNING id, phone, numero_documento, tipo_documento_emitido, documento_registrado_por, documento_registrado_at`,
-            [numero, tipo, actor, id]
+            [numero, tipo, registradoPor, registradoAt, id]
         );
         if (rows.length === 0) return res.status(404).json({ error: 'Venta no encontrada' });
         auditService.registrarAccion({
