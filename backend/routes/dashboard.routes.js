@@ -332,10 +332,21 @@ router.get('/soporte/ventas-sin-cerrar', requireSoporte, async (req, res) => {
  */
 router.get('/soporte/productos-solicitados', requireSoporte, async (req, res) => {
     try {
-        // Normaliza el nombre para agrupar: minúsculas, sin anotación entre paréntesis
-        // (suelen ser el vehículo), espacios colapsados. Clave de agrupación.
+        // Normaliza el nombre del repuesto: minúsculas, sin anotación entre paréntesis
+        // (suelen ser el vehículo), espacios colapsados.
         const normalizar = (nombre) => String(nombre || '')
             .toLowerCase()
+            .replace(/\([^)]*\)/g, ' ')
+            .replace(/[^\w áéíóúñ]/gi, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        // Normaliza el vehículo a marca+modelo (sin año ni variante): un filtro de aire
+        // de un Changan NO es el mismo producto que el de un Hyundai → la clave de
+        // agrupación es (repuesto + marca/modelo). El año se ignora (suele compartir pieza).
+        const normalizarVehiculo = (s) => String(s || '')
+            .toLowerCase()
+            .replace(/\b(19|20)\d{2}\b/g, ' ')   // quitar años (ej. 2017)
             .replace(/\([^)]*\)/g, ' ')
             .replace(/[^\w áéíóúñ]/gi, ' ')
             .replace(/\s+/g, ' ')
@@ -356,28 +367,33 @@ router.get('/soporte/productos-solicitados', requireSoporte, async (req, res) =>
             db.query(`SELECT phone, repuestos, entidades_completas, archivado_en FROM pedidos WHERE ${pedWhere}`, pedParams),
         ]);
 
-        const mapa = new Map(); // clave normalizada -> agregado
+        const mapa = new Map(); // clave (repuesto+vehículo) -> agregado
         const acumular = (rep, vehiculoNombre, fecha, origen) => {
             if (!rep || !rep.nombre || !String(rep.nombre).trim()) return;
-            const clave = normalizar(rep.nombre);
-            if (!clave) return;
+            const claveProd = normalizar(rep.nombre);
+            if (!claveProd) return;
+            const vehDisplay = vehiculoNombre && String(vehiculoNombre).trim() ? String(vehiculoNombre).trim() : null;
+            const claveVeh = normalizarVehiculo(vehiculoNombre) || '__sin_vehiculo__';
+            const clave = `${claveProd}||${claveVeh}`;
             let agg = mapa.get(clave);
             if (!agg) {
                 agg = {
                     nombre: String(rep.nombre).trim(),
+                    vehiculo: vehDisplay,        // marca/modelo (sin año)
                     total_solicitudes: 0,
                     cantidad_total: 0,
                     disponible: 0,
                     sin_stock: 0,
                     por_encargo: 0,
                     sin_clasificar: 0,
-                    vehiculos: new Set(),
                     ultima_solicitud: null,
                     en_activas: 0,
                     en_cerradas: 0,
                 };
                 mapa.set(clave, agg);
             }
+            // Si la primera ocurrencia no traía vehículo y luego aparece uno, guardarlo.
+            if (!agg.vehiculo && vehDisplay) agg.vehiculo = vehDisplay;
             agg.total_solicitudes += 1;
             agg.cantidad_total += Number(rep.cantidad) || 1;
             const disp = (rep.disponibilidad || '').toUpperCase();
@@ -385,7 +401,6 @@ router.get('/soporte/productos-solicitados', requireSoporte, async (req, res) =>
             else if (disp === 'POR_ENCARGO') agg.por_encargo += 1;
             else if (disp === 'DISPONIBLE') agg.disponible += 1;
             else agg.sin_clasificar += 1;
-            if (vehiculoNombre) agg.vehiculos.add(vehiculoNombre);
             if (origen === 'activa') agg.en_activas += 1; else agg.en_cerradas += 1;
             if (fecha && (!agg.ultima_solicitud || new Date(fecha) > new Date(agg.ultima_solicitud))) {
                 agg.ultima_solicitud = fecha;
@@ -416,7 +431,6 @@ router.get('/soporte/productos-solicitados', requireSoporte, async (req, res) =>
         });
 
         const productos = Array.from(mapa.values())
-            .map(a => ({ ...a, vehiculos: Array.from(a.vehiculos).slice(0, 8) }))
             .sort((a, b) => b.total_solicitudes - a.total_solicitudes);
 
         res.json({

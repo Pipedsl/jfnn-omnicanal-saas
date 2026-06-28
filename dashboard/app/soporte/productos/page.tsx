@@ -9,13 +9,13 @@ import { safeGet } from "@/lib/storage";
 
 interface Producto {
     nombre: string;
+    vehiculo: string | null;
     total_solicitudes: number;
     cantidad_total: number;
     disponible: number;
     sin_stock: number;
     por_encargo: number;
     sin_clasificar: number;
-    vehiculos: string[];
     ultima_solicitud: string | null;
     en_activas: number;
     en_cerradas: number;
@@ -68,7 +68,7 @@ export default function SoporteProductos() {
     const visibles = useMemo(() => {
         const q = busqueda.trim().toLowerCase();
         let lista = productos.filter((p) => {
-            if (q && !p.nombre.toLowerCase().includes(q)) return false;
+            if (q && !p.nombre.toLowerCase().includes(q) && !(p.vehiculo || "").toLowerCase().includes(q)) return false;
             if (filtro === "sin_stock") return p.sin_stock > 0;
             if (filtro === "con_stock") return p.disponible > 0;
             return true;
@@ -133,7 +133,7 @@ export default function SoporteProductos() {
                             type="text"
                             value={busqueda}
                             onChange={(e) => setBusqueda(e.target.value)}
-                            placeholder="Buscar repuesto..."
+                            placeholder="Buscar repuesto o vehículo..."
                             className="w-full bg-neutral-900 border border-neutral-700 rounded-lg pl-9 pr-3 py-1.5 text-sm text-white placeholder-neutral-600 focus:border-accent/50 focus:outline-none"
                         />
                     </div>
@@ -167,10 +167,10 @@ export default function SoporteProductos() {
                             <thead className="bg-white/[0.02] text-[10px] uppercase tracking-wider text-neutral-500">
                                 <tr>
                                     <th className="text-left px-4 py-3">Repuesto</th>
+                                    <th className="text-left px-4 py-3">Vehículo</th>
                                     <th className="text-right px-4 py-3">Pedidos</th>
                                     <th className="text-right px-4 py-3">Cant.</th>
                                     <th className="text-center px-4 py-3">🟢/🔴/🟡</th>
-                                    <th className="text-left px-4 py-3">Vehículos</th>
                                     <th className="text-right px-4 py-3">Última vez</th>
                                 </tr>
                             </thead>
@@ -185,6 +185,11 @@ export default function SoporteProductos() {
                                                 {p.en_cerradas > 0 && `${p.en_cerradas} cerradas`}
                                             </span>
                                         </td>
+                                        <td className="px-4 py-3">
+                                            {p.vehiculo
+                                                ? <span className="text-neutral-300 text-xs">{p.vehiculo}</span>
+                                                : <span className="text-neutral-600 text-xs italic">Sin especificar</span>}
+                                        </td>
                                         <td className="px-4 py-3 text-right font-bold text-neutral-200">{p.total_solicitudes}</td>
                                         <td className="px-4 py-3 text-right text-neutral-400">{p.cantidad_total}</td>
                                         <td className="px-4 py-3 text-center text-[11px] tabular-nums">
@@ -193,9 +198,6 @@ export default function SoporteProductos() {
                                             <span className={p.sin_stock > 0 ? "text-red-400 font-bold" : "text-neutral-600"}>{p.sin_stock}</span>
                                             <span className="text-neutral-700"> / </span>
                                             <span className="text-yellow-500">{p.por_encargo}</span>
-                                        </td>
-                                        <td className="px-4 py-3 text-[11px] text-neutral-500 max-w-[220px] truncate" title={p.vehiculos.join(", ")}>
-                                            {p.vehiculos.length > 0 ? p.vehiculos.join(", ") : "—"}
                                         </td>
                                         <td className="px-4 py-3 text-right text-neutral-500 text-xs whitespace-nowrap">{fmtFecha(p.ultima_solicitud)}</td>
                                     </tr>
