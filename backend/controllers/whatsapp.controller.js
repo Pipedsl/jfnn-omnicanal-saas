@@ -203,6 +203,13 @@ const processBufferedMessages = async (customerPhone) => {
         // 1. Obtener o crear sesión
         let session = await sessionsService.getSession(customerPhone);
 
+        // Re-enganche: el cliente respondió → limpiar el flag de la plantilla estamos_de_vuelta
+        // para que, si su ventana vuelve a cerrarse más adelante, el job pueda reenviarla.
+        if (session?.entidades?.vuelta_template_enviada) {
+            await sessionsService.updateEntidades(customerPhone, { vuelta_template_enviada: false }).catch(() => {});
+            console.log(`[Reengage] 🔄 Cliente ${customerPhone} respondió → flag vuelta_template_enviada limpiado.`);
+        }
+
         // 🕵️ DETECCIÓN DE CLIENTE FUE AL LOCAL (SOPORTE PESQUISA AUTOMÁTICA)
         if (userText) {
             const checkText = userText.toLowerCase();
@@ -339,6 +346,27 @@ const processBufferedMessages = async (customerPhone) => {
         }
 
         // ═══════════════════════════════════════════════════════
+        // GUARDA DE HORARIO UNIFICADA (hoisted) — BUG-HORARIO
+        // ═══════════════════════════════════════════════════════
+        // El agente NO deja de responder fuera de horario. Sigue atendiendo/perfilando
+        // normal, PERO con la advertencia de que la cotización/atención de un asesor llega
+        // cuando volvamos al horario (no "en unos minutos"). Evaluamos una sola vez aquí y
+        // propagamos `fueraDeHorario` a los atajos (saludo) y a Gemini para que ajuste el
+        // mensaje. Solo aplica en perfilado/espera (no en flujos de pago/post-cotización).
+        let fueraDeHorario = false;
+        try {
+            const estadoAtencion = await scheduleService.getEstadoAtencion();
+            const estadoElegible = session.estado === sessionsService.STATES.PERFILANDO
+                || session.estado === sessionsService.STATES.ESPERANDO_VENDEDOR;
+            if (!estadoAtencion.abierto && estadoElegible) {
+                fueraDeHorario = true;
+                console.log(`[Horario] 🌙 Cerrado (${estadoAtencion.estado}) para ${customerPhone}. El agente responde con advertencia de horario (sin prometer respuesta inmediata).`);
+            }
+        } catch (horarioErr) {
+            console.error(`[Horario] ⚠️ Error en guarda de horario (continúa flujo normal):`, horarioErr.message);
+        }
+
+        // ═══════════════════════════════════════════════════════
         // MEJORA #3: Pre-filtro de saludos puros (sin interrogatorio)
         // ═══════════════════════════════════════════════════════
         const textoTrimmed = userText.trim().toLowerCase();
@@ -348,7 +376,11 @@ const processBufferedMessages = async (customerPhone) => {
 
         if (esSaludoPuro && !tieneEntidades) {
             console.log(`[Saludo] 👋 Saludo puro detectado sin entidades previas. Respuesta local, sin llamar a Gemini.`);
-            const saludoRespuesta = '¡Hola! 👋 ¿En qué puedo ayudarte hoy?';
+            // Fuera de horario el agente saluda igual, pero deja claro que la cotización
+            // llega al volver a atención (no promete respuesta inmediata).
+            const saludoRespuesta = fueraDeHorario
+                ? '¡Hola! 👋 Cuéntame qué repuesto necesitas y para qué vehículo. Estamos *fuera de horario* ahora, así que un asesor te enviará la cotización en cuanto volvamos a atención. 🙌'
+                : '¡Hola! 👋 ¿En qué puedo ayudarte hoy?';
             const delayMs = Math.min(saludoRespuesta.length * 25, 1500);
             await new Promise(resolve => setTimeout(resolve, delayMs));
             await sendAndPersist(customerPhone, saludoRespuesta);
@@ -919,6 +951,13 @@ const processBufferedMessages = async (customerPhone) => {
             }
 
             // ── FASE 3: CONSTRUIR RESPUESTA ──
+            // Nota: fuera de horario el agente igual responde estos acks (no se calla). La
+            // advertencia de horario la lleva el sufijo `avisoHorarioSuffix` en los acks que
+            // prometen revisión/cotización, para no decir "en breve" con el local cerrado.
+            const avisoHorarioSuffix = fueraDeHorario
+                ? ' ⚠️ Estamos fuera de horario; un asesor lo revisa y te cotiza apenas volvamos a atención.'
+                : '';
+
             // Caso padrón con propietario pendiente → pedir confirmación de propiedad
             if (padronDatos && propietarioPendiente) {
                 const veh = `${padronDatos.marca_modelo || 'tu vehículo'}${padronDatos.ano ? ' ' + padronDatos.ano : ''}`;
@@ -934,9 +973,9 @@ const processBufferedMessages = async (customerPhone) => {
                 const veh = `${padronDatos.marca_modelo || 'tu vehículo'}${padronDatos.ano ? ' ' + padronDatos.ano : ''}`;
                 const patenteStr = padronDatos.patente ? ` (patente ${padronDatos.patente})` : '';
                 const yaTieneRepuesto = Array.isArray(session.entidades?.repuestos_solicitados) && session.entidades.repuestos_solicitados.length > 0;
-                const msg = yaTieneRepuesto
+                const msg = (yaTieneRepuesto
                     ? `📄 Recibí tu padrón del ${veh}${patenteStr}. Ya anoté los datos del vehículo. Un asesor revisará tu cotización en breve. 🙌`
-                    : `📄 Recibí tu padrón del ${veh}${patenteStr}. Ya anoté los datos del vehículo. ¿Qué repuesto necesitas?`;
+                    : `📄 Recibí tu padrón del ${veh}${patenteStr}. Ya anoté los datos del vehículo. ¿Qué repuesto necesitas?`) + avisoHorarioSuffix;
                 if (yaTieneRepuesto) {
                     await sessionsService.setEstado(customerPhone, sessionsService.STATES.ESPERANDO_VENDEDOR);
                 }
@@ -975,7 +1014,7 @@ const processBufferedMessages = async (customerPhone) => {
             if (session.estado === sessionsService.STATES.PERFILANDO) {
                 if (tieneVehiculo) {
                     await sessionsService.setEstado(customerPhone, sessionsService.STATES.ESPERANDO_VENDEDOR);
-                    const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''}.${patenteCapturadaMsg} Un asesor las revisará y te cotizará en breve. 🔧`;
+                    const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''}.${patenteCapturadaMsg} Un asesor las revisará y te cotizará en breve. 🔧` + avisoHorarioSuffix;
                     await new Promise(r => setTimeout(r, 1500));
                     await sendAndPersist(customerPhone, msg);
                 } else {
@@ -984,7 +1023,7 @@ const processBufferedMessages = async (customerPhone) => {
                     await sendAndPersist(customerPhone, msg);
                 }
             } else {
-                const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''} adicional${nFotos > 1 ? 'es' : ''}.${patenteCapturadaMsg} El asesor las revisará junto a la cotización. 🔧`;
+                const msg = `📸 Recibí tu${nFotos > 1 ? 's ' + nFotos : ''} foto${nFotos > 1 ? 's' : ''} adicional${nFotos > 1 ? 'es' : ''}.${patenteCapturadaMsg} El asesor las revisará junto a la cotización. 🔧` + avisoHorarioSuffix;
                 await new Promise(r => setTimeout(r, 1500));
                 await sendAndPersist(customerPhone, msg);
             }
@@ -1284,50 +1323,13 @@ const processBufferedMessages = async (customerPhone) => {
             }
         }
 
-        // ── Capa 1: aviso determinista fuera de horario ──
-        // Si está cerrado/colación Y la sesión está en perfilado temprano sin cotización
-        // con precios Y aún no avisamos en esta conversación → enviar el mensaje de horario.
-        // IMPORTANTE: NO retornamos. Seguimos procesando con Gemini para extraer entidades
-        // (vehículo, repuestos) y bumpear a ESPERANDO_VENDEDOR si corresponde. El vendedor
-        // necesita ver el lead en su bandeja al volver del horario, aunque no se le responda
-        // textualmente al cliente. Solo suprimimos el mensaje_cliente al final del flujo.
+        // ── Guarda de horario (BUG-HORARIO) ──
+        // El agente NO se calla fuera de horario: `fueraDeHorario` (calculado al inicio) se
+        // pasa a Gemini para que responda con la advertencia de horario, sin prometer
+        // respuesta inmediata. Ya no suprimimos por horario.
+        // `suppressGeminiReply` queda SOLO para el caso de fallback de Gemini (suprimir el
+        // mensaje genérico de error, no el de horario).
         let suppressGeminiReply = false;
-        try {
-            const estadoAtencion = await scheduleService.getEstadoAtencion();
-            const entidades = session.entidades || {};
-            const tieneCotizacionConPrecios = Array.isArray(entidades.repuestos_solicitados)
-                && entidades.repuestos_solicitados.some(r => r && r.precio != null && Number(r.precio) > 0);
-
-            if (estadoAtencion.abierto && entidades.aviso_horario_enviado) {
-                // Volvió a abrir → limpiar flag para que mañana/sábado vuelva a avisar
-                await sessionsService.updateEntidades(customerPhone, { aviso_horario_enviado: false });
-                console.log(`[Horario] 🔄 Flag aviso_horario_enviado limpiado para ${customerPhone} (horario abierto).`);
-            } else if (
-                !estadoAtencion.abierto
-                && estadoAtencion.mensaje
-                && !entidades.aviso_horario_enviado
-                && (session.estado === sessionsService.STATES.PERFILANDO || session.estado === sessionsService.STATES.ESPERANDO_VENDEDOR)
-                && !tieneCotizacionConPrecios
-            ) {
-                console.log(`[Horario] 🌙 Cerrado (${estadoAtencion.estado}). Aviso determinista a ${customerPhone}. Sigo procesando lote con Gemini en silencio para capturar el lead.`);
-                await sendAndPersist(customerPhone, estadoAtencion.mensaje);
-                await sessionsService.updateEntidades(customerPhone, { aviso_horario_enviado: true });
-                suppressGeminiReply = true;
-            } else if (
-                !estadoAtencion.abierto
-                && entidades.aviso_horario_enviado
-                && (session.estado === sessionsService.STATES.PERFILANDO || session.estado === sessionsService.STATES.ESPERANDO_VENDEDOR)
-                && !tieneCotizacionConPrecios
-            ) {
-                // Cliente sigue escribiendo fuera de horario tras el primer aviso. No
-                // reenviar el aviso, pero igual procesar Gemini en silencio para acumular
-                // entidades nuevas (puede haber agregado el año, el vehículo, etc.).
-                console.log(`[Horario] 🤐 Cerrado, aviso ya enviado a ${customerPhone}. Procesando Gemini en silencio para acumular lead.`);
-                suppressGeminiReply = true;
-            }
-        } catch (horarioErr) {
-            console.error(`[Horario] ⚠️ Error en guard determinista (continúa flujo normal):`, horarioErr.message);
-        }
 
         console.log(`[Webhook] Enviando a Gemini mensaje final de ${customerPhone}: "${userText.replace(/\n/g, ' ')}"`);
 
@@ -1373,7 +1375,7 @@ const processBufferedMessages = async (customerPhone) => {
         // Inyectar historial reciente para memoria conversacional (evita perder contexto
         // tras pausa del vendedor y evita repreguntar patente/VIN/datos ya dados).
         const historialReciente = await mensajesService.listarPorPhone(customerPhone, { limit: 10 }).catch(() => []);
-        let aiJson = await geminiService.generateResponse(userText, session, imageData, audioDataList, historialReciente, { silencioHorario: suppressGeminiReply });
+        let aiJson = await geminiService.generateResponse(userText, session, imageData, audioDataList, historialReciente, { fueraDeHorario });
         
         // Normalización: Gemini a veces devuelve array en vez de objeto
         if (Array.isArray(aiJson)) {
@@ -1449,6 +1451,40 @@ const processBufferedMessages = async (customerPhone) => {
         if (!session) {
             console.error(`[CRITICAL] No se pudo actualizar sesión de ${customerPhone} tras respuesta de Gemini. Usando backup local.`);
             session = originalSession; // Mantener estado anterior para no perder el contexto del render
+        }
+
+        // ── Red de seguridad de derivación (BUG-DERIVACION) ──
+        // El agente a veces le DICE al cliente que consultará/derivará al equipo (foto,
+        // procedencia, compatibilidad…) pero NO levanta `consulta_pendiente`, así la sesión
+        // nunca se flaggea y el vendedor no lo ve. Detectamos esas frases en la respuesta y,
+        // si falta la señal, creamos consulta_pendiente + marcamos atención + pausamos al
+        // agente (igual que el flujo documentado de consulta_pendiente).
+        try {
+            const msgCliente = String(aiJson.mensaje_cliente || '').toLowerCase();
+            const prometioDerivar = /consultar(é|e|emos)? con (el|nuestro|mi) equipo|consultar(é|emos) (con|al) (el )?(vendedor|asesor|proveedor)|un asesor (te|le|lo|se)|d[eé]jame (consultar|confirmar|revisar)|lo (consulto|reviso|verifico|confirmo) con (el|mi) equipo|te confirmo (en breve|a la brevedad)|consultar[ée] (la|el|esa)|preguntar[ée] al equipo/.test(msgCliente);
+            const cp = session?.entidades?.consulta_pendiente;
+            const yaTieneConsulta = !!(cp && (cp.texto || cp.texto_cliente));
+            if (prometioDerivar && !yaTieneConsulta) {
+                const textoConsulta = userText.trim()
+                    ? userText.trim().slice(0, 300)
+                    : 'Consulta del cliente (revisar último mensaje: audio/imagen).';
+                await sessionsService.updateEntidades(customerPhone, {
+                    consulta_pendiente: {
+                        texto: textoConsulta,
+                        momento: new Date().toISOString(),
+                        item_relacionado: null,
+                        origen: 'red_seguridad',
+                    },
+                    agente_pausado: true,
+                    requiere_atencion_vendedor: true,
+                    atencion_motivo: 'derivacion_sin_flag',
+                    atencion_at: new Date().toISOString(),
+                });
+                session = await sessionsService.getSession(customerPhone) || session;
+                console.log(`[Derivacion] 🛟 Red de seguridad: el agente prometió derivar sin consulta_pendiente → creada + atención marcada + agente pausado para ${customerPhone}.`);
+            }
+        } catch (derivErr) {
+            console.error('[Derivacion] ⚠️ Error en red de seguridad (continúa flujo):', derivErr.message);
         }
 
         // ──────────────────────────────────────────────────────────────────────
@@ -1553,7 +1589,7 @@ const processBufferedMessages = async (customerPhone) => {
             // la capturará en el próximo mensaje cuando regrese de colación/fuera de horario.
             // Pausar causaría que TODOS los mensajes siguientes sean ignorados hasta
             // que soporte intervenga manualmente (BUG confirmado en logs).
-            const esFueraDeHorario = suppressGeminiReply;
+            const esFueraDeHorario = fueraDeHorario;
             console.warn(`[FallbackGemini] ⚠️ Gemini cayó al fallback genérico para ${customerPhone}. Fuera de horario: ${esFueraDeHorario}. Marcando para atención.`);
             try {
                 await sessionsService.updateEntidades(customerPhone, {
@@ -1781,10 +1817,10 @@ const processBufferedMessages = async (customerPhone) => {
         const messagesToSend = (Array.isArray(finalMessage) ? finalMessage : [finalMessage])
             .filter(m => m && typeof m === 'string' && m.trim());
         if (suppressGeminiReply) {
-            // Estamos fuera de horario y ya enviamos el aviso determinista. El procesamiento
-            // de Gemini ocurrió igual para extraer entidades y el bump a ESPERANDO_VENDEDOR
-            // (lead capturado). Solo silenciamos el mensaje_cliente para no duplicar respuestas.
-            console.log(`[Horario] 🤫 ${messagesToSend.length} mensaje(s) de Gemini suprimido(s) para ${customerPhone} (aviso de horario ya entregado).`);
+            // Caso fallback de Gemini: el mensaje sería el genérico de error ("Disculpe,
+            // tuvimos un inconveniente"). No se lo enviamos al cliente — el vendedor ya
+            // recibió la ALERTA IA en bandeja y la sesión quedó marcada para atención.
+            console.log(`[FallbackGemini] 🤫 ${messagesToSend.length} mensaje(s) de error suprimido(s) para ${customerPhone} (vendedor alertado en bandeja).`);
         } else if (messagesToSend.length === 0) {
             // CAMINO SILENCIOSO: no estamos fuera de horario, pero Gemini no produjo
             // ningún mensaje para el cliente (JSON parcial, fallo de parseo, etc.).

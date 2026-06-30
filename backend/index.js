@@ -135,6 +135,16 @@ const server = app.listen(port, () => {
     setTimeout(() => { cotizacionesService.expirarAntiguas(); }, 45_000);
     setInterval(() => { cotizacionesService.expirarAntiguas(); }, EXPIRAR_INTERVAL_MS);
     console.log(`[Cotizaciones] ⏰ Expiración programada cada 1h (validez ${cotizacionesService.VALIDEZ_DIAS} días)`);
+
+    // ─── Re-enganche al abrir (plantilla estamos_de_vuelta) ────────────
+    // Corre cada 10 min pero SOLO actúa en la transición cerrado→abierto (una pasada por
+    // apertura, ej. 9:00 y 15:00): envía la plantilla HSM a sesiones ESPERANDO_VENDEDOR
+    // con ventana de 24h cerrada, para que el cliente pueda responder y no se pierda la venta.
+    const reengageService = require('./services/reengage.service');
+    const REENGAGE_INTERVAL_MS = parseInt(process.env.REENGAGE_INTERVAL_MS || String(10 * 60 * 1000), 10);
+    setTimeout(() => { reengageService.reengancharAlAbrir(); }, 60_000);
+    setInterval(() => { reengageService.reengancharAlAbrir(); }, REENGAGE_INTERVAL_MS);
+    console.log(`[Reengage] ⏰ Chequeo de apertura cada ${REENGAGE_INTERVAL_MS / 1000}s (envía estamos_de_vuelta solo al abrir).`);
 });
 
 // ─── Graceful shutdown: vaciar buffers de debounce antes de morir ───

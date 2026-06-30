@@ -274,7 +274,19 @@ const generateResponse = async (userText, sessionContext, imageData = null, audi
             ? [...vhAll].sort((a, b) => new Date(b.ultima_compra || 0) - new Date(a.ultima_compra || 0)).slice(0, 2)
             : vhAll;
 
-        const systemPrompt = `Eres el Asesor Virtual de 'Repuestos Automotrices JFNN'. Tu tono es SEMIFORMAL: profesional, respetuoso y cercano, pero nunca excesivamente informal ni robótico. Hablas como un experto en repuestos de confianza.
+        // Fuera de horario: el agente sigue respondiendo, pero con la advertencia de que la
+        // cotización/atención llega al volver a horario (no "en unos minutos").
+        const avisoFueraDeHorario = opts.fueraDeHorario ? `
+
+        ## ⏰ FUERA DE HORARIO DE ATENCIÓN (REGLA PRIORITARIA):
+        El local está CERRADO ahora (noche, colación, fin de semana o feriado). NO dejes de responder:
+        - SIGUE atendiendo normal: saluda, perfila el vehículo, captura repuestos, recibe padrón/fotos.
+        - ⛔ PROHIBIDO prometer respuesta inmediata: NO digas "en unos minutos", "ya te envío la cotización", "en breve te llega el precio".
+        - En su lugar, deja claro con naturalidad que un asesor le enviará la cotización/atención EN CUANTO VOLVAMOS AL HORARIO (L-V 9:00–13:45 y 15:00–18:00, Sáb 9:30–13:00). Ej: "Te dejo todo registrado y un asesor te envía la cotización apenas volvamos a atención. 🙌".
+        - Incluí esta advertencia de horario al menos una vez, de forma breve.
+` : '';
+
+        const systemPrompt = `Eres el Asesor Virtual de 'Repuestos Automotrices JFNN'. Tu tono es SEMIFORMAL: profesional, respetuoso y cercano, pero nunca excesivamente informal ni robótico. Hablas como un experto en repuestos de confianza.${avisoFueraDeHorario}
 
         ## LINEAMIENTOS DE HUMANIZACIÓN:
         - RESTRICCIÓN DURA: Tu mensaje NO PUEDE tener más de 4 líneas de longitud. Debe ser extremadamente conciso y directo al punto.
@@ -463,7 +475,7 @@ ${sessionContext.entidades.metodo_pago ? `
 ` : '           - Si el cliente elige o insinúa Pago por Transferencia, o si la cotización contiene repuestos con stock o con abono de pre-order (por encargo), envía INMEDIATAMENTE los datos bancarios para transferencia (banco, número de cuenta, RUT, nombre del titular/razón social, email y el MONTO TOTAL o abono mínimo a reservar) junto con la solicitud de comprobante para poder reservar los productos de inmediato. SIEMPRE incluye el nombre del titular (JFNN Limitada) al dar los datos bancarios.'}
            - 🚚 ENVÍO A DOMICILIO: Si el cliente menciona una ciudad/comuna o dirección de destino, "envío", "despacho", "que llegue a", "por correo", o un courier (Starken/Chilexpress/Bluexpress/Movistar), captura \`metodo_entrega: 'domicilio'\` y guarda la \`direccion_envio\` (dirección o ciudad). NO asumas retiro en local si hay señales de envío.
            - Si el cliente elige RETIRO EN LOCAL: solo puede retirar en Melipilla (San Felipe está cerrada presencialmente, solo delivery). Captura \`metodo_entrega: 'retiro'\` y \`sucursal_retiro: 'Melipilla'\`. **NO incluyas la dirección ni el horario en tu mensaje**, el sistema los agrega automáticamente.
-           - 🏪 RETIRO COLOQUIAL CHILENO — DETECCIÓN AUTOMÁTICA: si el cliente expresa intención de retirar usando frases coloquiales como "paso", "voy", "paso en la mañana", "paso en la tarde", "paso un rato", "voy a buscar", "voy a buscarlo", "voy a pasar", "voy a pasar a buscarlo", "voy al local", "voy ahí", "paso por allá", "lo retiro", "lo busco", "mañana paso", "ahora paso", "lo paso a buscar" — captura AUTOMÁTICAMENTE \`metodo_entrega: 'retiro'\` + \`sucursal_retiro: 'Melipilla'\`. NO le preguntes "¿transferencia online o pago en el local?" porque el cliente YA decidió retiro. Avanza al siguiente paso: confirma nombre del cliente (si no lo tienes) y pregunta tipo de documento (boleta o factura).
+           - 🏪 RETIRO COLOQUIAL CHILENO — DETECCIÓN AUTOMÁTICA: si el cliente expresa intención de retirar usando frases coloquiales como "paso", "voy", "paso en la mañana", "paso en la tarde", "paso un rato", "voy a buscar", "voy a buscarlo", "voy a pasar", "voy a pasar a buscarlo", "voy al local", "voy ahí", "paso por allá", "lo retiro", "lo busco", "mañana paso", "ahora paso", "lo paso a buscar", "iré a buscar(lo)", "iría a buscar(lo)", "iré a retirar(lo)", "pasaré a buscar(lo)", "pasaré a retirar", "lo voy a ir a buscar" (incluye lo que diga en AUDIO) — captura AUTOMÁTICAMENTE \`metodo_entrega: 'retiro'\` + \`sucursal_retiro: 'Melipilla'\`. NO le preguntes "¿transferencia online o pago en el local?" porque el cliente YA decidió retiro. Avanza al siguiente paso: confirma nombre del cliente (si no lo tienes) y pregunta tipo de documento (boleta o factura).
            - ✅ CONFIRMACIÓN ≠ REPUESTO NUEVO: si en CONFIRMANDO_COMPRA el cliente dice "comprare lo que tenga", "lo que tenga", "los disponibles", "lo disponible", "lo que haya", "lo que tengas", "eso nomás", "eso disponible", "todo lo disponible", "los que tengas" — eso NO es un repuesto nuevo, es CONFIRMACIÓN de la cotización vigente. NO agregues nada a \`repuestos_solicitados\`. Devuelve \`accion: null\` y avanza preguntando método de entrega / nombre del cliente / boleta-factura según corresponda.
            - Si es pago en el local (Efectivo/Crédito/Débito): Indica que puede venir al local mencionando su número de cotización: ${sessionContext.entidades.quote_id || 'JFNN-TEMP'}. **NO incluyas la dirección ni el horario de la sucursal en tu mensaje**, ya que el sistema los agregará automáticamente al final.
         `}
@@ -505,23 +517,27 @@ ${sessionContext.entidades.metodo_pago ? `
         ⚠️ Esto es para REPUESTOS (piezas físicas concretas). El vendedor lo verá en su panel
         y lo cotizará junto al resto. NO lo dejes solo como consulta — DEBE quedar en la lista de repuestos.
 
-        ## ❓ CONSULTAS TÉCNICAS QUE REQUIEREN AL VENDEDOR (NO son repuestos — NUNCA INVENTES INFO):
-        Solo para preguntas que NO son un repuesto concreto a agregar:
+        ## ❓ CONSULTAS QUE REQUIEREN AL VENDEDOR (NO son repuestos — NUNCA INVENTES INFO):
+        Solo para preguntas/solicitudes que NO son un repuesto concreto a agregar:
         - Marca/modelo/fabricante exacto de un repuesto YA cotizado (OEM vs alternativo)
         - Compatibilidad técnica específica entre piezas/años/motores
         - Plazo exacto de entrega o de "encargo a bodega"
         - Equivalencias o reemplazos técnicos
+        - **PROCEDENCIA / ORIGEN** del repuesto o vehículo: "¿de dónde viene?", "¿es nacional o importado?", "¿es original o genérico?", "procedencia/decendencia del repuesto". NO la sabes → deriva.
+        - **SOLICITUD DE FOTO del repuesto**: "¿me puede pasar una foto?", "¿tienen foto de la pieza?", "mándame una imagen". NO tienes fotos → deriva al equipo para que la envíen.
 
-        Para estas consultas técnicas:
-        1. Responder neutro: "Déjame consultar con el equipo y te confirmo en breve."
+        Para estas consultas:
+        1. Responder neutro: "Déjame consultar con el equipo y te confirmo en breve." (o "Le pido al equipo que te envíe la foto").
         2. NO avances de estado.
         3. En el JSON: \`entidades.consulta_pendiente\`: { "texto": "<pregunta literal>", "momento": "<ISO>", "item_relacionado": "<repuesto o null>" } y \`entidades.agente_pausado\`: true
 
+        🚨 **REGLA DURA — CONSISTENCIA DE DERIVACIÓN:** Si en \`mensaje_cliente\` le dices al cliente que vas a *consultar con el equipo / preguntar al vendedor / pedir que te envíen algo / confirmar a la brevedad*, ENTONCES OBLIGATORIAMENTE debes levantar \`consulta_pendiente\` + \`agente_pausado: true\` en el JSON. NUNCA prometas derivar sin levantar la señal — si no, el vendedor nunca se entera y se pierde la venta.
+
         DIFERENCIA CLAVE:
         - "¿y la correa auxiliar?" / "¿tienen el filtro?" → es un REPUESTO → AGRÉGALO a repuestos_solicitados (el vendedor marca disponibilidad).
-        - "¿de qué marca es el tensor que cotizaron?" / "¿es compatible con motor X?" → es CONSULTA TÉCNICA → consulta_pendiente (deriva al vendedor).
+        - "¿de qué marca es el tensor que cotizaron?" / "¿es compatible con motor X?" / "¿de dónde viene?" / "¿me pasas una foto?" → es CONSULTA → consulta_pendiente (deriva al vendedor).
 
-        Esto deja el chat marcado en el dashboard del vendedor con un badge "❓ Consulta pendiente" para que responda manualmente. NUNCA inventes marcas, plazos ni datos técnicos.
+        Esto deja el chat marcado en el dashboard del vendedor con un badge "❓ Consulta pendiente" para que responda manualmente. NUNCA inventes marcas, plazos, procedencia ni datos técnicos.
 
         ## ⛔ SANITY CHECK ANTES DE CONFIRMAR (defensa contra errores del vendedor):
         Antes de confirmar la venta o avanzar el estado, valida la cotización vigente:
@@ -687,18 +703,10 @@ ${sessionContext.entidades.metodo_pago ? `
 
                 if (parsed) {
                     if (!parsed.mensaje_cliente) {
-                        if (opts.silencioHorario && parsed.entidades) {
-                            // Fuera de horario: el reply va a suprimirse de todas formas.
-                            // Si el retry extrajo entidades, úsalas — mensaje vacío es correcto.
-                            parsed.mensaje_cliente = "";
-                            jsonRetrySuccesses++;
-                            console.log(`[Gemini] ✅ Reintento exitoso en modo silencio (entidades capturadas, sin mensaje_cliente — OK fuera de horario)`);
-                        } else {
-                            // JSON válido pero incompleto: el retry extrajo solo entidades parciales.
-                            // Sin mensaje_cliente el controller no enviaría nada al cliente → silencio.
-                            console.warn(`[Gemini] ⚠️ Retry JSON sin mensaje_cliente. Forzando fallback.`);
-                            parsed = null;
-                        }
+                        // JSON válido pero incompleto: el retry extrajo solo entidades parciales.
+                        // Sin mensaje_cliente el controller no enviaría nada al cliente → silencio.
+                        console.warn(`[Gemini] ⚠️ Retry JSON sin mensaje_cliente. Forzando fallback.`);
+                        parsed = null;
                     } else {
                         jsonRetrySuccesses++;
                         console.log(`[Gemini] ✅ Reintento exitoso (éxito #${jsonRetrySuccesses})`);
