@@ -2747,7 +2747,7 @@ router.get('/conversaciones/:phone', async (req, res) => {
                 autor_nombre: msg.autor_nombre,
                 created_at: msg.created_at,
                 // Para mostrar botón "🔄 Reintentar" cuando media_url falló pero hay media_id recuperable
-                media_recuperable: !signedUrl && !!msg.media_id && (msg.tipo === 'image' || msg.tipo === 'audio'),
+                media_recuperable: !signedUrl && !!msg.media_id && ['image', 'audio', 'video', 'document'].includes(msg.tipo),
             };
         }));
 
@@ -3085,7 +3085,7 @@ router.post('/mensajes/:id/reprocesar-media', async (req, res) => {
         if (!msg) return res.status(404).json({ error: 'Mensaje no encontrado' });
         if (msg.media_url) return res.json({ success: true, ya_tenia: true, media_url: msg.media_url });
         if (!msg.media_id) return res.status(400).json({ error: 'Este mensaje no tiene media_id (mensaje antiguo, no recuperable)' });
-        if (!['image', 'audio'].includes(msg.tipo)) {
+        if (!['image', 'audio', 'video', 'document'].includes(msg.tipo)) {
             return res.status(400).json({ error: `Tipo no soportado para reprocesar: ${msg.tipo}` });
         }
 
@@ -3096,13 +3096,16 @@ router.post('/mensajes/:id/reprocesar-media', async (req, res) => {
         }
 
         // Subir a Storage (función específica según tipo)
+        const uploaderPorTipo = {
+            audio: storageService.uploadAudio,
+            video: storageService.uploadVideo,
+            document: storageService.uploadDocument,
+            image: storageService.uploadPartImage,
+        };
         let objectPath = null;
         try {
-            if (msg.tipo === 'audio') {
-                objectPath = await storageService.uploadAudio(msg.phone, mediaData.buffer, mediaData.mimeType);
-            } else {
-                objectPath = await storageService.uploadPartImage(msg.phone, mediaData.buffer, mediaData.mimeType);
-            }
+            const uploader = uploaderPorTipo[msg.tipo] || storageService.uploadPartImage;
+            objectPath = await uploader(msg.phone, mediaData.buffer, mediaData.mimeType);
         } catch (uploadErr) {
             console.error('[Dashboard] Upload falló en reprocesar-media:', uploadErr.message);
         }

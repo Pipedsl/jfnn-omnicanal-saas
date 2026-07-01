@@ -328,7 +328,7 @@ export default function ConversacionesPanel({ sucursalFilter, onNewMessage, targ
       if (res.data?.media_url || res.data?.ya_tenia) {
         if (selectedPhone) fetchChat(selectedPhone, false);
       } else {
-        alert("No se pudo recuperar la imagen.");
+        alert("No se pudo recuperar el archivo.");
       }
     } catch (err: unknown) {
       const e = err as { response?: { data?: { error?: string } } };

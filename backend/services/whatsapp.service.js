@@ -268,17 +268,31 @@ const downloadMedia = async (mediaId) => {
 
         const mediaUrl = urlRes.data.url;
 
+        // Límites de tamaño/tiempo: Meta limita el video entrante a ~16 MB; damos
+        // 20 MB de margen. Sin estos topes un archivo grande cargaba todo en
+        // memoria (arraybuffer) y podía colgar/tumbar la descarga sin señal clara.
+        const MAX_MEDIA_BYTES = 20 * 1024 * 1024;
         const fileRes = await axios.get(mediaUrl, {
             headers: { 'Authorization': `Bearer ${process.env.WHATSAPP_ACCESS_TOKEN}` },
-            responseType: 'arraybuffer'
+            responseType: 'arraybuffer',
+            timeout: 60000,
+            maxContentLength: MAX_MEDIA_BYTES,
+            maxBodyLength: MAX_MEDIA_BYTES,
         });
 
+        const buffer = Buffer.from(fileRes.data);
+        console.log(`[Media] ⬇️ Descargado mediaId=${mediaId} (${(buffer.length / 1024).toFixed(0)} KB, ${fileRes.headers['content-type']})`);
         return {
-            buffer: Buffer.from(fileRes.data),
+            buffer,
             mimeType: fileRes.headers['content-type']
         };
     } catch (error) {
-        console.error("Error descargando media:", error.response?.data || error.message);
+        // maxContentLength excedido → axios lanza con code ERR_FR_MAX_CONTENT_LENGTH_EXCEEDED
+        const excedeTamano = error.code === 'ERR_FR_MAX_CONTENT_LENGTH_EXCEEDED';
+        console.error(
+            `Error descargando media (mediaId=${mediaId}${excedeTamano ? ', ARCHIVO DEMASIADO GRANDE >20MB' : ''}):`,
+            error.response?.data || error.message
+        );
         return null;
     }
 };

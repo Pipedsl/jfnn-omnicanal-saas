@@ -93,61 +93,96 @@ const sendAndPersist = async (phone, text /* opts ignorados: autor/sucursal ya l
 };
 
 /**
- * Persistir audios del batch a Supabase Storage SIN llamarlos a Gemini.
+ * Persistir media del batch a Supabase Storage SIN llamarla a Gemini.
  *
- * Llamado defensivamente antes de cada `return` de los handlers de imagen
- * (PERFILANDO + estados de pago) — si en el mismo batch llegó imagen + audio,
- * el handler de imagen retornaba sin tocar el audio y el row quedaba con
- * media_url=null para siempre. Este helper garantiza la persistencia.
+ * Helper genérico usado por los wrappers de audio/video/documento. Descarga de
+ * Meta, sube a Storage y actualiza `media_url` del row ya creado en el webhook.
  *
  * Reintenta upload 1 vez con backoff 2s si falla la primera. Si todo falla,
  * el row queda con media_id pero sin media_url — recuperable después vía
- * endpoint POST /mensajes/:id/recuperar-audio.
+ * endpoint POST /mensajes/:id/reprocesar-media.
  *
  * NO transcribe ni llama a Gemini — solo Storage + actualizar media_url.
+ *
+ * @param {object} cfg
+ * @param {Array}  cfg.items         - items del batch (ej. audios/videos/documents)
+ * @param {string} cfg.customerPhone
+ * @param {string} cfg.label         - etiqueta de log (ej. 'Audio', 'Video', 'Doc')
+ * @param {(item:object)=>string|null} cfg.getMediaId - extractor del media_id del item
+ * @param {(phone:string, buf:Buffer, mime:string)=>Promise<string|null>} cfg.uploadFn
  */
-const persistirAudiosDelBatch = async (audios, customerPhone) => {
-    if (!Array.isArray(audios) || audios.length === 0) return;
-    console.log(`[Audio] 💾 Persistiendo ${audios.length} audio(s) del batch (sin Gemini) para ${customerPhone}...`);
-    for (const audioItem of audios) {
-        const mediaId = audioItem?.audioMediaId;
-        const waId = audioItem?.message?.id || null;
+const _persistirMediaDelBatch = async ({ items, customerPhone, label, getMediaId, uploadFn }) => {
+    if (!Array.isArray(items) || items.length === 0) return;
+    console.log(`[${label}] 💾 Persistiendo ${items.length} ${label.toLowerCase()}(s) del batch (sin Gemini) para ${customerPhone}...`);
+    for (const item of items) {
+        const mediaId = getMediaId(item);
+        const waId = item?.message?.id || null;
         if (!mediaId) {
-            console.warn(`[Audio] ⚠️ Item sin audioMediaId, saltando.`);
+            console.warn(`[${label}] ⚠️ Item sin mediaId, saltando.`);
             continue;
         }
         try {
-            const aData = await whatsappService.downloadMedia(mediaId);
-            if (!aData?.buffer) {
-                console.error(`[Audio] ❌ downloadMedia retornó vacío para mediaId=${mediaId} (waId=${waId})`);
+            const data = await whatsappService.downloadMedia(mediaId);
+            if (!data?.buffer) {
+                console.error(`[${label}] ❌ downloadMedia retornó vacío para mediaId=${mediaId} (waId=${waId})`);
                 continue;
             }
-            let audioPath = null;
+            let objectPath = null;
             try {
-                audioPath = await storageService.uploadAudio(customerPhone, aData.buffer, aData.mimeType);
+                objectPath = await uploadFn(customerPhone, data.buffer, data.mimeType);
             } catch (uploadErr) {
-                console.warn(`[Audio] ⚠️ uploadAudio falló (intento 1): ${uploadErr.message}. Reintentando en 2s...`);
+                console.warn(`[${label}] ⚠️ upload falló (intento 1): ${uploadErr.message}. Reintentando en 2s...`);
                 await new Promise(r => setTimeout(r, 2000));
                 try {
-                    audioPath = await storageService.uploadAudio(customerPhone, aData.buffer, aData.mimeType);
+                    objectPath = await uploadFn(customerPhone, data.buffer, data.mimeType);
                 } catch (retryErr) {
-                    console.error(`[Audio] ❌ uploadAudio falló también en reintento: ${retryErr.message}`);
+                    console.error(`[${label}] ❌ upload falló también en reintento: ${retryErr.message}`);
                 }
             }
-            if (audioPath && waId) {
+            if (objectPath && waId) {
                 await mensajesService.actualizarMedia(waId, {
-                    mediaUrl: audioPath,
-                    mediaMime: aData.mimeType,
+                    mediaUrl: objectPath,
+                    mediaMime: data.mimeType,
                 });
-                console.log(`[Audio] ✅ Persistido waId=${waId} en Storage (${audioPath})`);
-            } else if (!audioPath) {
-                console.error(`[Audio] ❌ No se obtuvo path tras upload para waId=${waId}. Recuperable vía endpoint.`);
+                console.log(`[${label}] ✅ Persistido waId=${waId} en Storage (${objectPath})`);
+            } else if (!objectPath) {
+                console.error(`[${label}] ❌ No se obtuvo path tras upload para waId=${waId}. Recuperable vía endpoint.`);
             }
         } catch (err) {
-            console.error(`[Audio] ❌ Error procesando audio mediaId=${mediaId}:`, err.message);
+            console.error(`[${label}] ❌ Error procesando ${label.toLowerCase()} mediaId=${mediaId}:`, err.message);
         }
     }
 };
+
+/**
+ * Persistir audios del batch. Llamado defensivamente antes de cada `return` de
+ * los handlers de imagen (PERFILANDO + estados de pago) — si en el mismo batch
+ * llegó imagen + audio, el handler de imagen retornaba sin tocar el audio y el
+ * row quedaba con media_url=null para siempre.
+ */
+const persistirAudiosDelBatch = (audios, customerPhone) => _persistirMediaDelBatch({
+    items: audios, customerPhone, label: 'Audio',
+    getMediaId: (a) => a?.audioMediaId, uploadFn: storageService.uploadAudio,
+});
+
+/**
+ * Persistir videos del batch. Los videos NUNCA van a Gemini y deben quedar en
+ * Storage sin importar por qué rama retorne el flujo — por eso se invoca arriba
+ * de todos los early-returns de processBufferedMessages (BUG-VIDEO01).
+ */
+const persistirVideosDelBatch = (videos, customerPhone) => _persistirMediaDelBatch({
+    items: videos, customerPhone, label: 'Video',
+    getMediaId: (v) => v?.videoMediaId, uploadFn: storageService.uploadVideo,
+});
+
+/**
+ * Persistir documentos del batch. Mismo criterio que video: nunca van a Gemini
+ * y deben persistirse siempre, arriba de los early-returns.
+ */
+const persistirDocumentosDelBatch = (documents, customerPhone) => _persistirMediaDelBatch({
+    items: documents, customerPhone, label: 'Doc',
+    getMediaId: (d) => d?.documentMediaId, uploadFn: storageService.uploadDocument,
+});
 
 /**
  * Cancela cualquier debounce pendiente para un teléfono. Usado cuando el vendedor
@@ -202,6 +237,19 @@ const processBufferedMessages = async (customerPhone) => {
 
         // 1. Obtener o crear sesión
         let session = await sessionsService.getSession(customerPhone);
+
+        // ═══════════════════════════════════════════════════════
+        // BUG-VIDEO01: persistencia defensiva de video/documento.
+        // Video y documentos NUNCA van a Gemini y SIEMPRE deben quedar en
+        // Storage, sin importar por qué rama retorne el flujo (hay ~7 early-returns
+        // con texto más abajo que no chequean hasVideo/hasDocument). Los
+        // persistimos AQUÍ, arriba de todos los returns, para que nunca queden
+        // con media_url=null (y si el upload falla, quedan recuperables vía
+        // endpoint /mensajes/:id/reprocesar-media). Los audios NO se hoistean:
+        // tienen flujo propio de transcripción y ya se persisten defensivamente
+        // en los handlers de imagen.
+        if (hasVideo) await persistirVideosDelBatch(videos, customerPhone);
+        if (hasDocument) await persistirDocumentosDelBatch(documents, customerPhone);
 
         // Re-enganche: el cliente respondió → limpiar el flag de la plantilla estamos_de_vuelta
         // para que, si su ventana vuelve a cerrarse más adelante, el job pueda reenviarla.
@@ -1178,35 +1226,13 @@ const processBufferedMessages = async (customerPhone) => {
         }
 
         // ═══════════════════════════════════════════════════════
-        // REQ-04 FASE 2: VIDEO — descargar, subir a Supabase Storage y registrar.
+        // REQ-04 FASE 2: VIDEO — ya persistido en Storage arriba (BUG-VIDEO01).
         // NO se envía a Gemini (riesgo R3 — costo de tokens).
         // Solo se notifica al vendedor que el cliente envió un video.
         // ═══════════════════════════════════════════════════════
         if (hasVideo) {
-            console.log(`[Video] 🎥 ${videos.length} video(s) recibido(s) de ${customerPhone}. Subiendo a storage...`);
-            for (const vidMsg of videos) {
-                const mediaId = vidMsg.videoMediaId;
-                const waId = vidMsg.message?.id || null;
-                if (!mediaId) continue;
-                try {
-                    const videoData = await whatsappService.downloadMedia(mediaId);
-                    if (!videoData) {
-                        console.error(`[Video] ❌ No se pudo descargar video ${mediaId} de ${customerPhone}.`);
-                        continue;
-                    }
-                    const videoPath = await storageService.uploadVideo(customerPhone, videoData.buffer, videoData.mimeType);
-                    if (videoPath && waId) {
-                        await mensajesService.actualizarMedia(waId, {
-                            mediaUrl: videoPath,
-                            mediaMime: videoData.mimeType,
-                        });
-                    }
-                    console.log(`[Video] ✅ Video de ${customerPhone} almacenado en: ${videoPath}`);
-                } catch (vidErr) {
-                    console.error(`[Video] ❌ Error procesando video de ${customerPhone}:`, vidErr.message);
-                }
-            }
-            // Notificar al vendedor en la conversación sin enviar a Gemini
+            // El video ya se descargó y subió a Storage arriba (BUG-VIDEO01,
+            // persistencia defensiva hoisted). Aquí solo acusamos recibo.
             const msgVideo = 'Recibí tu video. Un asesor lo revisará en breve. 🎥';
             await new Promise(resolve => setTimeout(resolve, 1000));
             await sendAndPersist(customerPhone, msgVideo);
@@ -1214,33 +1240,12 @@ const processBufferedMessages = async (customerPhone) => {
         }
 
         // ═══════════════════════════════════════════════════════
-        // REQ-04 FASE 2: DOCUMENT — descargar, subir a Supabase Storage y registrar.
+        // REQ-04 FASE 2: DOCUMENT — ya persistido en Storage arriba (BUG-VIDEO01).
         // NO se envía a Gemini (riesgo R3 — costo de tokens).
         // ═══════════════════════════════════════════════════════
         if (hasDocument) {
-            console.log(`[Doc] 📄 ${documents.length} documento(s) recibido(s) de ${customerPhone}. Subiendo a storage...`);
-            for (const docMsg of documents) {
-                const mediaId = docMsg.documentMediaId;
-                const waId = docMsg.message?.id || null;
-                if (!mediaId) continue;
-                try {
-                    const docData = await whatsappService.downloadMedia(mediaId);
-                    if (!docData) {
-                        console.error(`[Doc] ❌ No se pudo descargar documento ${mediaId} de ${customerPhone}.`);
-                        continue;
-                    }
-                    const docPath = await storageService.uploadDocument(customerPhone, docData.buffer, docData.mimeType);
-                    if (docPath && waId) {
-                        await mensajesService.actualizarMedia(waId, {
-                            mediaUrl: docPath,
-                            mediaMime: docData.mimeType,
-                        });
-                    }
-                    console.log(`[Doc] ✅ Documento de ${customerPhone} almacenado en: ${docPath}`);
-                } catch (docErr) {
-                    console.error(`[Doc] ❌ Error procesando documento de ${customerPhone}:`, docErr.message);
-                }
-            }
+            // El documento ya se descargó y subió a Storage arriba (BUG-VIDEO01,
+            // persistencia defensiva hoisted). Aquí solo acusamos recibo.
             const msgDoc = 'Recibí tu documento. Un asesor lo revisará en breve. 📄';
             await new Promise(resolve => setTimeout(resolve, 1000));
             await sendAndPersist(customerPhone, msgDoc);
